@@ -37,6 +37,10 @@ smokescreen status
 
 # Reset a broker to try again
 smokescreen reset spokeo
+
+# Start the web dashboard
+smokescreen serve
+# Opens at http://127.0.0.1:8000
 ```
 
 ## Gmail setup
@@ -49,24 +53,51 @@ smokescreen reset spokeo
 
 Required scopes: `gmail.send` + `gmail.readonly`
 
+## Dashboard
+
+The web dashboard provides a UI for monitoring and managing the opt-out process:
+
+```bash
+smokescreen serve                    # default: http://127.0.0.1:8000
+smokescreen serve --host 0.0.0.0 --port 9000
+```
+
+**Tabs:**
+
+- **Broker Status** — Overview of all opt-out records with status, retries, and reset actions
+- **Manual Queue** — Brokers flagged as `NEEDS_MANUAL` for human intervention
+- **Broker Registry** — Add, edit, or delete data brokers
+- **Email Whitelist** — Manage whitelisted email addresses (auto-synced from broker registry)
+- **Pending Whitelist** — Approve or reject new whitelist requests detected from incoming mail
+- **Settings** — Configure all settings via the UI (persisted to a JSON file)
+
 ## Configuration
 
-All settings use the `SMOKESCREEN_` env prefix:
+All settings use the `SMOKESCREEN_` env prefix. They can be set via environment variables, the settings JSON file, or the dashboard Settings tab.
+
+**Precedence:** Environment variables > JSON file > Pydantic defaults
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SMOKESCREEN_SENDER_EMAIL` | *(required)* | Gmail address to send from |
-| `SMOKESCREEN_SENDER_NAME` | *(required)* | Full legal name for requests |
+| `SMOKESCREEN_SENDER_EMAIL` | `""` | Gmail address to send from |
+| `SMOKESCREEN_SENDER_NAME` | `""` | Full legal name for requests |
 | `SMOKESCREEN_ANTHROPIC_API_KEY` | `""` | Claude API key |
 | `SMOKESCREEN_ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Claude model |
 | `SMOKESCREEN_STATE_BACKEND` | `sqlite` | `sqlite` or `firestore` |
 | `SMOKESCREEN_SQLITE_PATH` | `smokescreen.db` | SQLite database path |
 | `SMOKESCREEN_FIRESTORE_PROJECT` | `""` | GCP project for Firestore |
+| `SMOKESCREEN_FIRESTORE_COLLECTION` | `opt_outs` | Firestore collection name |
 | `SMOKESCREEN_GMAIL_CREDENTIALS_PATH` | `credentials.json` | OAuth client credentials |
 | `SMOKESCREEN_GMAIL_TOKEN_PATH` | `token.json` | Cached OAuth token |
 | `SMOKESCREEN_IDENTITY_DOCS_DIR` | `identity/` | Pre-redacted ID documents |
 | `SMOKESCREEN_MAX_RETRIES` | `5` | Max retries before FAILED |
+| `SMOKESCREEN_POLL_LABEL` | `smokescreen` | Gmail label to filter poll results |
 | `SMOKESCREEN_DRY_RUN` | `false` | Skip actual sends |
+| `SMOKESCREEN_SETTINGS_FILE` | `settings.json` | Path to the settings JSON file |
+
+### Settings file
+
+Settings can be persisted to a JSON file (default: `settings.json`) via the dashboard Settings tab or the `PUT /api/settings` endpoint. Environment variables always take precedence over file-based settings. Changes to identity, email, or state backend settings require a server restart.
 
 ## State machine
 
@@ -140,13 +171,38 @@ uv run pytest tests/ -v
 uv run ruff check src/ tests/
 ```
 
+## API endpoints
+
+The dashboard server exposes a REST API:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Dashboard HTML |
+| `GET` | `/api/brokers` | List all brokers |
+| `POST` | `/api/brokers` | Add a broker |
+| `PUT` | `/api/brokers/{id}` | Update a broker |
+| `DELETE` | `/api/brokers/{id}` | Delete a broker |
+| `GET` | `/api/optouts` | List opt-out records (optional `?status=` filter) |
+| `POST` | `/api/optouts/{id}/reset` | Reset a broker to PENDING |
+| `GET` | `/api/stats` | Completion stats |
+| `GET` | `/api/whitelist` | List whitelisted emails |
+| `POST` | `/api/whitelist` | Add an email to the whitelist |
+| `DELETE` | `/api/whitelist/{id}` | Remove a whitelist entry |
+| `GET` | `/api/whitelist/pending` | List pending whitelist requests |
+| `POST` | `/api/whitelist/pending/{id}/approve` | Approve a pending request |
+| `POST` | `/api/whitelist/pending/{id}/reject` | Reject a pending request |
+| `GET` | `/api/settings` | Get current settings (sensitive fields masked) |
+| `PUT` | `/api/settings` | Update settings (partial, persisted to JSON file) |
+
 ## Project layout
 
 ```
 src/smokescreen/
-    cli.py              # Click CLI
-    config.py           # Pydantic Settings
+    cli.py              # Click CLI (outreach, poll, status, reset, serve)
+    config.py           # Pydantic Settings with JSON file persistence
     models.py           # Domain models
+    api.py              # FastAPI REST API + dashboard
+    dashboard.html      # Single-page dashboard UI
     brokers/
         registry.py     # Broker lookup
         brokers.yaml    # Broker definitions
@@ -168,5 +224,5 @@ src/smokescreen/
         poll.py         # Poll inbox and respond
 infra/                  # Terraform (Cloud Run, Scheduler, etc.)
 Dockerfile              # Container image
-tests/                  # 33 unit tests
+tests/                  # 78 unit tests
 ```
