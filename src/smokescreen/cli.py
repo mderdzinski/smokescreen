@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import click
 import structlog
 
@@ -27,8 +25,8 @@ def _get_store(settings):
 
 
 def _get_gmail(settings):
-    from smokescreen.email.oauth import get_credentials
     from smokescreen.email.client import GmailClient
+    from smokescreen.email.oauth import get_credentials
 
     creds = get_credentials(settings.gmail_credentials_path, settings.gmail_token_path)
     return GmailClient(creds)
@@ -131,6 +129,25 @@ def reset(ctx, broker_id: str) -> None:
     record.notes = ""
     store.upsert(record)
     click.echo(f"Reset {broker_id} to PENDING")
+
+
+@cli.command()
+@click.option("--host", default="127.0.0.1", help="Bind address")
+@click.option("--port", default=8000, type=int, help="Port number")
+@click.pass_context
+def serve(ctx, host: str, port: int) -> None:
+    """Start the dashboard web server."""
+    import uvicorn
+
+    from smokescreen.api import init_app
+
+    settings = ctx.obj["settings"]
+    registry = BrokerRegistry.from_yaml()
+    store = _get_store(settings)
+    init_app(store, registry)
+
+    click.echo(f"Starting dashboard at http://{host}:{port}")
+    uvicorn.run("smokescreen.api:app", host=host, port=port, reload=False)
 
 
 if __name__ == "__main__":

@@ -71,3 +71,40 @@ class EmailMessage(BaseModel):
     body: str = ""
     date: datetime | None = None
     has_attachments: bool = False
+
+
+class WhitelistSource(str, enum.Enum):
+    """How an email address was added to the whitelist."""
+
+    REGISTRY = "registry"
+    MANUAL = "manual"
+
+
+class PendingWhitelistStatus(str, enum.Enum):
+    """Status of a pending whitelist request."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class WhitelistEntry(BaseModel):
+    """A whitelisted email address for reply authorization."""
+
+    id: int | None = None
+    broker_id: str
+    email: str
+    source: WhitelistSource = WhitelistSource.MANUAL
+    added_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PendingWhitelistEntry(BaseModel):
+    """A pending whitelist request awaiting human review."""
+
+    id: int | None = None
+    broker_id: str | None = None
+    email: str
+    message_subject: str = ""
+    message_snippet: str = ""
+    detected_at: datetime = Field(default_factory=datetime.utcnow)
+    status: PendingWhitelistStatus = PendingWhitelistStatus.PENDING

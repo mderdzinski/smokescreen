@@ -9,13 +9,19 @@ import structlog
 from anthropic import Anthropic
 
 from smokescreen.ai.classifier import classify_reply
-from smokescreen.ai.composer import compose_reply
 from smokescreen.brokers.registry import BrokerRegistry
 from smokescreen.config import Settings
 from smokescreen.email.client import GmailClient
 from smokescreen.email.templates import render_identity_response
-from smokescreen.models import BrokerStatus, EmailMessage, OptOutRecord, ReplyClassification
+from smokescreen.models import (
+    BrokerStatus,
+    EmailMessage,
+    OptOutRecord,
+    PendingWhitelistEntry,
+    ReplyClassification,
+)
 from smokescreen.state.machine import validate_transition
+from smokescreen.state.sqlite import SQLiteStore
 from smokescreen.state.store import StateStore
 
 log = structlog.get_logger()
@@ -100,9 +106,9 @@ def _process_thread(
 
     # Find the latest message we haven't processed
     new_messages = [
-        m for m in thread
-        if m.message_id != record.last_message_id
-        and m.sender != settings.sender_email
+        m
+        for m in thread
+        if m.message_id != record.last_message_id and m.sender != settings.sender_email
     ]
 
     if not new_messages:
@@ -115,6 +121,23 @@ def _process_thread(
         from_=latest.sender,
         subject=latest.subject,
     )
+
+    # Whitelist check: only process replies from whitelisted senders
+    if isinstance(store, SQLiteStore) and not store.is_whitelisted(latest.sender):
+        log.info(
+            "poll_sender_not_whitelisted",
+            broker=record.broker_id,
+            sender=latest.sender,
+        )
+        store.add_pending_whitelist(
+            PendingWhitelistEntry(
+                broker_id=record.broker_id,
+                email=latest.sender,
+                message_subject=latest.subject,
+                message_snippet=latest.body[:200] if latest.body else "",
+            )
+        )
+        return False
 
     if anthropic_client is None:
         log.warning("poll_no_anthropic_client", broker=record.broker_id)
