@@ -205,3 +205,15 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Smokescreen secrets & local data
+credentials.json
+token.json
+*.db
+identity/
+
+# Gas Town (added by gt)
+.runtime/
+.claude/
+.beads/
+.logs/

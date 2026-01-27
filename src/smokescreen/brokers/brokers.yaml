@@ -1,0 +1,109 @@
+brokers:
+  - id: spokeo
+    name: Spokeo
+    domain: spokeo.com
+    privacy_email: privacy@spokeo.com
+    notes: "Usually responds within 72 hours"
+
+  - id: beenverified
+    name: BeenVerified
+    domain: beenverified.com
+    privacy_email: privacy@beenverified.com
+    aliases:
+      - neighborwho.com
+      - ownerly.com
+
+  - id: whitepages
+    name: Whitepages
+    domain: whitepages.com
+    privacy_email: privacy@whitepages.com
+    aliases:
+      - whitepages.com
+
+  - id: intelius
+    name: Intelius
+    domain: intelius.com
+    privacy_email: privacy@intelius.com
+    aliases:
+      - zabasearch.com
+      - anywho.com
+
+  - id: peoplefinder
+    name: PeopleFinder
+    domain: peoplefinder.com
+    privacy_email: privacy@peoplefinder.com
+
+  - id: usphonebook
+    name: USPhoneBook
+    domain: usphonebook.com
+    privacy_email: privacy@usphonebook.com
+
+  - id: truepeoplesearch
+    name: TruePeopleSearch
+    domain: truepeoplesearch.com
+    privacy_email: privacy@truepeoplesearch.com
+
+  - id: fastpeoplesearch
+    name: FastPeopleSearch
+    domain: fastpeoplesearch.com
+    privacy_email: privacy@fastpeoplesearch.com
+
+  - id: thatsThem
+    name: ThatsThem
+    domain: thatsthem.com
+    privacy_email: privacy@thatsthem.com
+
+  - id: radaris
+    name: Radaris
+    domain: radaris.com
+    privacy_email: privacy@radaris.com
+
+  - id: mylife
+    name: MyLife
+    domain: mylife.com
+    privacy_email: privacy@mylife.com
+
+  - id: peekyou
+    name: PeekYou
+    domain: peekyou.com
+    privacy_email: privacy@peekyou.com
+
+  - id: publicrecordsnow
+    name: PublicRecordsNow
+    domain: publicrecordsnow.com
+    privacy_email: privacy@publicrecordsnow.com
+
+  - id: clustrmaps
+    name: ClustrMaps
+    domain: clustrmaps.com
+    privacy_email: privacy@clustrmaps.com
+
+  - id: nuwber
+    name: Nuwber
+    domain: nuwber.com
+    privacy_email: privacy@nuwber.com
+
+  - id: voterrecords
+    name: VoterRecords
+    domain: voterrecords.com
+    privacy_email: privacy@voterrecords.com
+
+  - id: familytreenow
+    name: FamilyTreeNow
+    domain: familytreenow.com
+    privacy_email: privacy@familytreenow.com
+
+  - id: advancedbackgroundchecks
+    name: AdvancedBackgroundChecks
+    domain: advancedbackgroundchecks.com
+    privacy_email: privacy@advancedbackgroundchecks.com
+
+  - id: cyberbackgroundchecks
+    name: CyberBackgroundChecks
+    domain: cyberbackgroundchecks.com
+    privacy_email: privacy@cyberbackgroundchecks.com
+
+  - id: checksecrets
+    name: CheckSecrets
+    domain: checksecrets.com
+    privacy_email: privacy@checksecrets.com
