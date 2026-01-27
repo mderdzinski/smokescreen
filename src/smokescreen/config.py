@@ -2,10 +2,26 @@
 
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
+
+SENSITIVE_FIELDS: set[str] = {"anthropic_api_key"}
+
+# Fields that require a server restart to take effect
+RESTART_FIELDS: set[str] = {
+    "state_backend",
+    "sqlite_path",
+    "firestore_project",
+    "firestore_collection",
+    "gmail_credentials_path",
+    "gmail_token_path",
+    "sender_email",
+    "sender_name",
+}
 
 
 class Settings(BaseSettings):
@@ -21,9 +37,11 @@ class Settings(BaseSettings):
         description="Path to stored OAuth token",
     )
     sender_email: str = Field(
+        default="",
         description="Email address to send opt-out requests from",
     )
     sender_name: str = Field(
+        default="",
         description="Full legal name for opt-out requests",
     )
 
@@ -73,6 +91,41 @@ class Settings(BaseSettings):
     )
 
 
-def get_settings(**overrides) -> Settings:
-    """Load settings from environment, with optional overrides."""
-    return Settings(**overrides)
+def _get_settings_file_path() -> Path:
+    """Return the path to the settings JSON file."""
+    return Path(os.environ.get("SMOKESCREEN_SETTINGS_FILE", "settings.json"))
+
+
+def load_settings_file(path: Path | None = None) -> dict:
+    """Read settings from the JSON file, returning an empty dict if missing."""
+    if path is None:
+        path = _get_settings_file_path()
+    if not path.exists():
+        return {}
+    text = path.read_text(encoding="utf-8")
+    if not text.strip():
+        return {}
+    return json.loads(text)
+
+
+def save_settings(data: dict, path: Path | None = None) -> None:
+    """Write settings dict to the JSON file."""
+    if path is None:
+        path = _get_settings_file_path()
+    # Convert Path values to strings for JSON serialization
+    serializable = {}
+    for k, v in data.items():
+        serializable[k] = str(v) if isinstance(v, Path) else v
+    path.write_text(json.dumps(serializable, indent=2) + "\n", encoding="utf-8")
+
+
+def get_settings(settings_file: Path | None = None, **overrides) -> Settings:
+    """Load settings from JSON file + environment, with optional overrides.
+
+    Precedence: overrides > env vars > JSON file > Pydantic defaults.
+    """
+    file_data = load_settings_file(settings_file)
+    # File values are used as kwargs; env vars and overrides take precedence
+    # because pydantic-settings reads env vars automatically.
+    merged = {**file_data, **overrides}
+    return Settings(**merged)

@@ -1,5 +1,6 @@
 """Tests for the FastAPI dashboard API."""
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -8,29 +9,33 @@ from fastapi.testclient import TestClient
 
 from smokescreen.api import app, init_app
 from smokescreen.brokers.registry import BrokerRegistry
+from smokescreen.config import Settings
 from smokescreen.models import Broker, BrokerStatus, OptOutRecord
 from smokescreen.state.sqlite import SQLiteStore
+
+
+def _make_brokers():
+    return [
+        Broker(
+            id="spokeo",
+            name="Spokeo",
+            domain="spokeo.com",
+            privacy_email="privacy@spokeo.com",
+        ),
+        Broker(
+            id="beenverified",
+            name="BeenVerified",
+            domain="beenverified.com",
+            privacy_email="privacy@beenverified.com",
+        ),
+    ]
 
 
 @pytest.fixture
 def client():
     with tempfile.NamedTemporaryFile(suffix=".db") as f:
         store = SQLiteStore(Path(f.name))
-        brokers = [
-            Broker(
-                id="spokeo",
-                name="Spokeo",
-                domain="spokeo.com",
-                privacy_email="privacy@spokeo.com",
-            ),
-            Broker(
-                id="beenverified",
-                name="BeenVerified",
-                domain="beenverified.com",
-                privacy_email="privacy@beenverified.com",
-            ),
-        ]
-        registry = BrokerRegistry(brokers)
+        registry = BrokerRegistry(_make_brokers())
         init_app(store, registry)
         yield TestClient(app)
         store.close()
@@ -262,3 +267,151 @@ def test_approve_pending_not_found(client):
 def test_reject_pending_not_found(client):
     resp = client.post("/api/whitelist/pending/999/reject")
     assert resp.status_code == 404
+
+
+# --- Settings endpoints ---
+
+
+@pytest.fixture
+def settings_client(tmp_path):
+    """Client with settings initialized and a temp settings file."""
+    import os
+
+    db_path = tmp_path / "test.db"
+    settings_file = tmp_path / "settings.json"
+    # Point settings file to our temp location
+    os.environ["SMOKESCREEN_SETTINGS_FILE"] = str(settings_file)
+    store = SQLiteStore(db_path)
+    registry = BrokerRegistry(_make_brokers())
+    settings = Settings(sender_email="test@example.com", sender_name="Test User")
+    init_app(store, registry, settings)
+    yield TestClient(app), settings_file
+    store.close()
+    os.environ.pop("SMOKESCREEN_SETTINGS_FILE", None)
+
+
+def test_get_settings(settings_client):
+    client, _ = settings_client
+    resp = client.get("/api/settings")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["sender_email"] == "test@example.com"
+    assert data["sender_name"] == "Test User"
+    assert data["state_backend"] == "sqlite"
+    assert data["max_retries"] == 5
+    assert data["dry_run"] is False
+
+
+def test_get_settings_masks_api_key(settings_client):
+    client, _ = settings_client
+    import smokescreen.api as api_module
+
+    # Create new settings with an API key
+    new_settings = Settings(
+        sender_email="test@example.com",
+        sender_name="Test User",
+        anthropic_api_key="sk-ant-secret-key-12345",
+    )
+    api_module._settings = new_settings
+
+    resp = client.get("/api/settings")
+    data = resp.json()
+    assert data["anthropic_api_key"] == "sk-a****345"
+    assert "secret" not in data["anthropic_api_key"]
+
+
+def test_get_settings_no_settings_initialized(client):
+    """GET /api/settings when no settings were passed to init_app."""
+    import smokescreen.api as api_module
+
+    saved = api_module._settings
+    api_module._settings = None
+    with pytest.raises(RuntimeError, match="Settings not initialized"):
+        client.get("/api/settings")
+    api_module._settings = saved
+
+
+def test_put_settings_saves_to_file(settings_client):
+    client, settings_file = settings_client
+    resp = client.put(
+        "/api/settings",
+        json={"max_retries": 10, "poll_label": "custom-label"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "saved"
+    assert data["restart_required"] is False
+
+    # Verify file was written
+    assert settings_file.exists()
+    file_data = json.loads(settings_file.read_text())
+    assert file_data["max_retries"] == 10
+    assert file_data["poll_label"] == "custom-label"
+
+
+def test_put_settings_restart_required(settings_client):
+    client, _ = settings_client
+    resp = client.put(
+        "/api/settings",
+        json={"state_backend": "firestore"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["restart_required"] is True
+
+
+def test_put_settings_restart_not_required(settings_client):
+    client, _ = settings_client
+    resp = client.put(
+        "/api/settings",
+        json={"dry_run": True},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["restart_required"] is False
+
+
+def test_put_settings_updates_in_memory(settings_client):
+    client, _ = settings_client
+    client.put("/api/settings", json={"poll_label": "new-label"})
+
+    resp = client.get("/api/settings")
+    assert resp.json()["poll_label"] == "new-label"
+
+
+def test_put_settings_rejects_unknown_fields(settings_client):
+    client, _ = settings_client
+    resp = client.put(
+        "/api/settings",
+        json={"nonexistent_field": "value"},
+    )
+    assert resp.status_code == 422
+
+
+def test_put_settings_api_key(settings_client):
+    client, settings_file = settings_client
+    resp = client.put(
+        "/api/settings",
+        json={"anthropic_api_key": "sk-new-key-value"},
+    )
+    assert resp.status_code == 200
+
+    # Verify key is saved in file
+    file_data = json.loads(settings_file.read_text())
+    assert file_data["anthropic_api_key"] == "sk-new-key-value"
+
+    # Verify GET masks it
+    resp = client.get("/api/settings")
+    assert "sk-new-key-value" not in resp.json()["anthropic_api_key"]
+    assert resp.json()["anthropic_api_key"] == "sk-n****lue"
+
+
+def test_put_settings_merges_with_existing_file(settings_client):
+    client, settings_file = settings_client
+    # Write initial setting
+    client.put("/api/settings", json={"poll_label": "first"})
+    # Write another setting
+    client.put("/api/settings", json={"max_retries": 3})
+
+    # Both should be in the file
+    file_data = json.loads(settings_file.read_text())
+    assert file_data["poll_label"] == "first"
+    assert file_data["max_retries"] == 3

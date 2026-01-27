@@ -4,12 +4,20 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from smokescreen.brokers.registry import BrokerRegistry
+from smokescreen.config import (
+    RESTART_FIELDS,
+    SENSITIVE_FIELDS,
+    Settings,
+    load_settings_file,
+    save_settings,
+)
 from smokescreen.models import (
     Broker,
     BrokerStatus,
@@ -24,6 +32,7 @@ app = FastAPI(title="Smokescreen Dashboard", version="0.1.0")
 
 _store: SQLiteStore | None = None
 _registry: BrokerRegistry | None = None
+_settings: Settings | None = None
 
 
 def get_store() -> SQLiteStore:
@@ -38,14 +47,32 @@ def get_registry() -> BrokerRegistry:
     return _registry
 
 
-def init_app(store: SQLiteStore, registry: BrokerRegistry) -> FastAPI:
+def get_settings_obj() -> Settings:
+    if _settings is None:
+        raise RuntimeError("Settings not initialized")
+    return _settings
+
+
+def init_app(
+    store: SQLiteStore,
+    registry: BrokerRegistry,
+    settings: Settings | None = None,
+) -> FastAPI:
     """Initialize the app with dependencies."""
-    global _store, _registry
+    global _store, _registry, _settings
     _store = store
     _registry = registry
+    _settings = settings
     # Sync broker privacy emails to whitelist
     store.sync_registry_whitelist(registry.all())
     return app
+
+
+def _mask_value(value: str) -> str:
+    """Mask a sensitive string, showing first 4 and last 3 chars."""
+    if len(value) <= 8:
+        return "****"
+    return value[:4] + "****" + value[-3:]
 
 
 # --- Request/Response models ---
@@ -287,3 +314,69 @@ async def reject_pending(entry_id: int):
     if not success:
         raise HTTPException(404, f"Pending entry {entry_id} not found")
     return {"status": "rejected", "id": entry_id}
+
+
+# --- Settings endpoints ---
+
+
+class SettingsUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    gmail_credentials_path: str | None = None
+    gmail_token_path: str | None = None
+    sender_email: str | None = None
+    sender_name: str | None = None
+    anthropic_api_key: str | None = None
+    anthropic_model: str | None = None
+    state_backend: str | None = None
+    sqlite_path: str | None = None
+    firestore_project: str | None = None
+    firestore_collection: str | None = None
+    identity_docs_dir: str | None = None
+    max_retries: int | None = None
+    poll_label: str | None = None
+    dry_run: bool | None = None
+
+
+@app.get("/api/settings")
+async def get_settings_endpoint():
+    settings = get_settings_obj()
+    data: dict[str, Any] = {}
+    for field_name in Settings.model_fields:
+        value = getattr(settings, field_name)
+        if isinstance(value, Path):
+            value = str(value)
+        if field_name in SENSITIVE_FIELDS and value:
+            value = _mask_value(str(value))
+        data[field_name] = value
+    return data
+
+
+@app.put("/api/settings")
+async def update_settings(update: SettingsUpdate):
+    global _settings
+    get_settings_obj()  # ensure initialized
+
+    # Load existing file-based settings
+    file_data = load_settings_file()
+
+    # Merge in the new values
+    update_dict = update.model_dump(exclude_none=True)
+    changed_fields = set(update_dict.keys())
+    file_data.update(update_dict)
+
+    # Validate by constructing a new Settings object
+    try:
+        new_settings = Settings(**file_data)
+    except ValidationError as e:
+        raise HTTPException(422, detail=e.errors()) from None
+
+    # Persist to disk
+    save_settings(file_data)
+
+    # Update in-memory settings
+    _settings = new_settings
+
+    restart_required = bool(changed_fields & RESTART_FIELDS)
+
+    return {"status": "saved", "restart_required": restart_required}

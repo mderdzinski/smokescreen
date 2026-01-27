@@ -113,6 +113,7 @@
     <button class="tab" data-tab="brokers">Broker Registry</button>
     <button class="tab" data-tab="whitelist">Email Whitelist</button>
     <button class="tab" data-tab="pending">Pending Whitelist</button>
+    <button class="tab" data-tab="settings">Settings</button>
   </div>
 
   <!-- Opt-outs tab -->
@@ -211,6 +212,73 @@
       </thead>
       <tbody id="pending-body"></tbody>
     </table>
+  </div>
+
+  <!-- Settings tab -->
+  <div id="tab-settings" class="tab-content">
+    <div class="settings-banner" id="settings-banner" style="display:none;background:rgba(234,179,8,0.15);border:1px solid var(--yellow);border-radius:8px;padding:0.75rem 1rem;margin-bottom:1.5rem;color:var(--yellow);font-size:0.85rem;">
+      Some changes require restarting the server to take effect.
+    </div>
+    <div id="settings-message" style="display:none;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1rem;font-size:0.85rem;"></div>
+
+    <form id="settings-form" onsubmit="saveSettings(event)">
+      <h2>Identity</h2>
+      <div class="form-row">
+        <div class="form-group" style="flex:1"><label for="s-sender_name">Sender Name</label><input id="s-sender_name" style="width:100%"></div>
+        <div class="form-group" style="flex:1"><label for="s-sender_email">Sender Email</label><input id="s-sender_email" type="email" style="width:100%"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="flex:1"><label for="s-identity_docs_dir">Identity Docs Directory</label><input id="s-identity_docs_dir" style="width:100%"></div>
+      </div>
+
+      <h2>Email / Gmail</h2>
+      <div class="form-row">
+        <div class="form-group" style="flex:1"><label for="s-gmail_credentials_path">Gmail Credentials Path</label><input id="s-gmail_credentials_path" style="width:100%"></div>
+        <div class="form-group" style="flex:1"><label for="s-gmail_token_path">Gmail Token Path</label><input id="s-gmail_token_path" style="width:100%"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="flex:1"><label for="s-poll_label">Poll Label</label><input id="s-poll_label" style="width:100%"></div>
+      </div>
+
+      <h2>AI</h2>
+      <div class="form-row">
+        <div class="form-group" style="flex:1">
+          <label for="s-anthropic_api_key">Anthropic API Key</label>
+          <div style="display:flex;gap:0.5rem;align-items:center;">
+            <input id="s-anthropic_api_key" style="flex:1" disabled placeholder="****">
+            <button type="button" class="btn btn-sm" id="toggle-api-key" onclick="toggleApiKey()">Change</button>
+          </div>
+        </div>
+        <div class="form-group" style="flex:1"><label for="s-anthropic_model">Model</label><input id="s-anthropic_model" style="width:100%"></div>
+      </div>
+
+      <h2>State Backend</h2>
+      <div class="form-row">
+        <div class="form-group"><label for="s-state_backend">Backend</label>
+          <select id="s-state_backend" style="width:140px">
+            <option value="sqlite">sqlite</option>
+            <option value="firestore">firestore</option>
+          </select>
+        </div>
+        <div class="form-group" style="flex:1"><label for="s-sqlite_path">SQLite Path</label><input id="s-sqlite_path" style="width:100%"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="flex:1"><label for="s-firestore_project">Firestore Project</label><input id="s-firestore_project" style="width:100%"></div>
+        <div class="form-group" style="flex:1"><label for="s-firestore_collection">Firestore Collection</label><input id="s-firestore_collection" style="width:100%"></div>
+      </div>
+
+      <h2>Behavior</h2>
+      <div class="form-row">
+        <div class="form-group"><label for="s-max_retries">Max Retries</label><input id="s-max_retries" type="number" min="0" style="width:100px"></div>
+        <div class="form-group" style="display:flex;flex-direction:row;align-items:center;gap:0.5rem;padding-top:1.1rem;">
+          <input id="s-dry_run" type="checkbox"><label for="s-dry_run" style="text-transform:none;font-size:0.85rem;">Dry Run</label>
+        </div>
+      </div>
+
+      <div style="margin-top:1.5rem;">
+        <button type="submit" class="btn btn-primary">Save Settings</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -424,6 +492,99 @@ async function rejectPending(id) {
 
 document.getElementById('status-filter').addEventListener('change', loadOptouts);
 
+// Settings
+const SETTINGS_FIELDS = [
+  'sender_name','sender_email','identity_docs_dir',
+  'gmail_credentials_path','gmail_token_path','poll_label',
+  'anthropic_api_key','anthropic_model',
+  'state_backend','sqlite_path',
+  'firestore_project','firestore_collection',
+  'max_retries','dry_run'
+];
+let _apiKeyEditing = false;
+let _currentSettings = {};
+
+async function loadSettings() {
+  const data = await api('/api/settings');
+  _currentSettings = data;
+  for (const field of SETTINGS_FIELDS) {
+    const el = document.getElementById('s-' + field);
+    if (!el) continue;
+    if (field === 'dry_run') {
+      el.checked = !!data[field];
+    } else if (field === 'anthropic_api_key') {
+      el.value = data[field] || '';
+      el.disabled = true;
+      _apiKeyEditing = false;
+      document.getElementById('toggle-api-key').textContent = 'Change';
+    } else if (el.tagName === 'SELECT') {
+      el.value = data[field] || '';
+    } else {
+      el.value = data[field] != null ? data[field] : '';
+    }
+  }
+}
+
+function toggleApiKey() {
+  const el = document.getElementById('s-anthropic_api_key');
+  const btn = document.getElementById('toggle-api-key');
+  if (_apiKeyEditing) {
+    el.disabled = true;
+    el.value = _currentSettings.anthropic_api_key || '';
+    btn.textContent = 'Change';
+    _apiKeyEditing = false;
+  } else {
+    el.disabled = false;
+    el.value = '';
+    el.placeholder = 'Enter new API key';
+    el.focus();
+    btn.textContent = 'Cancel';
+    _apiKeyEditing = true;
+  }
+}
+
+async function saveSettings(e) {
+  e.preventDefault();
+  const payload = {};
+  for (const field of SETTINGS_FIELDS) {
+    const el = document.getElementById('s-' + field);
+    if (!el) continue;
+    if (field === 'anthropic_api_key') {
+      if (_apiKeyEditing && el.value) {
+        payload[field] = el.value;
+      }
+      continue;
+    }
+    if (field === 'dry_run') {
+      payload[field] = el.checked;
+    } else if (field === 'max_retries') {
+      payload[field] = parseInt(el.value, 10);
+    } else {
+      payload[field] = el.value;
+    }
+  }
+  const msgEl = document.getElementById('settings-message');
+  try {
+    const result = await api('/api/settings', { method: 'PUT', body: JSON.stringify(payload) });
+    msgEl.style.display = 'block';
+    msgEl.style.background = 'rgba(34,197,94,0.15)';
+    msgEl.style.border = '1px solid var(--green)';
+    msgEl.style.color = 'var(--green)';
+    msgEl.textContent = 'Settings saved.' + (result.restart_required ? ' Restart required for some changes.' : '');
+    if (result.restart_required) {
+      document.getElementById('settings-banner').style.display = 'block';
+    }
+    loadSettings();
+  } catch (err) {
+    msgEl.style.display = 'block';
+    msgEl.style.background = 'rgba(239,68,68,0.15)';
+    msgEl.style.border = '1px solid var(--red)';
+    msgEl.style.color = 'var(--red)';
+    msgEl.textContent = 'Error saving: ' + err.message;
+  }
+  setTimeout(() => { msgEl.style.display = 'none'; }, 5000);
+}
+
 // Initial load
 loadStats();
 loadOptouts();
@@ -431,6 +592,7 @@ loadManual();
 loadBrokers();
 loadWhitelist();
 loadPending();
+loadSettings();
 </script>
 </body>
 </html>

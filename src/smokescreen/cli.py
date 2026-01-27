@@ -144,7 +144,7 @@ def serve(ctx, host: str, port: int) -> None:
     settings = ctx.obj["settings"]
     registry = BrokerRegistry.from_yaml()
     store = _get_store(settings)
-    init_app(store, registry)
+    init_app(store, registry, settings)
 
     click.echo(f"Starting dashboard at http://{host}:{port}")
     uvicorn.run("smokescreen.api:app", host=host, port=port, reload=False)
