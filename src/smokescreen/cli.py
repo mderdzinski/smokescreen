@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import csv
+import re
+from pathlib import Path
+
 import click
 import structlog
 
 from smokescreen.brokers.registry import BrokerRegistry
 from smokescreen.config import get_settings
-from smokescreen.models import BrokerStatus
+from smokescreen.models import Broker, BrokerStatus
 from smokescreen.state.sqlite import SQLiteStore
 
 log = structlog.get_logger()
@@ -129,6 +133,123 @@ def reset(ctx, broker_id: str) -> None:
     record.notes = ""
     store.upsert(record)
     click.echo(f"Reset {broker_id} to PENDING")
+
+
+def _slugify(text: str) -> str:
+    """Convert text to a URL-safe slug."""
+    s = text.lower().strip()
+    s = re.sub(r"[^\w\s-]", "", s)
+    s = re.sub(r"[\s_-]+", "-", s)
+    return s.strip("-")
+
+
+def _domain_from_email(email: str) -> str:
+    """Extract domain from an email address."""
+    if "@" in email:
+        return email.split("@", 1)[1]
+    return ""
+
+
+@cli.command("import-csv")
+@click.argument("file", type=click.Path(exists=True, path_type=Path))
+@click.option("--name-col", required=True, help="Column name for broker name")
+@click.option("--email-col", required=True, help="Column name for privacy email")
+@click.option(
+    "--domain-col",
+    default=None,
+    help="Column name for domain (auto-detected from email if omitted)",
+)
+@click.option(
+    "--id-col",
+    default=None,
+    help="Column name for broker ID (slugified name if omitted)",
+)
+@click.option("--notes-col", default=None, help="Column name for notes")
+@click.pass_context
+def import_csv(
+    ctx,
+    file: Path,
+    name_col: str,
+    email_col: str,
+    domain_col: str | None,
+    id_col: str | None,
+    notes_col: str | None,
+) -> None:
+    """Import brokers from a CSV file."""
+    settings = ctx.obj["settings"]
+    registry = BrokerRegistry.from_yaml()
+    store = _get_store(settings)
+
+    imported, skipped, errors = _run_csv_import(
+        file, registry, store, name_col, email_col, domain_col, id_col, notes_col
+    )
+
+    click.echo(f"Imported: {imported}")
+    click.echo(f"Skipped (duplicates): {skipped}")
+    if errors:
+        click.echo(f"Errors: {len(errors)}")
+        for err in errors:
+            click.echo(f"  - {err}")
+
+
+def _run_csv_import(
+    file: Path,
+    registry: BrokerRegistry,
+    store: SQLiteStore,
+    name_col: str,
+    email_col: str,
+    domain_col: str | None,
+    id_col: str | None,
+    notes_col: str | None,
+) -> tuple[int, int, list[str]]:
+    """Parse CSV and import brokers. Returns (imported, skipped, errors)."""
+    imported = 0
+    skipped = 0
+    errors: list[str] = []
+
+    with open(file, newline="", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh)
+        for row_num, row in enumerate(reader, start=2):
+            name = row.get(name_col, "").strip()
+            email = row.get(email_col, "").strip()
+
+            if not name or not email:
+                errors.append(f"Row {row_num}: missing name or email")
+                continue
+
+            broker_id = (
+                _slugify(row[id_col].strip())
+                if id_col and row.get(id_col)
+                else _slugify(name)
+            )
+            domain = (
+                row[domain_col].strip()
+                if domain_col and row.get(domain_col)
+                else _domain_from_email(email)
+            )
+            notes = row[notes_col].strip() if notes_col and row.get(notes_col) else ""
+
+            if not broker_id:
+                errors.append(f"Row {row_num}: could not generate ID for '{name}'")
+                continue
+
+            if registry.get(broker_id) is not None:
+                skipped += 1
+                continue
+
+            broker = Broker(
+                id=broker_id,
+                name=name,
+                domain=domain,
+                privacy_email=email,
+                notes=notes,
+            )
+            registry._brokers[broker.id] = broker
+            registry._by_domain[broker.domain] = broker
+            store.sync_registry_whitelist([broker])
+            imported += 1
+
+    return imported, skipped, errors
 
 
 @cli.command()

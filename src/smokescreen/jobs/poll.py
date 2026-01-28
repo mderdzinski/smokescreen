@@ -193,6 +193,7 @@ def _handle_classification(
         validate_transition(record.status, BrokerStatus.COMPLETED)
         record.status = BrokerStatus.COMPLETED
         record.last_message_id = latest.message_id
+        record.last_completed_at = now
         record.updated_at = now
         store.upsert(record)
         log.info("poll_completed", broker=record.broker_id)

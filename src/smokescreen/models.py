@@ -54,10 +54,8 @@ class OptOutRecord(BaseModel):
     last_message_id: str | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    last_completed_at: datetime | None = None
     notes: str = ""
-
-    def model_post_init(self, __context) -> None:
-        self.updated_at = datetime.utcnow()
 
 
 class EmailMessage(BaseModel):

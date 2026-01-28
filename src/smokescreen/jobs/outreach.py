@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import structlog
 
@@ -17,6 +17,14 @@ from smokescreen.state.store import StateStore
 log = structlog.get_logger()
 
 
+def _check_rerequest(record: OptOutRecord, interval_days: int) -> bool:
+    """Return True if a COMPLETED record is due for re-request."""
+    if record.status != BrokerStatus.COMPLETED:
+        return False
+    ref_time = record.last_completed_at or record.updated_at
+    return datetime.utcnow() - ref_time >= timedelta(days=interval_days)
+
+
 def run_outreach(
     settings: Settings,
     registry: BrokerRegistry,
@@ -25,12 +33,30 @@ def run_outreach(
 ) -> list[str]:
     """Send initial opt-out emails to all PENDING brokers.
 
+    Also re-queues COMPLETED brokers whose re-request interval has elapsed.
     Returns list of broker IDs that were processed.
     """
     processed: list[str] = []
 
     for broker in registry.all():
         record = store.get(broker.id)
+
+        # Check if a completed broker is due for re-request
+        if record is not None and _check_rerequest(
+            record, settings.rerequest_interval_days
+        ):
+            log.info(
+                "rerequest_due",
+                broker=broker.id,
+                last_completed=str(record.last_completed_at or record.updated_at),
+            )
+            record.status = BrokerStatus.PENDING
+            record.retries = 0
+            record.thread_id = None
+            record.last_message_id = None
+            record.notes = "Re-request after interval"
+            record.updated_at = datetime.utcnow()
+            store.upsert(record)
 
         # Only process brokers in PENDING state (or not yet tracked)
         if record is not None and record.status != BrokerStatus.PENDING:

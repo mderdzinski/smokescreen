@@ -6,8 +6,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
 from smokescreen.brokers.registry import BrokerRegistry
@@ -29,6 +30,10 @@ from smokescreen.state.machine import InvalidTransition, validate_transition
 from smokescreen.state.sqlite import SQLiteStore
 
 app = FastAPI(title="Smokescreen Dashboard", version="0.1.0")
+
+_static_dir = Path(__file__).parent / "static"
+if _static_dir.is_dir():
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 _store: SQLiteStore | None = None
 _registry: BrokerRegistry | None = None
@@ -162,6 +167,79 @@ async def delete_broker(broker_id: str):
     del registry._brokers[broker_id]
 
 
+_file_field = File(...)
+_form_required = Form(...)
+_form_optional = Form("")
+
+
+@app.post("/api/brokers/import")
+async def import_brokers_csv(
+    file: UploadFile = _file_field,
+    name_col: str = _form_required,
+    email_col: str = _form_required,
+    domain_col: str = _form_optional,
+    id_col: str = _form_optional,
+    notes_col: str = _form_optional,
+):
+    """Import brokers from an uploaded CSV file."""
+    import csv
+    import io
+    import re
+
+    content = await file.read()
+    text = content.decode("utf-8")
+    reader = csv.DictReader(io.StringIO(text))
+
+    registry = get_registry()
+    store = get_store()
+    imported = 0
+    skipped = 0
+    errors: list[str] = []
+
+    def _slugify(t: str) -> str:
+        s = t.lower().strip()
+        s = re.sub(r"[^\w\s-]", "", s)
+        s = re.sub(r"[\s_-]+", "-", s)
+        return s.strip("-")
+
+    for row_num, row in enumerate(reader, start=2):
+        name = row.get(name_col, "").strip()
+        email = row.get(email_col, "").strip()
+        if not name or not email:
+            errors.append(f"Row {row_num}: missing name or email")
+            continue
+
+        broker_id = (
+            _slugify(row[id_col].strip())
+            if id_col and row.get(id_col)
+            else _slugify(name)
+        )
+        domain = (
+            row[domain_col].strip()
+            if domain_col and row.get(domain_col)
+            else (email.split("@", 1)[1] if "@" in email else "")
+        )
+        notes = row[notes_col].strip() if notes_col and row.get(notes_col) else ""
+
+        if not broker_id:
+            errors.append(f"Row {row_num}: could not generate ID for '{name}'")
+            continue
+
+        if registry.get(broker_id) is not None:
+            skipped += 1
+            continue
+
+        broker = Broker(
+            id=broker_id, name=name, domain=domain, privacy_email=email, notes=notes
+        )
+        registry._brokers[broker.id] = broker
+        registry._by_domain[broker.domain] = broker
+        store.sync_registry_whitelist([broker])
+        imported += 1
+
+    return {"imported": imported, "skipped": skipped, "errors": errors}
+
+
 # --- Opt-out record endpoints ---
 
 
@@ -226,6 +304,62 @@ async def get_stats():
     completed = by_status.get(BrokerStatus.COMPLETED.value, 0)
     pct = (completed / total * 100) if total > 0 else 0.0
     return StatsResponse(total=total, by_status=by_status, completion_pct=round(pct, 1))
+
+
+@app.get("/api/stats/extended")
+async def get_extended_stats():
+    """Return extended statistics for dashboard charts and metrics."""
+    store = get_store()
+    records = store.list_all()
+    total = len(records)
+
+    by_status: dict[str, int] = {}
+    completed_records = []
+    needs_attention = 0
+    recent_activity: list[dict] = []
+
+    for r in records:
+        by_status[r.status.value] = by_status.get(r.status.value, 0) + 1
+        if r.status == BrokerStatus.COMPLETED:
+            completed_records.append(r)
+        if r.status in (BrokerStatus.NEEDS_MANUAL, BrokerStatus.FAILED):
+            needs_attention += 1
+
+    completed_count = len(completed_records)
+    success_rate = round((completed_count / total * 100), 1) if total > 0 else 0.0
+
+    # Average time to completion (in hours)
+    avg_completion_hours: float | None = None
+    if completed_records:
+        durations = [
+            (r.updated_at - r.created_at).total_seconds() / 3600.0
+            for r in completed_records
+        ]
+        avg_completion_hours = round(sum(durations) / len(durations), 1)
+
+    # Recent activity: last 5 records by updated_at
+    sorted_records = sorted(records, key=lambda r: r.updated_at, reverse=True)[:5]
+    registry = get_registry()
+    for r in sorted_records:
+        broker = registry.get(r.broker_id)
+        recent_activity.append(
+            {
+                "broker_id": r.broker_id,
+                "broker_name": broker.name if broker else r.broker_id,
+                "status": r.status.value,
+                "updated_at": r.updated_at.isoformat(),
+            }
+        )
+
+    return {
+        "total": total,
+        "by_status": by_status,
+        "completed_count": completed_count,
+        "success_rate": success_rate,
+        "avg_completion_hours": avg_completion_hours,
+        "needs_attention": needs_attention,
+        "recent_activity": recent_activity,
+    }
 
 
 # --- Whitelist endpoints ---
@@ -336,6 +470,7 @@ class SettingsUpdate(BaseModel):
     max_retries: int | None = None
     poll_label: str | None = None
     dry_run: bool | None = None
+    rerequest_interval_days: int | None = None
 
 
 @app.get("/api/settings")

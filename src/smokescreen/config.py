@@ -89,6 +89,10 @@ class Settings(BaseSettings):
         default=False,
         description="If true, don't actually send emails or update state",
     )
+    rerequest_interval_days: int = Field(
+        default=60,
+        description="Days after completion before re-sending a deletion request",
+    )
 
 
 def _get_settings_file_path() -> Path:

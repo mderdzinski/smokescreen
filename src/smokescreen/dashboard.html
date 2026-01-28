@@ -24,7 +24,8 @@
     background: var(--bg); color: var(--text); line-height: 1.5;
   }
   .container { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
-  h1 { font-size: 1.5rem; margin-bottom: 1.5rem; }
+  h1 { font-size: 1.5rem; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.75rem; }
+  h1 img.logo { height: 2.5rem; width: auto; image-rendering: pixelated; }
   h2 { font-size: 1.1rem; margin-bottom: 1rem; color: var(--muted); }
 
   /* Tabs */
@@ -99,13 +100,35 @@
   .filter-bar { margin-bottom: 1rem; display: flex; gap: 0.5rem; align-items: center; }
 
   .empty { text-align: center; padding: 2rem; color: var(--muted); }
+
+  /* Extended stats */
+  .stats-extended { display: grid; grid-template-columns: 200px 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
+  .donut-container { display: flex; align-items: center; justify-content: center; }
+  .donut-container svg { width: 180px; height: 180px; }
+  .stat-card.prominent .value { font-size: 2.25rem; color: var(--green); }
+  .activity-feed { margin-top: 0.5rem; }
+  .activity-item { display: flex; gap: 0.75rem; align-items: center; padding: 0.35rem 0; font-size: 0.8rem; }
+  .activity-item .name { flex: 1; }
+  .activity-item .time { color: var(--muted); font-size: 0.75rem; }
+  @media (max-width: 640px) { .stats-extended { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
 <div class="container">
-  <h1>Smokescreen Dashboard</h1>
+  <h1><img src="/static/logo.png" alt="Smokescreen" class="logo">Smokescreen Dashboard</h1>
 
   <div id="stats" class="stats"></div>
+
+  <div id="stats-extended" class="stats-extended" style="display:none;">
+    <div class="donut-container"><svg id="donut-chart" viewBox="0 0 36 36"></svg></div>
+    <div>
+      <div class="stats" id="extended-cards"></div>
+      <div class="activity-feed">
+        <h2>Recent Activity</h2>
+        <div id="activity-feed"></div>
+      </div>
+    </div>
+  </div>
 
   <div class="tabs">
     <button class="tab active" data-tab="optouts">Broker Status</button>
@@ -179,6 +202,18 @@
       <div class="form-group"><label>Notes</label><input id="b-notes" placeholder="Optional"></div>
       <button class="btn btn-primary" onclick="addBroker()">Add</button>
     </div>
+
+    <h2>Import CSV</h2>
+    <div class="form-row">
+      <div class="form-group"><label>CSV File</label><input id="csv-file" type="file" accept=".csv"></div>
+      <div class="form-group"><label>Name Column</label><input id="csv-name-col" placeholder="name" value="name"></div>
+      <div class="form-group"><label>Email Column</label><input id="csv-email-col" placeholder="privacy_email" value="privacy_email"></div>
+      <div class="form-group"><label>Domain Column (opt)</label><input id="csv-domain-col" placeholder="domain"></div>
+      <div class="form-group"><label>ID Column (opt)</label><input id="csv-id-col" placeholder="id"></div>
+      <div class="form-group"><label>Notes Column (opt)</label><input id="csv-notes-col" placeholder="notes"></div>
+      <button class="btn btn-primary" onclick="importCsv()">Import CSV</button>
+    </div>
+    <div id="csv-result" style="display:none;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1rem;font-size:0.85rem;"></div>
     <table>
       <thead>
         <tr><th>ID</th><th>Name</th><th>Domain</th><th>Privacy Email</th><th>Aliases</th><th>Notes</th><th>Actions</th></tr>
@@ -270,6 +305,7 @@
       <h2>Behavior</h2>
       <div class="form-row">
         <div class="form-group"><label for="s-max_retries">Max Retries</label><input id="s-max_retries" type="number" min="0" style="width:100px"></div>
+        <div class="form-group"><label for="s-rerequest_interval_days">Re-request Interval (days)</label><input id="s-rerequest_interval_days" type="number" min="1" style="width:140px"></div>
         <div class="form-group" style="display:flex;flex-direction:row;align-items:center;gap:0.5rem;padding-top:1.1rem;">
           <input id="s-dry_run" type="checkbox"><label for="s-dry_run" style="text-transform:none;font-size:0.85rem;">Dry Run</label>
         </div>
@@ -339,6 +375,63 @@ async function loadStats() {
     html += `<div class="stat-card"><div class="value">${count}</div><div class="label">${status.replace(/_/g,' ')}</div></div>`;
   }
   el.innerHTML = html;
+}
+
+// Extended stats
+const STATUS_COLORS = {
+  PENDING: '#8b8fa3', INITIAL_SENT: '#3b82f6', AWAITING_RESPONSE: '#eab308',
+  IDENTITY_REQUESTED: '#f97316', IDENTITY_SENT: '#3b82f6', COMPLETED: '#22c55e',
+  REJECTED: '#ef4444', FAILED: '#ef4444', NEEDS_MANUAL: '#f97316',
+};
+
+function renderDonut(byStatus) {
+  const entries = Object.entries(byStatus);
+  const total = entries.reduce((s, [, v]) => s + v, 0);
+  if (!total) return '';
+  let cumulative = 0;
+  const radius = 15.915;
+  const circumference = 2 * Math.PI * radius;
+  let paths = '';
+  for (const [status, count] of entries) {
+    const pct = count / total * 100;
+    const offset = circumference - (cumulative / 100 * circumference);
+    const len = pct / 100 * circumference;
+    paths += `<circle cx="18" cy="18" r="${radius}" fill="none" stroke="${STATUS_COLORS[status] || '#8b8fa3'}" stroke-width="3.5" stroke-dasharray="${len} ${circumference - len}" stroke-dashoffset="${offset}" transform="rotate(-90 18 18)"/>`;
+    cumulative += pct;
+  }
+  return paths;
+}
+
+async function loadExtendedStats() {
+  try {
+    const s = await api('/api/stats/extended');
+    const container = document.getElementById('stats-extended');
+    container.style.display = '';
+
+    // Donut chart
+    document.getElementById('donut-chart').innerHTML = renderDonut(s.by_status);
+
+    // Cards
+    const cards = document.getElementById('extended-cards');
+    let html = `<div class="stat-card prominent"><div class="value">${s.completed_count}</div><div class="label">Deletions Processed</div></div>`;
+    html += `<div class="stat-card"><div class="value" style="color:var(--green)">${s.success_rate}%</div><div class="label">Success Rate</div></div>`;
+    html += `<div class="stat-card"><div class="value">${s.avg_completion_hours != null ? s.avg_completion_hours + 'h' : '-'}</div><div class="label">Avg Completion Time</div></div>`;
+    html += `<div class="stat-card"><div class="value" style="color:${s.needs_attention > 0 ? 'var(--orange)' : 'var(--text)'}">${s.needs_attention}</div><div class="label">Needs Attention</div></div>`;
+    cards.innerHTML = html;
+
+    // Activity feed
+    const feed = document.getElementById('activity-feed');
+    if (!s.recent_activity.length) { feed.innerHTML = '<div class="empty">No recent activity</div>'; return; }
+    feed.innerHTML = s.recent_activity.map(a => `
+      <div class="activity-item">
+        <span class="name">${escHtml(a.broker_name)}</span>
+        ${badge(a.status)}
+        <span class="time">${timeAgo(a.updated_at)}</span>
+      </div>
+    `).join('');
+  } catch (e) {
+    // Extended stats are optional — don't break the dashboard
+  }
 }
 
 // Opt-outs
@@ -425,6 +518,37 @@ async function deleteBroker(id) {
   loadBrokers();
 }
 
+async function importCsv() {
+  const fileInput = document.getElementById('csv-file');
+  if (!fileInput.files.length) { alert('Select a CSV file'); return; }
+  const form = new FormData();
+  form.append('file', fileInput.files[0]);
+  form.append('name_col', document.getElementById('csv-name-col').value);
+  form.append('email_col', document.getElementById('csv-email-col').value);
+  form.append('domain_col', document.getElementById('csv-domain-col').value);
+  form.append('id_col', document.getElementById('csv-id-col').value);
+  form.append('notes_col', document.getElementById('csv-notes-col').value);
+  const res = await fetch('/api/brokers/import', { method: 'POST', body: form });
+  const result = await res.json();
+  const el = document.getElementById('csv-result');
+  el.style.display = 'block';
+  if (res.ok) {
+    el.style.background = 'rgba(34,197,94,0.15)';
+    el.style.border = '1px solid var(--green)';
+    el.style.color = 'var(--green)';
+    let msg = `Imported: ${result.imported}, Skipped: ${result.skipped}`;
+    if (result.errors.length) msg += `, Errors: ${result.errors.length}`;
+    el.textContent = msg;
+    loadBrokers();
+  } else {
+    el.style.background = 'rgba(239,68,68,0.15)';
+    el.style.border = '1px solid var(--red)';
+    el.style.color = 'var(--red)';
+    el.textContent = 'Import failed: ' + (result.detail || 'Unknown error');
+  }
+  setTimeout(() => { el.style.display = 'none'; }, 8000);
+}
+
 // Whitelist
 async function loadWhitelist() {
   const data = await api('/api/whitelist');
@@ -499,7 +623,7 @@ const SETTINGS_FIELDS = [
   'anthropic_api_key','anthropic_model',
   'state_backend','sqlite_path',
   'firestore_project','firestore_collection',
-  'max_retries','dry_run'
+  'max_retries','rerequest_interval_days','dry_run'
 ];
 let _apiKeyEditing = false;
 let _currentSettings = {};
@@ -557,7 +681,7 @@ async function saveSettings(e) {
     }
     if (field === 'dry_run') {
       payload[field] = el.checked;
-    } else if (field === 'max_retries') {
+    } else if (field === 'max_retries' || field === 'rerequest_interval_days') {
       payload[field] = parseInt(el.value, 10);
     } else {
       payload[field] = el.value;
@@ -587,6 +711,7 @@ async function saveSettings(e) {
 
 // Initial load
 loadStats();
+loadExtendedStats();
 loadOptouts();
 loadManual();
 loadBrokers();

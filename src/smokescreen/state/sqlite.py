@@ -35,9 +35,16 @@ class SQLiteStore:
                 last_message_id TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
+                last_completed_at TEXT,
                 notes TEXT NOT NULL DEFAULT ''
             )
         """)
+        # Migration: add last_completed_at if missing
+        cols = [
+            r[1] for r in self._conn.execute("PRAGMA table_info(opt_outs)").fetchall()
+        ]
+        if "last_completed_at" not in cols:
+            self._conn.execute("ALTER TABLE opt_outs ADD COLUMN last_completed_at TEXT")
         self._conn.execute("""
             CREATE TABLE IF NOT EXISTS email_whitelist (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,6 +69,7 @@ class SQLiteStore:
         self._conn.commit()
 
     def _row_to_record(self, row: sqlite3.Row) -> OptOutRecord:
+        lca = row["last_completed_at"]
         return OptOutRecord(
             broker_id=row["broker_id"],
             status=BrokerStatus(row["status"]),
@@ -70,6 +78,7 @@ class SQLiteStore:
             last_message_id=row["last_message_id"],
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
+            last_completed_at=datetime.fromisoformat(lca) if lca else None,
             notes=row["notes"],
         )
 
@@ -98,14 +107,16 @@ class SQLiteStore:
         self._conn.execute(
             """
             INSERT INTO opt_outs (broker_id, status, retries, thread_id,
-                                  last_message_id, created_at, updated_at, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                  last_message_id, created_at, updated_at,
+                                  last_completed_at, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(broker_id) DO UPDATE SET
                 status = excluded.status,
                 retries = excluded.retries,
                 thread_id = excluded.thread_id,
                 last_message_id = excluded.last_message_id,
                 updated_at = excluded.updated_at,
+                last_completed_at = excluded.last_completed_at,
                 notes = excluded.notes
             """,
             (
@@ -116,6 +127,9 @@ class SQLiteStore:
                 record.last_message_id,
                 record.created_at.isoformat(),
                 record.updated_at.isoformat(),
+                record.last_completed_at.isoformat()
+                if record.last_completed_at
+                else None,
                 record.notes,
             ),
         )

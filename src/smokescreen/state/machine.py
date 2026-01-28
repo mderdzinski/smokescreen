@@ -17,8 +17,8 @@ TRANSITIONS: dict[BrokerStatus, set[BrokerStatus]] = {
     },
     BrokerStatus.IDENTITY_REQUESTED: {BrokerStatus.IDENTITY_SENT, BrokerStatus.FAILED},
     BrokerStatus.IDENTITY_SENT: {BrokerStatus.AWAITING_RESPONSE, BrokerStatus.FAILED},
-    # Terminal states - no transitions out
-    BrokerStatus.COMPLETED: set(),
+    # Terminal states (COMPLETED allows re-request back to PENDING)
+    BrokerStatus.COMPLETED: {BrokerStatus.PENDING},
     BrokerStatus.REJECTED: set(),
     BrokerStatus.FAILED: set(),
     BrokerStatus.NEEDS_MANUAL: {
