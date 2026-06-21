@@ -27,7 +27,7 @@ from smokescreen.models import (
     WhitelistSource,
 )
 from smokescreen.state.machine import InvalidTransition, validate_transition
-from smokescreen.state.sqlite import SQLiteStore
+from smokescreen.state.store import StateStore
 
 app = FastAPI(title="Smokescreen Dashboard", version="0.1.0")
 
@@ -35,12 +35,12 @@ _static_dir = Path(__file__).parent / "static"
 if _static_dir.is_dir():
     app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
-_store: SQLiteStore | None = None
+_store: StateStore | None = None
 _registry: BrokerRegistry | None = None
 _settings: Settings | None = None
 
 
-def get_store() -> SQLiteStore:
+def get_store() -> StateStore:
     if _store is None:
         raise RuntimeError("Store not initialized")
     return _store
@@ -59,7 +59,7 @@ def get_settings_obj() -> Settings:
 
 
 def init_app(
-    store: SQLiteStore,
+    store: StateStore,
     registry: BrokerRegistry,
     settings: Settings | None = None,
 ) -> FastAPI:

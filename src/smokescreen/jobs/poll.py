@@ -21,7 +21,6 @@ from smokescreen.models import (
     ReplyClassification,
 )
 from smokescreen.state.machine import validate_transition
-from smokescreen.state.sqlite import SQLiteStore
 from smokescreen.state.store import StateStore
 
 log = structlog.get_logger()
@@ -123,7 +122,7 @@ def _process_thread(
     )
 
     # Whitelist check: only process replies from whitelisted senders
-    if isinstance(store, SQLiteStore) and not store.is_whitelisted(latest.sender):
+    if not store.is_whitelisted(latest.sender):
         log.info(
             "poll_sender_not_whitelisted",
             broker=record.broker_id,
