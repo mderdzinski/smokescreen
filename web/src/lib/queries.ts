@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { api } from "./api";
+import { api, type BrokerStatus } from "./api";
 
 export function useExtendedStats() {
   return useQuery({
@@ -9,9 +9,9 @@ export function useExtendedStats() {
   });
 }
 
-export function useOptOuts() {
+export function useOptOuts(status?: BrokerStatus) {
   return useQuery({
-    queryKey: ["opt-outs"],
-    queryFn: api.listOptOuts,
+    queryKey: ["opt-outs", status ?? "all"],
+    queryFn: () => api.listOptOuts(status),
   });
 }

@@ -59,5 +59,12 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   getExtendedStats: () => requestJson<ExtendedStats>("/api/stats/extended"),
-  listOptOuts: () => requestJson<OptOutRecord[]>("/api/optouts"),
+  listOptOuts: (status?: BrokerStatus) => {
+    const params = status ? `?status=${encodeURIComponent(status)}` : "";
+    return requestJson<OptOutRecord[]>(`/api/optouts${params}`);
+  },
+  resetOptOut: (brokerId: string) =>
+    requestJson<{ status: "reset"; broker_id: string }>(`/api/optouts/${encodeURIComponent(brokerId)}/reset`, {
+      method: "POST",
+    }),
 };
