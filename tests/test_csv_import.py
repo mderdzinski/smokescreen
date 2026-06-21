@@ -188,6 +188,22 @@ def test_api_import_csv(client):
     assert data["skipped"] == 0
 
 
+def test_api_import_csv_auto_detects_friendly_headers(client):
+    content = (
+        "Company,Contact Email,Website\n"
+        "Friendly Broker,opt@friendly.com,friendly.com\n"
+    )
+    resp = client.post(
+        "/api/brokers/import",
+        files={"file": ("brokers.csv", io.BytesIO(content.encode()), "text/csv")},
+        data={},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["imported"] == 1
+    assert data["skipped"] == 0
+
+
 def test_api_import_csv_duplicate(client):
     content = "name,privacy_email\nSpokeo,privacy@spokeo.com\n"
     resp = client.post(

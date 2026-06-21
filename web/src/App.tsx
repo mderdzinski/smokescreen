@@ -29,6 +29,7 @@ import { Link, NavLink, Outlet } from "react-router-dom";
 import {
   api,
   type AdvancedSettings,
+  type Broker,
   type BrokerStatus,
   type FriendlySettings,
   type OptOutRecord,
@@ -37,6 +38,7 @@ import {
 } from "./lib/api";
 import {
   useAdvancedSettings,
+  useBrokers,
   useExtendedStats,
   useOptOuts,
   usePendingWhitelist,
@@ -876,7 +878,10 @@ export function TrustedSendersPage() {
   const queryClient = useQueryClient();
   const whitelistQuery = useWhitelist();
   const pendingQuery = usePendingWhitelist();
-  const [brokerId, setBrokerId] = useState("");
+  const brokersQuery = useBrokers();
+  const brokers = brokersQuery.data ?? [];
+  const brokerById = useMemo(() => new Map(brokers.map((broker) => [broker.id, broker])), [brokers]);
+  const [selectedBrokerId, setSelectedBrokerId] = useState("");
   const [email, setEmail] = useState("");
   const trustedSenders = useMemo(
     () => [...(whitelistQuery.data ?? [])].sort((a, b) => a.email.localeCompare(b.email)),
@@ -889,7 +894,7 @@ export function TrustedSendersPage() {
   const addMutation = useMutation({
     mutationFn: api.addWhitelist,
     onSuccess: async () => {
-      setBrokerId("");
+      setSelectedBrokerId("");
       setEmail("");
       await queryClient.invalidateQueries({ queryKey: ["whitelist"] });
     },
@@ -918,7 +923,7 @@ export function TrustedSendersPage() {
 
   function addTrustedSender(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const trimmedBrokerId = brokerId.trim();
+    const trimmedBrokerId = selectedBrokerId.trim();
     const trimmedEmail = email.trim();
     if (!trimmedBrokerId || !trimmedEmail) {
       return;
@@ -939,14 +944,16 @@ export function TrustedSendersPage() {
   function refreshTrustedSenders() {
     void whitelistQuery.refetch();
     void pendingQuery.refetch();
+    void brokersQuery.refetch();
   }
 
-  const loadError = whitelistQuery.error ?? pendingQuery.error;
+  const loadError = whitelistQuery.error ?? pendingQuery.error ?? brokersQuery.error;
   const mutationError = addMutation.error ?? deleteMutation.error ?? approveMutation.error ?? rejectMutation.error;
-  const loading = whitelistQuery.isLoading || pendingQuery.isLoading;
+  const loading = whitelistQuery.isLoading || pendingQuery.isLoading || brokersQuery.isLoading;
   const retryTrustedSenders = () => {
     void whitelistQuery.refetch();
     void pendingQuery.refetch();
+    void brokersQuery.refetch();
   };
 
   return (
@@ -1014,14 +1021,20 @@ export function TrustedSendersPage() {
         <CardContent>
           <form className="grid gap-3 md:grid-cols-[1fr_1fr_auto]" onSubmit={addTrustedSender}>
             <label className="grid gap-1 text-sm font-medium">
-              Broker ID
-              <input
+              Broker
+              <select
                 className="h-10 rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={brokerId}
-                onChange={(event) => setBrokerId(event.target.value)}
-                placeholder="spokeo"
-                autoComplete="off"
-              />
+                value={selectedBrokerId}
+                onChange={(event) => setSelectedBrokerId(event.target.value)}
+              >
+                <option value="">Choose a broker</option>
+                {brokers.map((broker) => (
+                  <option key={broker.id} value={broker.id}>
+                    {broker.name}
+                    {broker.domain ? ` (${broker.domain})` : ""}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="grid gap-1 text-sm font-medium">
               Email address
@@ -1036,7 +1049,7 @@ export function TrustedSendersPage() {
             </label>
             <Button
               className="self-end"
-              disabled={addMutation.isPending || !brokerId.trim() || !email.trim()}
+              disabled={addMutation.isPending || !selectedBrokerId.trim() || !email.trim()}
               type="submit"
             >
               <ShieldPlus className="h-4 w-4" />
@@ -1083,6 +1096,7 @@ export function TrustedSendersPage() {
                 isRejecting={rejectMutation.isPending && rejectMutation.variables === entry.id}
                 onApprove={() => approveMutation.mutate(entry.id)}
                 onReject={() => rejectMutation.mutate(entry.id)}
+                brokerName={brokerDisplayName(entry.broker_id, brokerById)}
               />
             ))}
           </div>
@@ -1125,7 +1139,9 @@ export function TrustedSendersPage() {
                 {trustedSenders.map((entry) => (
                   <tr key={entry.id} className="border-t">
                     <td className="px-4 py-3 font-medium">{entry.email}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{entry.broker_id}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {brokerDisplayName(entry.broker_id, brokerById)}
+                    </td>
                     <td className="px-4 py-3">
                       <Badge variant={entry.source === "registry" ? "secondary" : "outline"}>
                         {sourceLabel(entry.source)}
@@ -1173,6 +1189,13 @@ function sourceLabel(source: WhitelistEntry["source"]): string {
   return source === "registry" ? "Broker list" : "Added by you";
 }
 
+function brokerDisplayName(brokerId: string | null | undefined, brokerById: Map<string, Broker>): string {
+  if (!brokerId) {
+    return "Unknown broker";
+  }
+  return brokerById.get(brokerId)?.name ?? "Unlisted broker";
+}
+
 function TrustMetric({ icon, label, value }: { icon: ReactNode; label: string; value: number | string }) {
   return (
     <Card>
@@ -1193,12 +1216,14 @@ function PendingApprovalItem({
   isRejecting,
   onApprove,
   onReject,
+  brokerName,
 }: {
   entry: PendingWhitelistEntry;
   isApproving: boolean;
   isRejecting: boolean;
   onApprove: () => void;
   onReject: () => void;
+  brokerName: string;
 }) {
   return (
     <div className="rounded-md border bg-background p-4">
@@ -1206,7 +1231,7 @@ function PendingApprovalItem({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <p className="break-words text-sm font-semibold">{entry.email}</p>
-            <Badge variant="outline">{entry.broker_id ?? "Unknown broker"}</Badge>
+            <Badge variant="outline">{brokerName}</Badge>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">Detected {formatUpdatedAt(entry.detected_at)}</p>
         </div>
@@ -1332,7 +1357,7 @@ function AttentionItem({
             <Badge variant="destructive">{brokerStatusCopy[record.status].label}</Badge>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            {record.broker_domain || "Unknown domain"} - {record.broker_privacy_email || "No privacy email listed"}
+            {record.broker_domain || "Unknown domain"} - {record.broker_privacy_email || "No opt-out email listed"}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={onReset} disabled={isResetting}>

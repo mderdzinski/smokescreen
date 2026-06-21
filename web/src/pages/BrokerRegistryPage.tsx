@@ -33,7 +33,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { EmptyState, ErrorState, LoadingState } from "../components/status-state";
 
 interface BrokerFormState {
-  id: string;
   name: string;
   domain: string;
   privacy_email: string;
@@ -51,7 +50,6 @@ interface ImportFormState {
 }
 
 const emptyBrokerForm: BrokerFormState = {
-  id: "",
   name: "",
   domain: "",
   privacy_email: "",
@@ -61,11 +59,11 @@ const emptyBrokerForm: BrokerFormState = {
 
 const defaultImportForm: ImportFormState = {
   file: null,
-  name_col: "name",
-  email_col: "privacy_email",
-  domain_col: "domain",
-  id_col: "id",
-  notes_col: "notes",
+  name_col: "",
+  email_col: "",
+  domain_col: "",
+  id_col: "",
+  notes_col: "",
 };
 
 const inputClass =
@@ -87,7 +85,6 @@ function parseAliases(value: string): string[] {
 
 function brokerToForm(broker: Broker): BrokerFormState {
   return {
-    id: broker.id,
     name: broker.name,
     domain: broker.domain,
     privacy_email: broker.privacy_email,
@@ -98,7 +95,6 @@ function brokerToForm(broker: Broker): BrokerFormState {
 
 function formToBrokerInput(form: BrokerFormState): BrokerInput {
   return {
-    id: form.id.trim(),
     name: form.name.trim(),
     domain: form.domain.trim(),
     privacy_email: form.privacy_email.trim(),
@@ -123,11 +119,11 @@ function importInput(form: ImportFormState): BrokerImportInput | null {
   }
   return {
     file: form.file,
-    name_col: form.name_col.trim(),
-    email_col: form.email_col.trim(),
-    domain_col: form.domain_col.trim(),
-    id_col: form.id_col.trim(),
-    notes_col: form.notes_col.trim(),
+    name_col: form.name_col.trim() || undefined,
+    email_col: form.email_col.trim() || undefined,
+    domain_col: form.domain_col.trim() || undefined,
+    id_col: form.id_col.trim() || undefined,
+    notes_col: form.notes_col.trim() || undefined,
   };
 }
 
@@ -244,8 +240,8 @@ export function BrokerRegistryPage() {
   function submitBroker(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const input = formToBrokerInput(form);
-    if (!input.name || !input.domain || !input.privacy_email || (!editingId && !input.id)) {
-      setFormError("Name, domain, privacy email, and ID are required.");
+    if (!input.name || !input.domain || !input.privacy_email) {
+      setFormError("Company name, website, and opt-out email are required.");
       return;
     }
     if (editingId) {
@@ -267,10 +263,6 @@ export function BrokerRegistryPage() {
     const input = importInput(importForm);
     if (!input) {
       setFormError("Choose a CSV file before importing.");
-      return;
-    }
-    if (!input.name_col || !input.email_col) {
-      setFormError("CSV name and email columns are required.");
       return;
     }
     setFormError(null);
@@ -355,7 +347,6 @@ export function BrokerRegistryPage() {
             <CardHeader>
               <div>
                 <CardTitle>{editingId ? "Edit broker" : "Add broker"}</CardTitle>
-                {editingId ? <p className="mt-1 text-xs text-muted-foreground">{editingId}</p> : null}
               </div>
               {editingId ? (
                 <Button type="button" variant="ghost" size="icon" aria-label="Cancel edit" onClick={cancelEdit}>
@@ -367,38 +358,29 @@ export function BrokerRegistryPage() {
             </CardHeader>
             <CardContent>
               <form className="grid gap-3" onSubmit={submitBroker}>
-                {!editingId ? (
-                  <LabelledInput
-                    label="ID"
-                    value={form.id}
-                    onChange={(value) => updateFormField("id", value)}
-                    placeholder="people-search-site"
-                    required
-                  />
-                ) : null}
                 <LabelledInput
-                  label="Name"
+                  label="Company"
                   value={form.name}
                   onChange={(value) => updateFormField("name", value)}
                   placeholder="People Search Site"
                   required
                 />
                 <LabelledInput
-                  label="Domain"
+                  label="Website"
                   value={form.domain}
                   onChange={(value) => updateFormField("domain", value)}
                   placeholder="example.com"
                   required
                 />
                 <LabelledInput
-                  label="Privacy email"
+                  label="Opt-out email"
                   value={form.privacy_email}
                   onChange={(value) => updateFormField("privacy_email", value)}
                   placeholder="privacy@example.com"
                   required
                 />
                 <LabelledInput
-                  label="Other domains"
+                  label="Additional websites"
                   value={form.aliases}
                   onChange={(value) => updateFormField("aliases", value)}
                   placeholder="alias.com, optout.example.com"
@@ -431,7 +413,9 @@ export function BrokerRegistryPage() {
             <CardHeader>
               <div>
                 <CardTitle>Import CSV</CardTitle>
-                <p className="mt-1 text-xs text-muted-foreground">Name and privacy email columns are required.</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Smokescreen finds company and contact columns automatically.
+                </p>
               </div>
               <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
@@ -446,35 +430,36 @@ export function BrokerRegistryPage() {
                     onChange={updateImportFile}
                   />
                 </label>
-                <div className="grid grid-cols-2 gap-3">
+                <details className="rounded-md border bg-muted/30 p-3 text-sm">
+                  <summary className="cursor-pointer font-medium">Advanced mapping</summary>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <LabelledInput
+                      label="Company column"
+                      value={importForm.name_col}
+                      onChange={(value) => updateImportField("name_col", value)}
+                    />
+                    <LabelledInput
+                      label="Contact email column"
+                      value={importForm.email_col}
+                      onChange={(value) => updateImportField("email_col", value)}
+                    />
+                    <LabelledInput
+                      label="Website column"
+                      value={importForm.domain_col}
+                      onChange={(value) => updateImportField("domain_col", value)}
+                    />
+                    <LabelledInput
+                      label="Internal ID column"
+                      value={importForm.id_col}
+                      onChange={(value) => updateImportField("id_col", value)}
+                    />
+                  </div>
                   <LabelledInput
-                    label="Name column"
-                    value={importForm.name_col}
-                    onChange={(value) => updateImportField("name_col", value)}
-                    required
+                    label="Notes column"
+                    value={importForm.notes_col}
+                    onChange={(value) => updateImportField("notes_col", value)}
                   />
-                  <LabelledInput
-                    label="Email column"
-                    value={importForm.email_col}
-                    onChange={(value) => updateImportField("email_col", value)}
-                    required
-                  />
-                  <LabelledInput
-                    label="Domain column"
-                    value={importForm.domain_col}
-                    onChange={(value) => updateImportField("domain_col", value)}
-                  />
-                  <LabelledInput
-                    label="ID column"
-                    value={importForm.id_col}
-                    onChange={(value) => updateImportField("id_col", value)}
-                  />
-                </div>
-                <LabelledInput
-                  label="Notes column"
-                  value={importForm.notes_col}
-                  onChange={(value) => updateImportField("notes_col", value)}
-                />
+                </details>
                 <Button type="submit" disabled={importMutation.isPending}>
                   <Upload className="h-4 w-4" />
                   {importMutation.isPending ? "Importing" : "Import brokers"}
@@ -535,7 +520,6 @@ function BrokerListItem({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <CardTitle className="text-base font-semibold text-foreground">{broker.name}</CardTitle>
-            <Badge variant="secondary">{broker.id}</Badge>
           </div>
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
             <span className="inline-flex min-w-0 items-center gap-1.5">
@@ -544,7 +528,7 @@ function BrokerListItem({
             </span>
             <span className="inline-flex min-w-0 items-center gap-1.5">
               <Mail className="h-4 w-4" />
-              <span className="break-all">{broker.privacy_email || "No privacy email"}</span>
+              <span className="break-all">{broker.privacy_email || "No opt-out email"}</span>
             </span>
           </div>
         </div>

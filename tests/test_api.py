@@ -136,6 +136,19 @@ def test_create_broker(client):
     assert "newbroker" in ids
 
 
+def test_create_broker_generates_id(client):
+    resp = client.post(
+        "/api/brokers",
+        json={
+            "name": "New Broker",
+            "domain": "newbroker.com",
+            "privacy_email": "p@newbroker.com",
+        },
+    )
+    assert resp.status_code == 201
+    assert resp.json()["id"] == "new-broker"
+
+
 def test_create_duplicate_broker(client):
     resp = client.post(
         "/api/brokers",

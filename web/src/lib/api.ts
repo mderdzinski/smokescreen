@@ -50,7 +50,7 @@ export interface Broker {
 }
 
 export interface BrokerInput {
-  id: string;
+  id?: string;
   name: string;
   domain: string;
   privacy_email: string;
@@ -68,11 +68,11 @@ export interface BrokerUpdate {
 
 export interface BrokerImportInput {
   file: File;
-  name_col: string;
-  email_col: string;
-  domain_col: string;
-  id_col: string;
-  notes_col: string;
+  name_col?: string;
+  email_col?: string;
+  domain_col?: string;
+  id_col?: string;
+  notes_col?: string;
 }
 
 export interface BrokerImportResult {
@@ -176,11 +176,11 @@ function jsonRequest<T>(method: "POST" | "PUT", body: T): RequestInit {
 function brokerImportForm(input: BrokerImportInput): FormData {
   const form = new FormData();
   form.append("file", input.file);
-  form.append("name_col", input.name_col);
-  form.append("email_col", input.email_col);
-  form.append("domain_col", input.domain_col);
-  form.append("id_col", input.id_col);
-  form.append("notes_col", input.notes_col);
+  form.append("name_col", input.name_col ?? "");
+  form.append("email_col", input.email_col ?? "");
+  form.append("domain_col", input.domain_col ?? "");
+  form.append("id_col", input.id_col ?? "");
+  form.append("notes_col", input.notes_col ?? "");
   return form;
 }
 

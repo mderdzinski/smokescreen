@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -89,7 +90,7 @@ def _mask_value(value: str) -> str:
 
 
 class BrokerCreate(BaseModel):
-    id: str
+    id: str | None = None
     name: str
     domain: str
     privacy_email: str
@@ -118,6 +119,61 @@ class StatsResponse(BaseModel):
 
 class OutreachRequest(BaseModel):
     broker_ids: list[str] | None = None
+
+
+def _slugify(text: str) -> str:
+    slug = text.lower().strip()
+    slug = re.sub(r"[^\w\s-]", "", slug)
+    slug = re.sub(r"[\s_-]+", "-", slug)
+    return slug.strip("-")
+
+
+def _unique_broker_id(registry: BrokerRegistry, preferred: str) -> str:
+    base = _slugify(preferred)
+    if not base:
+        raise HTTPException(400, "Broker name must include letters or numbers")
+    broker_id = base
+    suffix = 2
+    while registry.get(broker_id) is not None:
+        broker_id = f"{base}-{suffix}"
+        suffix += 1
+    return broker_id
+
+
+def _detect_csv_column(
+    headers: list[str],
+    provided: str,
+    candidates: tuple[str, ...],
+    label: str,
+) -> str:
+    if provided:
+        return provided
+    normalized = {
+        header.strip().lower().replace(" ", "_"): header for header in headers
+    }
+    for candidate in candidates:
+        if candidate in normalized:
+            return normalized[candidate]
+    raise HTTPException(
+        400,
+        f"Could not find a {label} column. Use advanced import mapping to choose one.",
+    )
+
+
+def _detect_optional_csv_column(
+    headers: list[str],
+    provided: str,
+    candidates: tuple[str, ...],
+) -> str:
+    if provided:
+        return provided
+    normalized = {
+        header.strip().lower().replace(" ", "_"): header for header in headers
+    }
+    for candidate in candidates:
+        if candidate in normalized:
+            return normalized[candidate]
+    return ""
 
 
 # --- Dashboard ---
@@ -161,9 +217,11 @@ async def list_brokers():
 @app.post("/api/brokers", status_code=201)
 async def create_broker(data: BrokerCreate):
     registry = get_registry()
-    if registry.get(data.id) is not None:
-        raise HTTPException(400, f"Broker {data.id} already exists")
-    broker = Broker(**data.model_dump())
+    provided_id = data.id.strip() if data.id else ""
+    broker_id = provided_id or _unique_broker_id(registry, data.name)
+    if registry.get(broker_id) is not None:
+        raise HTTPException(400, "That broker is already in your list")
+    broker = Broker(**{**data.model_dump(exclude={"id"}), "id": broker_id})
     registry.add(broker)
     # Sync whitelist
     store = get_store()
@@ -194,15 +252,14 @@ async def delete_broker(broker_id: str):
 
 
 _file_field = File(...)
-_form_required = Form(...)
 _form_optional = Form("")
 
 
 @app.post("/api/brokers/import")
 async def import_brokers_csv(
     file: UploadFile = _file_field,
-    name_col: str = _form_required,
-    email_col: str = _form_required,
+    name_col: str = _form_optional,
+    email_col: str = _form_optional,
     domain_col: str = _form_optional,
     id_col: str = _form_optional,
     notes_col: str = _form_optional,
@@ -210,23 +267,47 @@ async def import_brokers_csv(
     """Import brokers from an uploaded CSV file."""
     import csv
     import io
-    import re
 
     content = await file.read()
     text = content.decode("utf-8")
     reader = csv.DictReader(io.StringIO(text))
+    headers = reader.fieldnames or []
+    name_col = _detect_csv_column(
+        headers,
+        name_col.strip(),
+        ("name", "company", "company_name", "broker", "broker_name"),
+        "company name",
+    )
+    email_col = _detect_csv_column(
+        headers,
+        email_col.strip(),
+        (
+            "email",
+            "privacy_email",
+            "privacy_contact",
+            "contact_email",
+            "opt_out_email",
+            "opt-out_email",
+        ),
+        "contact email",
+    )
+    domain_col = _detect_optional_csv_column(
+        headers,
+        domain_col.strip(),
+        ("domain", "website", "site", "url", "company_domain"),
+    )
+    id_col = _detect_optional_csv_column(
+        headers, id_col.strip(), ("id", "broker_id", "slug")
+    )
+    notes_col = _detect_optional_csv_column(
+        headers, notes_col.strip(), ("notes", "note", "details")
+    )
 
     registry = get_registry()
     store = get_store()
     imported = 0
     skipped = 0
     errors: list[str] = []
-
-    def _slugify(t: str) -> str:
-        s = t.lower().strip()
-        s = re.sub(r"[^\w\s-]", "", s)
-        s = re.sub(r"[\s_-]+", "-", s)
-        return s.strip("-")
 
     for row_num, row in enumerate(reader, start=2):
         name = row.get(name_col, "").strip()
