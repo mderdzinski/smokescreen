@@ -45,6 +45,8 @@ smokescreen serve
 
 ## Gmail setup
 
+### Local development
+
 1. Create a project in [Google Cloud Console](https://console.cloud.google.com/)
 2. Enable the Gmail API
 3. Create OAuth 2.0 credentials (Desktop app type)
@@ -52,6 +54,33 @@ smokescreen serve
 5. On first run, a browser window opens for consent. The token is cached to `token.json`
 
 Required scopes: `gmail.send` + `gmail.readonly`
+
+### Cloud Run
+
+Cloud Run Jobs run non-interactively, so they use Secret Manager-backed JSON
+environment variables instead of opening the installed-app browser flow.
+
+1. Complete the local OAuth flow once to create `token.json`.
+2. Store the OAuth client credentials JSON and authorized-user token JSON in
+   Secret Manager:
+
+   ```bash
+   gcloud secrets versions add smokescreen-gmail-credentials \
+     --data-file=credentials.json
+   gcloud secrets versions add smokescreen-gmail-token \
+     --data-file=token.json
+   ```
+
+3. Deploy with Terraform. The Cloud Run jobs receive
+   `SMOKESCREEN_GMAIL_CREDENTIALS_JSON` and `SMOKESCREEN_GMAIL_TOKEN_JSON` from
+   those secrets, and `SMOKESCREEN_GMAIL_OAUTH_INTERACTIVE=false` prevents any
+   browser-based OAuth attempt in production.
+
+The token JSON must include a `refresh_token`. If consent was granted without a
+refresh token, revoke the app grant in the Google account and repeat the local
+flow. `SMOKESCREEN_GMAIL_CREDENTIALS_JSON` and
+`SMOKESCREEN_GMAIL_TOKEN_JSON` take precedence over the local file path settings
+when present.
 
 ### Polling scope
 
@@ -98,6 +127,9 @@ All settings use the `SMOKESCREEN_` env prefix. They can be set via environment 
 | `SMOKESCREEN_FIRESTORE_COLLECTION` | `opt_outs` | Firestore collection name |
 | `SMOKESCREEN_GMAIL_CREDENTIALS_PATH` | `credentials.json` | OAuth client credentials |
 | `SMOKESCREEN_GMAIL_TOKEN_PATH` | `token.json` | Cached OAuth token |
+| `SMOKESCREEN_GMAIL_CREDENTIALS_JSON` | `""` | OAuth client credentials JSON from Secret Manager |
+| `SMOKESCREEN_GMAIL_TOKEN_JSON` | `""` | Authorized-user OAuth token JSON from Secret Manager |
+| `SMOKESCREEN_GMAIL_OAUTH_INTERACTIVE` | `true` | Allow browser OAuth when no reusable token is available |
 | `SMOKESCREEN_IDENTITY_DOCS_DIR` | `identity/` | Pre-redacted ID documents |
 | `SMOKESCREEN_MAX_RETRIES` | `5` | Max retries before FAILED |
 | `SMOKESCREEN_POLL_LABEL` | `smokescreen` | Gmail label used to select active stored threads during polling; set blank to poll all active stored threads |
@@ -130,7 +162,7 @@ The `infra/` directory contains Terraform for deploying to GCP:
 
 - **Cloud Run Jobs**: `smokescreen-poll` (every 10 min) and `smokescreen-outreach` (daily 9am)
 - **Firestore**: Serverless state storage
-- **Secret Manager**: Gmail OAuth tokens and Anthropic API key
+- **Secret Manager**: Gmail OAuth credentials/token and Anthropic API key
 - **IAM**: Least-privilege service account
 
 ```bash
@@ -141,6 +173,19 @@ terraform plan -var="project_id=your-project" \
                -var="sender_name=Your Name" \
                -var="image=gcr.io/your-project/smokescreen:latest"
 terraform apply
+```
+
+Terraform creates the Gmail and Anthropic Secret Manager secret containers, but
+the secret payloads are added with `gcloud` so they do not land in Terraform
+state. Add secret versions before running the scheduled jobs:
+
+```bash
+gcloud secrets versions add smokescreen-gmail-credentials \
+  --data-file=credentials.json
+gcloud secrets versions add smokescreen-gmail-token \
+  --data-file=token.json
+printf '%s' "$SMOKESCREEN_ANTHROPIC_API_KEY" | \
+  gcloud secrets versions add smokescreen-anthropic-key --data-file=-
 ```
 
 ### Building the container

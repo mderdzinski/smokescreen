@@ -458,6 +458,9 @@ class SettingsUpdate(BaseModel):
 
     gmail_credentials_path: str | None = None
     gmail_token_path: str | None = None
+    gmail_credentials_json: str | None = None
+    gmail_token_json: str | None = None
+    gmail_oauth_interactive: bool | None = None
     sender_email: str | None = None
     sender_name: str | None = None
     anthropic_api_key: str | None = None

@@ -9,7 +9,11 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
-SENSITIVE_FIELDS: set[str] = {"anthropic_api_key"}
+SENSITIVE_FIELDS: set[str] = {
+    "anthropic_api_key",
+    "gmail_credentials_json",
+    "gmail_token_json",
+}
 
 # Fields that require a server restart to take effect
 RESTART_FIELDS: set[str] = {
@@ -18,6 +22,9 @@ RESTART_FIELDS: set[str] = {
     "firestore_project",
     "firestore_collection",
     "gmail_credentials_path",
+    "gmail_credentials_json",
+    "gmail_oauth_interactive",
+    "gmail_token_json",
     "gmail_token_path",
     "sender_email",
     "sender_name",
@@ -35,6 +42,20 @@ class Settings(BaseSettings):
     gmail_token_path: Path = Field(
         default=Path("token.json"),
         description="Path to stored OAuth token",
+    )
+    gmail_credentials_json: str = Field(
+        default="",
+        description="OAuth client credentials JSON, used for secret-backed deployments",
+    )
+    gmail_token_json: str = Field(
+        default="",
+        description=(
+            "Authorized user OAuth token JSON, used for secret-backed deployments"
+        ),
+    )
+    gmail_oauth_interactive: bool = Field(
+        default=True,
+        description="Allow browser-based OAuth when no reusable token is available",
     )
     sender_email: str = Field(
         default="",

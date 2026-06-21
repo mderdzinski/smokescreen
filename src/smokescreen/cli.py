@@ -32,7 +32,13 @@ def _get_gmail(settings):
     from smokescreen.email.client import GmailClient
     from smokescreen.email.oauth import get_credentials
 
-    creds = get_credentials(settings.gmail_credentials_path, settings.gmail_token_path)
+    creds = get_credentials(
+        settings.gmail_credentials_path,
+        settings.gmail_token_path,
+        credentials_json=settings.gmail_credentials_json,
+        token_json=settings.gmail_token_json,
+        interactive=settings.gmail_oauth_interactive,
+    )
     return GmailClient(creds)
 
 

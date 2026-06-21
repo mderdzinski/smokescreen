@@ -95,6 +95,28 @@ resource "google_cloud_run_v2_job" "poll_and_reply" {
           value = var.sender_name
         }
         env {
+          name  = "SMOKESCREEN_GMAIL_OAUTH_INTERACTIVE"
+          value = "false"
+        }
+        env {
+          name = "SMOKESCREEN_GMAIL_CREDENTIALS_JSON"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.gmail_credentials.secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "SMOKESCREEN_GMAIL_TOKEN_JSON"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.gmail_token.secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
           name = "SMOKESCREEN_ANTHROPIC_API_KEY"
           value_source {
             secret_key_ref {
@@ -145,6 +167,28 @@ resource "google_cloud_run_v2_job" "outreach" {
         env {
           name  = "SMOKESCREEN_SENDER_NAME"
           value = var.sender_name
+        }
+        env {
+          name  = "SMOKESCREEN_GMAIL_OAUTH_INTERACTIVE"
+          value = "false"
+        }
+        env {
+          name = "SMOKESCREEN_GMAIL_CREDENTIALS_JSON"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.gmail_credentials.secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "SMOKESCREEN_GMAIL_TOKEN_JSON"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.gmail_token.secret_id
+              version = "latest"
+            }
+          }
         }
         env {
           name = "SMOKESCREEN_ANTHROPIC_API_KEY"
