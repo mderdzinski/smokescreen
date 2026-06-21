@@ -134,6 +134,34 @@ export interface PendingWhitelistEntry {
   status: "pending";
 }
 
+async function responseErrorMessage(response: Response): Promise<string> {
+  const fallback = `Request failed with ${response.status}`;
+  const text = await response.text();
+  if (!text) {
+    return fallback;
+  }
+
+  try {
+    const body = JSON.parse(text) as unknown;
+    if (body && typeof body === "object" && "detail" in body) {
+      const detail = (body as { detail: unknown }).detail;
+      if (typeof detail === "string") {
+        return detail;
+      }
+      if (detail && typeof detail === "object" && "message" in detail) {
+        const message = (detail as { message: unknown }).message;
+        if (typeof message === "string") {
+          return message;
+        }
+      }
+    }
+  } catch {
+    return text;
+  }
+
+  return text || fallback;
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -144,8 +172,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Request failed with ${response.status}`);
+    throw new Error(await responseErrorMessage(response));
   }
 
   return (await response.json()) as T;
@@ -161,8 +188,7 @@ async function requestVoid(path: string, init?: RequestInit): Promise<void> {
   });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Request failed with ${response.status}`);
+    throw new Error(await responseErrorMessage(response));
   }
 }
 

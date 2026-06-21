@@ -222,7 +222,10 @@ export function OnboardingPage() {
       ) : null}
       {outreachMutation.error ? (
         <ErrorState
-          description="Smokescreen could not start the first batch. Refresh the broker list before trying again."
+          description={
+            outreachMutation.error.message ||
+            "Smokescreen could not start the first batch. Connect Gmail or enable dry run before trying again."
+          }
           onAction={retryOnboarding}
           title="First batch did not start"
         />

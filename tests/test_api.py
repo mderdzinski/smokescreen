@@ -295,6 +295,34 @@ def test_run_outreach_rejects_unknown_broker(settings_client):
     assert "Broker missing not found" in resp.text
 
 
+def test_run_outreach_without_gmail_credentials_returns_actionable_error(
+    settings_client, tmp_path
+):
+    client, _ = settings_client
+    import smokescreen.api as api_module
+
+    api_module._settings = Settings(
+        sender_email="test@example.com",
+        sender_name="Test User",
+        anthropic_api_key="sk-test",
+        dry_run=False,
+        gmail_oauth_interactive=False,
+        gmail_credentials_path=tmp_path / "missing-credentials.json",
+        gmail_token_path=tmp_path / "missing-token.json",
+    )
+
+    resp = client.post("/api/outreach", json={"broker_ids": ["spokeo"]})
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == {
+        "code": "gmail_credentials_required",
+        "message": (
+            "Connect Gmail before sending outreach, or enable dry run to prepare "
+            "the batch without sending email."
+        ),
+    }
+
+
 # --- Stats ---
 
 

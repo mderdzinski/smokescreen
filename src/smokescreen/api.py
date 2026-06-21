@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from google.auth.exceptions import GoogleAuthError
 from pydantic import BaseModel, ValidationError
 
 from smokescreen.brokers.registry import BrokerRegistry
@@ -119,6 +121,15 @@ class StatsResponse(BaseModel):
 
 class OutreachRequest(BaseModel):
     broker_ids: list[str] | None = None
+
+
+GMAIL_CREDENTIALS_REQUIRED_DETAIL = {
+    "code": "gmail_credentials_required",
+    "message": (
+        "Connect Gmail before sending outreach, or enable dry run to prepare "
+        "the batch without sending email."
+    ),
+}
 
 
 def _slugify(text: str) -> str:
@@ -417,14 +428,26 @@ async def run_outreach_endpoint(request: OutreachRequest):
         from smokescreen.email.client import GmailClient
         from smokescreen.email.oauth import get_credentials
 
-        credentials = get_credentials(
-            settings.gmail_credentials_path,
-            settings.gmail_token_path,
-            credentials_json=settings.gmail_credentials_json,
-            token_json=settings.gmail_token_json,
-            interactive=settings.gmail_oauth_interactive,
-        )
-        gmail = GmailClient(credentials)
+        try:
+            credentials = get_credentials(
+                settings.gmail_credentials_path,
+                settings.gmail_token_path,
+                credentials_json=settings.gmail_credentials_json,
+                token_json=settings.gmail_token_json,
+                interactive=settings.gmail_oauth_interactive,
+            )
+            gmail = GmailClient(credentials)
+        except (
+            FileNotFoundError,
+            GoogleAuthError,
+            JSONDecodeError,
+            RuntimeError,
+            ValueError,
+        ) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=GMAIL_CREDENTIALS_REQUIRED_DETAIL,
+            ) from exc
 
     from smokescreen.jobs.outreach import run_outreach
 
