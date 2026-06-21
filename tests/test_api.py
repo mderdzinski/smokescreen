@@ -82,11 +82,6 @@ def test_dashboard_requires_built_react_app(client, monkeypatch, tmp_path):
     assert "React app has not been built" in resp.text
 
 
-def test_old_dashboard_is_removed(client):
-    resp = client.get("/old-dashboard")
-    assert resp.status_code == 404
-
-
 def test_react_app_redirect(client):
     resp = client.get("/app", follow_redirects=False)
     assert resp.status_code == 307

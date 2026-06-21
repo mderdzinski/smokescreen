@@ -618,6 +618,6 @@ async def update_settings(update: SettingsUpdate):
 
 @app.get("/{path:path}", response_class=HTMLResponse, include_in_schema=False)
 async def react_app_fallback(path: str):
-    if path == "old-dashboard" or path.startswith(("api/", "assets/", "static/")):
+    if path.startswith(("api/", "assets/", "static/")):
         raise HTTPException(404, "Not found")
     return _react_index_response()
