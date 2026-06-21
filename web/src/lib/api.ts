@@ -106,6 +106,24 @@ export type SettingsUpdate = Partial<
     }
 >;
 
+export interface WhitelistEntry {
+  id: number;
+  broker_id: string;
+  email: string;
+  source: "registry" | "manual";
+  added_at: string;
+}
+
+export interface PendingWhitelistEntry {
+  id: number;
+  broker_id: string | null;
+  email: string;
+  message_subject: string;
+  message_snippet: string;
+  detected_at: string;
+  status: "pending";
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -192,4 +210,29 @@ export const api = {
     requestJson<{ status: "reset"; broker_id: string }>(`/api/optouts/${encodeURIComponent(brokerId)}/reset`, {
       method: "POST",
     }),
+  listWhitelist: () => requestJson<WhitelistEntry[]>("/api/whitelist"),
+  addWhitelist: (data: { broker_id: string; email: string }) =>
+    requestJson<WhitelistEntry>("/api/whitelist", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    }),
+  deleteWhitelist: (entryId: number) =>
+    requestVoid(`/api/whitelist/${encodeURIComponent(String(entryId))}`, {
+      method: "DELETE",
+    }),
+  listPendingWhitelist: () => requestJson<PendingWhitelistEntry[]>("/api/whitelist/pending"),
+  approvePendingWhitelist: (entryId: number) =>
+    requestJson<WhitelistEntry>(`/api/whitelist/pending/${encodeURIComponent(String(entryId))}/approve`, {
+      method: "POST",
+    }),
+  rejectPendingWhitelist: (entryId: number) =>
+    requestJson<{ status: "rejected"; id: number }>(
+      `/api/whitelist/pending/${encodeURIComponent(String(entryId))}/reject`,
+      {
+        method: "POST",
+      },
+    ),
 };

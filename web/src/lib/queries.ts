@@ -36,3 +36,17 @@ export function useOptOuts(status?: BrokerStatus) {
     queryFn: () => api.listOptOuts(status),
   });
 }
+
+export function useWhitelist() {
+  return useQuery({
+    queryKey: ["whitelist"],
+    queryFn: api.listWhitelist,
+  });
+}
+
+export function usePendingWhitelist() {
+  return useQuery({
+    queryKey: ["pending-whitelist"],
+    queryFn: api.listPendingWhitelist,
+  });
+}

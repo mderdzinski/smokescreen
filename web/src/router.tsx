@@ -1,6 +1,6 @@
 import { createBrowserRouter } from "react-router-dom";
 
-import { App, NeedsAttentionPage, OverviewPage, SettingsPage } from "./App";
+import { App, NeedsAttentionPage, OverviewPage, SettingsPage, TrustedSendersPage } from "./App";
 import { BrokerRegistryPage } from "./pages/BrokerRegistryPage";
 
 export const router = createBrowserRouter(
@@ -20,6 +20,10 @@ export const router = createBrowserRouter(
         {
           path: "brokers",
           element: <BrokerRegistryPage />,
+        },
+        {
+          path: "trusted-senders",
+          element: <TrustedSendersPage />,
         },
         {
           path: "settings",

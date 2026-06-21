@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -18,12 +18,33 @@ import {
   RotateCcw,
   Save,
   Settings,
+  ShieldCheck,
+  ShieldPlus,
+  Trash2,
+  UserCheck,
+  UserPlus,
   UserRound,
+  XCircle,
 } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 
-import { api, type AdvancedSettings, type BrokerStatus, type FriendlySettings, type OptOutRecord } from "./lib/api";
-import { useAdvancedSettings, useExtendedStats, useOptOuts, useSettings } from "./lib/queries";
+import {
+  api,
+  type AdvancedSettings,
+  type BrokerStatus,
+  type FriendlySettings,
+  type OptOutRecord,
+  type PendingWhitelistEntry,
+  type WhitelistEntry,
+} from "./lib/api";
+import {
+  useAdvancedSettings,
+  useExtendedStats,
+  useOptOuts,
+  usePendingWhitelist,
+  useSettings,
+  useWhitelist,
+} from "./lib/queries";
 import { cn } from "./lib/utils";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
@@ -89,6 +110,7 @@ export function App() {
                 <AppNavLink to="/">Overview</AppNavLink>
                 <AppNavLink to="/needs-attention">Needs Attention</AppNavLink>
                 <AppNavLink to="/brokers">Brokers</AppNavLink>
+                <AppNavLink to="/trusted-senders">Trusted Senders</AppNavLink>
                 <AppNavLink to="/settings">Settings</AppNavLink>
               </nav>
               <Button asChild variant="outline" size="sm">
@@ -583,6 +605,328 @@ function SuccessMessage({ message }: { message: string }) {
     <div className="flex items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-primary">
       <Check className="h-4 w-4" />
       {message}
+    </div>
+  );
+}
+
+export function TrustedSendersPage() {
+  const queryClient = useQueryClient();
+  const whitelistQuery = useWhitelist();
+  const pendingQuery = usePendingWhitelist();
+  const [brokerId, setBrokerId] = useState("");
+  const [email, setEmail] = useState("");
+  const trustedSenders = useMemo(
+    () => [...(whitelistQuery.data ?? [])].sort((a, b) => a.email.localeCompare(b.email)),
+    [whitelistQuery.data],
+  );
+  const manualCount = trustedSenders.filter((entry) => entry.source === "manual").length;
+  const registryCount = trustedSenders.length - manualCount;
+  const pendingSenders = pendingQuery.data ?? [];
+
+  const addMutation = useMutation({
+    mutationFn: api.addWhitelist,
+    onSuccess: async () => {
+      setBrokerId("");
+      setEmail("");
+      await queryClient.invalidateQueries({ queryKey: ["whitelist"] });
+    },
+  });
+  const deleteMutation = useMutation({
+    mutationFn: api.deleteWhitelist,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["whitelist"] });
+    },
+  });
+  const approveMutation = useMutation({
+    mutationFn: api.approvePendingWhitelist,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["whitelist"] }),
+        queryClient.invalidateQueries({ queryKey: ["pending-whitelist"] }),
+      ]);
+    },
+  });
+  const rejectMutation = useMutation({
+    mutationFn: api.rejectPendingWhitelist,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["pending-whitelist"] });
+    },
+  });
+
+  function addTrustedSender(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedBrokerId = brokerId.trim();
+    const trimmedEmail = email.trim();
+    if (!trimmedBrokerId || !trimmedEmail) {
+      return;
+    }
+    addMutation.mutate({ broker_id: trimmedBrokerId, email: trimmedEmail });
+  }
+
+  function removeTrustedSender(entry: WhitelistEntry) {
+    if (entry.source === "registry") {
+      return;
+    }
+    const confirmed = window.confirm(`Remove ${entry.email} from trusted senders?`);
+    if (confirmed) {
+      deleteMutation.mutate(entry.id);
+    }
+  }
+
+  function refreshTrustedSenders() {
+    void whitelistQuery.refetch();
+    void pendingQuery.refetch();
+  }
+
+  const loadError = whitelistQuery.error ?? pendingQuery.error;
+  const mutationError = addMutation.error ?? deleteMutation.error ?? approveMutation.error ?? rejectMutation.error;
+  const loading = whitelistQuery.isLoading || pendingQuery.isLoading;
+
+  return (
+    <section className="mx-auto grid max-w-6xl gap-5 px-5 py-6 sm:px-6 lg:px-8">
+      {loadError ? <ApiError message={loadError.message} /> : null}
+      {mutationError ? <ApiError message={mutationError.message} /> : null}
+
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-normal">Trusted Senders</h2>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            Smokescreen only processes replies from approved addresses. Review newly detected senders here before their
+            messages are trusted.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={refreshTrustedSenders}>
+          <RefreshCcw className="h-4 w-4" />
+          Refresh
+        </Button>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-4">
+        <TrustMetric
+          icon={<ShieldCheck className="h-4 w-4" />}
+          label="Trusted senders"
+          value={loading ? "--" : trustedSenders.length}
+        />
+        <TrustMetric
+          icon={<AlertTriangle className="h-4 w-4" />}
+          label="Need review"
+          value={loading ? "--" : pendingSenders.length}
+        />
+        <TrustMetric
+          icon={<UserCheck className="h-4 w-4" />}
+          label="Broker list"
+          value={loading ? "--" : registryCount}
+        />
+        <TrustMetric
+          icon={<UserPlus className="h-4 w-4" />}
+          label="Added by you"
+          value={loading ? "--" : manualCount}
+        />
+      </div>
+
+      <Card>
+        <CardHeader className="items-start">
+          <div>
+            <CardTitle>Approve a sender</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">Add an address when you expect replies from it.</p>
+          </div>
+          <ShieldPlus className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <form className="grid gap-3 md:grid-cols-[1fr_1fr_auto]" onSubmit={addTrustedSender}>
+            <label className="grid gap-1 text-sm font-medium">
+              Broker ID
+              <input
+                className="h-10 rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                value={brokerId}
+                onChange={(event) => setBrokerId(event.target.value)}
+                placeholder="spokeo"
+                autoComplete="off"
+              />
+            </label>
+            <label className="grid gap-1 text-sm font-medium">
+              Email address
+              <input
+                className="h-10 rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="privacy@example.com"
+                type="email"
+                autoComplete="email"
+              />
+            </label>
+            <Button
+              className="self-end"
+              disabled={addMutation.isPending || !brokerId.trim() || !email.trim()}
+              type="submit"
+            >
+              <ShieldPlus className="h-4 w-4" />
+              {addMutation.isPending ? "Adding" : "Add sender"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="items-start">
+          <div>
+            <CardTitle>Pending approvals</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Unknown reply addresses wait here until you trust or dismiss them.
+            </p>
+          </div>
+          <Badge variant={pendingSenders.length > 0 ? "destructive" : "secondary"}>{pendingSenders.length}</Badge>
+        </CardHeader>
+        <CardContent>
+          {!pendingQuery.isLoading && pendingSenders.length === 0 ? (
+            <div className="rounded-md border bg-muted/40 px-5 py-8 text-center">
+              <CheckCircle2 className="mx-auto h-9 w-9 text-primary" />
+              <p className="mt-3 text-sm font-medium">No sender approvals waiting.</p>
+            </div>
+          ) : null}
+
+          <div className="grid gap-3">
+            {pendingSenders.map((entry) => (
+              <PendingApprovalItem
+                key={entry.id}
+                entry={entry}
+                isApproving={approveMutation.isPending && approveMutation.variables === entry.id}
+                isRejecting={rejectMutation.isPending && rejectMutation.variables === entry.id}
+                onApprove={() => approveMutation.mutate(entry.id)}
+                onReject={() => rejectMutation.mutate(entry.id)}
+              />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="items-start">
+          <div>
+            <CardTitle>Trusted addresses</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Addresses that Smokescreen can use when matching broker replies.
+            </p>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-hidden rounded-md border">
+            <table className="w-full min-w-[760px] border-collapse text-sm">
+              <thead className="bg-muted/70 text-left text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Email</th>
+                  <th className="px-4 py-3 font-medium">Broker</th>
+                  <th className="px-4 py-3 font-medium">Source</th>
+                  <th className="px-4 py-3 font-medium">Added</th>
+                  <th className="px-4 py-3 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trustedSenders.map((entry) => (
+                  <tr key={entry.id} className="border-t">
+                    <td className="px-4 py-3 font-medium">{entry.email}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{entry.broker_id}</td>
+                    <td className="px-4 py-3">
+                      <Badge variant={entry.source === "registry" ? "secondary" : "outline"}>
+                        {sourceLabel(entry.source)}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{formatUpdatedAt(entry.added_at)}</td>
+                    <td className="px-4 py-3">
+                      {entry.source === "manual" ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => removeTrustedSender(entry)}
+                          disabled={deleteMutation.isPending && deleteMutation.variables === entry.id}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          {deleteMutation.isPending && deleteMutation.variables === entry.id ? "Removing" : "Remove"}
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Synced from broker list</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {!whitelistQuery.isLoading && trustedSenders.length === 0 ? (
+                  <tr>
+                    <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                      No trusted senders yet.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+function sourceLabel(source: WhitelistEntry["source"]): string {
+  return source === "registry" ? "Broker list" : "Added by you";
+}
+
+function TrustMetric({ icon, label, value }: { icon: ReactNode; label: string; value: number | string }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{label}</CardTitle>
+        {icon}
+      </CardHeader>
+      <CardContent>
+        <p className="text-2xl font-semibold">{value}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PendingApprovalItem({
+  entry,
+  isApproving,
+  isRejecting,
+  onApprove,
+  onReject,
+}: {
+  entry: PendingWhitelistEntry;
+  isApproving: boolean;
+  isRejecting: boolean;
+  onApprove: () => void;
+  onReject: () => void;
+}) {
+  return (
+    <div className="rounded-md border bg-background p-4">
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="break-words text-sm font-semibold">{entry.email}</p>
+            <Badge variant="outline">{entry.broker_id ?? "Unknown broker"}</Badge>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">Detected {formatUpdatedAt(entry.detected_at)}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button size="sm" onClick={onApprove} disabled={isApproving || isRejecting}>
+            <UserCheck className="h-4 w-4" />
+            {isApproving ? "Approving" : "Trust"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={onReject} disabled={isApproving || isRejecting}>
+            <XCircle className="h-4 w-4" />
+            {isRejecting ? "Dismissing" : "Dismiss"}
+          </Button>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-md border bg-muted/40 p-3">
+          <p className="text-xs font-medium uppercase text-muted-foreground">Subject</p>
+          <p className="mt-1 break-words text-sm">{entry.message_subject || "No subject saved"}</p>
+        </div>
+        <div className="rounded-md border bg-muted/40 p-3">
+          <p className="text-xs font-medium uppercase text-muted-foreground">Preview</p>
+          <p className="mt-1 break-words text-sm">{entry.message_snippet || "No preview saved"}</p>
+        </div>
+      </div>
     </div>
   );
 }
