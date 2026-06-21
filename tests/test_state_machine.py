@@ -9,6 +9,7 @@ from smokescreen.state.machine import InvalidTransition, validate_transition
 def test_valid_transitions():
     validate_transition(BrokerStatus.PENDING, BrokerStatus.INITIAL_SENT)
     validate_transition(BrokerStatus.INITIAL_SENT, BrokerStatus.AWAITING_RESPONSE)
+    validate_transition(BrokerStatus.INITIAL_SENT, BrokerStatus.IDENTITY_REQUESTED)
     validate_transition(BrokerStatus.AWAITING_RESPONSE, BrokerStatus.COMPLETED)
     validate_transition(BrokerStatus.AWAITING_RESPONSE, BrokerStatus.IDENTITY_REQUESTED)
     validate_transition(BrokerStatus.IDENTITY_REQUESTED, BrokerStatus.IDENTITY_SENT)

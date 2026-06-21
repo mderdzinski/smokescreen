@@ -7,7 +7,11 @@ from smokescreen.models import BrokerStatus
 # Explicit transition table: current_state -> set of valid next states
 TRANSITIONS: dict[BrokerStatus, set[BrokerStatus]] = {
     BrokerStatus.PENDING: {BrokerStatus.INITIAL_SENT, BrokerStatus.FAILED},
-    BrokerStatus.INITIAL_SENT: {BrokerStatus.AWAITING_RESPONSE, BrokerStatus.FAILED},
+    BrokerStatus.INITIAL_SENT: {
+        BrokerStatus.AWAITING_RESPONSE,
+        BrokerStatus.IDENTITY_REQUESTED,
+        BrokerStatus.FAILED,
+    },
     BrokerStatus.AWAITING_RESPONSE: {
         BrokerStatus.IDENTITY_REQUESTED,
         BrokerStatus.COMPLETED,

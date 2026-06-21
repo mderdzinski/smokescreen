@@ -1,6 +1,6 @@
 """Tests for polling broker reply threads."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from smokescreen.brokers.registry import BrokerRegistry
 from smokescreen.config import Settings
@@ -307,6 +307,59 @@ def test_process_thread_sends_identity_reply_with_attachments(tmp_path):
     assert updated.status == BrokerStatus.IDENTITY_SENT
     assert updated.retries == 1
     assert updated.last_message_id == "sent-identity"
+    store.close()
+
+
+def test_run_poll_handles_first_reply_identity_request(tmp_path):
+    settings = _settings(
+        tmp_path,
+        anthropic_api_key="test-key",
+        dry_run=True,
+        poll_label="",
+    )
+    store = SQLiteStore(settings.sqlite_path)
+    store.upsert(
+        OptOutRecord(
+            broker_id="labeled",
+            status=BrokerStatus.INITIAL_SENT,
+            thread_id="alpha-thread",
+            last_message_id="alpha-sent",
+        )
+    )
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="caseworker@vendor.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "alpha-thread": [
+                EmailMessage(
+                    message_id="alpha-sent",
+                    thread_id="alpha-thread",
+                    sender="me@example.com",
+                    subject="Opt out request",
+                    body="Please remove me.",
+                ),
+                EmailMessage(
+                    message_id="alpha-vendor",
+                    thread_id="alpha-thread",
+                    sender="caseworker@vendor.example",
+                    subject="Identity verification",
+                    body="Please send a copy of your ID.",
+                ),
+            ]
+        }
+    )
+
+    with patch("smokescreen.jobs.poll.Anthropic") as anthropic:
+        anthropic.return_value = _mock_anthropic("IDENTITY_REQUEST")
+        processed = run_poll(settings, _registry(), store, gmail=gmail)
+
+    assert processed == ["labeled"]
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.IDENTITY_SENT
+    assert updated.retries == 1
+    assert updated.last_message_id == "alpha-vendor"
+    assert gmail.sent_messages == []
     store.close()
 
 
