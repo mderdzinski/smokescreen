@@ -17,7 +17,6 @@ import {
   X,
 } from "lucide-react";
 
-import { ApiError } from "../App";
 import {
   api,
   type Broker,
@@ -31,6 +30,7 @@ import { cn } from "../lib/utils";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { EmptyState, ErrorState, LoadingState } from "../components/status-state";
 
 interface BrokerFormState {
   id: string;
@@ -212,6 +212,9 @@ export function BrokerRegistryPage() {
     updateMutation.error?.message ??
     deleteMutation.error?.message ??
     importMutation.error?.message;
+  const retryBrokers = () => {
+    void brokersQuery.refetch();
+  };
 
   function updateFormField(field: keyof BrokerFormState, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -276,7 +279,17 @@ export function BrokerRegistryPage() {
 
   return (
     <section className="mx-auto grid max-w-6xl gap-5 px-5 py-6 sm:px-6 lg:px-8">
-      {activeError ? <ApiError message={activeError} /> : null}
+      {activeError ? (
+        <ErrorState
+          description={
+            formError
+              ? formError
+              : "Smokescreen could not load or update the broker registry. Refresh the list before trying again."
+          }
+          onAction={formError ? () => setFormError(null) : retryBrokers}
+          title={formError ? "Broker details need attention" : "Broker registry is unavailable"}
+        />
+      ) : null}
 
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
@@ -289,7 +302,7 @@ export function BrokerRegistryPage() {
           variant="outline"
           size="sm"
           onClick={() => {
-            void brokersQuery.refetch();
+            retryBrokers();
           }}
         >
           <RefreshCcw className="h-4 w-4" />
@@ -311,14 +324,16 @@ export function BrokerRegistryPage() {
             />
           </div>
 
+          {brokersQuery.isLoading ? (
+            <LoadingState description="Loading brokers and opt-out contact details." title="Loading brokers" />
+          ) : null}
+
           {!brokersQuery.isLoading && filteredBrokers.length === 0 ? (
-            <div className="rounded-md border bg-card px-6 py-12 text-center">
-              <Search className="mx-auto h-10 w-10 text-muted-foreground" />
-              <h3 className="mt-4 text-lg font-semibold tracking-normal">No brokers found</h3>
-              <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-                Adjust the search or add a broker with the form on this page.
-              </p>
-            </div>
+            <EmptyState
+              description="Adjust the search or add a broker with the form on this page."
+              icon={<Search className="h-5 w-5" />}
+              title="No brokers found"
+            />
           ) : null}
 
           <div className="grid gap-3">

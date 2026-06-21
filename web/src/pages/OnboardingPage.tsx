@@ -16,12 +16,12 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-import { ApiError } from "../App";
 import { api, type Broker } from "../lib/api";
 import { useAdvancedSettings, useBrokers, useSettings } from "../lib/queries";
 import { cn } from "../lib/utils";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { EmptyState, ErrorState, LoadingState } from "../components/status-state";
 
 const ONBOARDING_STEP_KEY = "smokescreen:onboarding-step";
 const ONBOARDING_COMPLETE_KEY = "smokescreen:onboarding-complete";
@@ -103,6 +103,11 @@ export function OnboardingPage() {
     settingsQuery.error?.message ??
     advancedSettingsQuery.error?.message ??
     brokersQuery.error?.message;
+  const retryOnboarding = () => {
+    void settingsQuery.refetch();
+    void advancedSettingsQuery.refetch();
+    void brokersQuery.refetch();
+  };
 
   const updateSettingsMutation = useMutation({
     mutationFn: api.updateSettings,
@@ -200,9 +205,27 @@ export function OnboardingPage() {
 
   return (
     <section className="mx-auto grid max-w-6xl gap-5 px-5 py-6 sm:px-6 lg:px-8">
-      {activeError ? <ApiError message={activeError} /> : null}
-      {updateSettingsMutation.error ? <ApiError message={updateSettingsMutation.error.message} /> : null}
-      {outreachMutation.error ? <ApiError message={outreachMutation.error.message} /> : null}
+      {activeError ? (
+        <ErrorState
+          description="Smokescreen could not load setup details from the local API. Refresh setup after checking that the service is running."
+          onAction={retryOnboarding}
+          title="Setup details are unavailable"
+        />
+      ) : null}
+      {updateSettingsMutation.error ? (
+        <ErrorState
+          description="Smokescreen could not save that setup step. Check the fields and try again."
+          onAction={() => updateSettingsMutation.reset()}
+          title="Setup was not saved"
+        />
+      ) : null}
+      {outreachMutation.error ? (
+        <ErrorState
+          description="Smokescreen could not start the first batch. Refresh the broker list before trying again."
+          onAction={retryOnboarding}
+          title="First batch did not start"
+        />
+      ) : null}
 
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
@@ -373,7 +396,12 @@ export function OnboardingPage() {
                 aria-label="Search brokers"
               />
             </div>
-            <Button variant="outline" type="button" onClick={selectAllFiltered} disabled={filteredBrokers.length === 0}>
+            <Button
+              variant="outline"
+              type="button"
+              onClick={selectAllFiltered}
+              disabled={brokersQuery.isLoading || filteredBrokers.length === 0}
+            >
               <Check className="h-4 w-4" />
               Select visible
             </Button>
@@ -383,6 +411,13 @@ export function OnboardingPage() {
           </div>
 
           <div className="mt-4 max-h-[420px] overflow-y-auto rounded-md border">
+            {brokersQuery.isLoading ? (
+              <LoadingState
+                className="border-0 bg-transparent py-12 shadow-none"
+                description="Loading the broker registry for your first batch."
+                title="Loading brokers"
+              />
+            ) : null}
             {filteredBrokers.map((broker) => {
               const selected = selectedBrokerIds.includes(broker.id);
               return (
@@ -407,16 +442,16 @@ export function OnboardingPage() {
               );
             })}
             {!brokersQuery.isLoading && filteredBrokers.length === 0 ? (
-              <div className="px-5 py-12 text-center">
-                <Search className="mx-auto h-9 w-9 text-muted-foreground" />
-                <h4 className="mt-3 text-base font-semibold tracking-normal">No brokers found</h4>
-                <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-                  Add brokers or clear the search before starting the first batch.
-                </p>
-                <Button asChild className="mt-4" variant="outline">
+              <EmptyState
+                className="border-0 bg-transparent py-12 shadow-none"
+                description="Add brokers or clear the search before starting the first batch."
+                icon={<Search className="h-5 w-5" />}
+                title="No brokers found"
+              >
+                <Button asChild variant="outline">
                   <Link to="/brokers">Open brokers</Link>
                 </Button>
-              </div>
+              </EmptyState>
             ) : null}
           </div>
 

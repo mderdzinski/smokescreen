@@ -48,6 +48,7 @@ import { cn } from "./lib/utils";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
+import { EmptyState, ErrorState, LoadingState } from "./components/status-state";
 
 type BrokerStatusGroup = "working" | "done" | "needs-attention";
 
@@ -194,10 +195,20 @@ export function OverviewPage() {
   const doneCount = groupedOptOuts.done.length;
   const attentionCount = groupedOptOuts["needs-attention"].length;
   const cta = primaryStatusCta({ attentionCount, totalCount, workingCount });
+  const retryOverview = () => {
+    void statsQuery.refetch();
+    void optOutsQuery.refetch();
+  };
 
   return (
     <section className="mx-auto grid max-w-6xl gap-6 px-5 py-6 sm:px-6 lg:px-8">
-      {error ? <ApiError message={error.message} /> : null}
+      {error ? (
+        <ErrorState
+          description="Smokescreen could not refresh broker status from the local API. Check that the service is running, then try again."
+          onAction={retryOverview}
+          title="Broker status is unavailable"
+        />
+      ) : null}
 
       <div className="rounded-md border bg-card p-5 shadow-sm sm:p-6">
         <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center">
@@ -226,10 +237,7 @@ export function OverviewPage() {
             </Button>
             <Button
               variant="outline"
-              onClick={() => {
-                void statsQuery.refetch();
-                void optOutsQuery.refetch();
-              }}
+              onClick={retryOverview}
             >
               <RefreshCcw className="h-4 w-4" />
               Refresh
@@ -417,6 +425,13 @@ function StatusGroup({
         <p className="mt-1 text-sm leading-6 text-muted-foreground">{copy.description}</p>
       </div>
 
+      {loading ? (
+        <LoadingState
+          className="bg-muted/30 py-8 shadow-none"
+          description={`Loading ${copy.title.toLowerCase()} broker requests.`}
+          title="Loading requests"
+        />
+      ) : null}
       {!loading && records.length === 0 ? <EmptyStatusGroup group={group} /> : null}
       {records.map((record) => (
         <BrokerStatusCard key={record.broker_id} record={record} />
@@ -466,9 +481,11 @@ function EmptyStatusGroup({ group }: { group: BrokerStatusGroup }) {
   }[group];
 
   return (
-    <div className="rounded-md border border-dashed bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground">
-      {emptyCopy}
-    </div>
+    <EmptyState
+      className="border-dashed bg-muted/30 px-4 py-8 shadow-none"
+      description={emptyCopy}
+      title="No items here"
+    />
   );
 }
 
@@ -507,6 +524,11 @@ export function SettingsPage() {
   const [advancedForm, setAdvancedForm] = useState<AdvancedForm>(emptyAdvancedForm);
   const [message, setMessage] = useState("");
   const error = settingsQuery.error ?? advancedQuery.error;
+  const settingsLoading = (settingsQuery.isLoading && !settings) || (advancedQuery.isLoading && !advancedSettings);
+  const retrySettings = () => {
+    void settingsQuery.refetch();
+    void advancedQuery.refetch();
+  };
 
   const updateMutation = useMutation({
     mutationFn: api.updateSettings,
@@ -585,8 +607,20 @@ export function SettingsPage() {
 
   return (
     <section className="mx-auto grid max-w-6xl gap-5 px-5 py-6 sm:px-6 lg:px-8">
-      {error ? <ApiError message={error.message} /> : null}
-      {updateMutation.error ? <ApiError message={updateMutation.error.message} /> : null}
+      {error ? (
+        <ErrorState
+          description="Smokescreen could not load your settings from the local API. Try refreshing before making changes."
+          onAction={retrySettings}
+          title="Settings are unavailable"
+        />
+      ) : null}
+      {updateMutation.error ? (
+        <ErrorState
+          description="Smokescreen could not save those settings. Review the fields and try again."
+          onAction={() => updateMutation.reset()}
+          title="Settings were not saved"
+        />
+      ) : null}
       {message ? <SuccessMessage message={message} /> : null}
 
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
@@ -600,16 +634,19 @@ export function SettingsPage() {
           variant="outline"
           size="sm"
           onClick={() => {
-            void settingsQuery.refetch();
-            void advancedQuery.refetch();
-          }}
+              retrySettings();
+            }}
         >
           <RefreshCcw className="h-4 w-4" />
           Refresh
         </Button>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      {settingsLoading ? (
+        <LoadingState description="Loading your identity, Gmail, Claude, and advanced settings." title="Loading settings" />
+      ) : null}
+
+      {!settingsLoading ? <div className="grid gap-4 lg:grid-cols-2">
         <SettingsCard
           icon={<UserRound className="h-5 w-5" />}
           title="Identity"
@@ -768,7 +805,7 @@ export function SettingsPage() {
             </CardContent>
           </details>
         </Card>
-      </div>
+      </div> : null}
     </section>
   );
 }
@@ -916,11 +953,27 @@ export function TrustedSendersPage() {
   const loadError = whitelistQuery.error ?? pendingQuery.error;
   const mutationError = addMutation.error ?? deleteMutation.error ?? approveMutation.error ?? rejectMutation.error;
   const loading = whitelistQuery.isLoading || pendingQuery.isLoading;
+  const retryTrustedSenders = () => {
+    void whitelistQuery.refetch();
+    void pendingQuery.refetch();
+  };
 
   return (
     <section className="mx-auto grid max-w-6xl gap-5 px-5 py-6 sm:px-6 lg:px-8">
-      {loadError ? <ApiError message={loadError.message} /> : null}
-      {mutationError ? <ApiError message={mutationError.message} /> : null}
+      {loadError ? (
+        <ErrorState
+          description="Smokescreen could not load trusted senders. Check the local API, then refresh this list."
+          onAction={retryTrustedSenders}
+          title="Trusted senders are unavailable"
+        />
+      ) : null}
+      {mutationError ? (
+        <ErrorState
+          description="Smokescreen could not update that sender. Try again, or refresh before making another change."
+          onAction={retryTrustedSenders}
+          title="Sender update did not finish"
+        />
+      ) : null}
 
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
@@ -1013,11 +1066,21 @@ export function TrustedSendersPage() {
           <Badge variant={pendingSenders.length > 0 ? "destructive" : "secondary"}>{pendingSenders.length}</Badge>
         </CardHeader>
         <CardContent>
+          {pendingQuery.isLoading ? (
+            <LoadingState
+              className="bg-muted/40 py-8 shadow-none"
+              description="Checking for newly detected reply addresses."
+              title="Loading pending senders"
+            />
+          ) : null}
+
           {!pendingQuery.isLoading && pendingSenders.length === 0 ? (
-            <div className="rounded-md border bg-muted/40 px-5 py-8 text-center">
-              <CheckCircle2 className="mx-auto h-9 w-9 text-primary" />
-              <p className="mt-3 text-sm font-medium">No sender approvals waiting.</p>
-            </div>
+            <EmptyState
+              className="bg-muted/40 py-8 shadow-none"
+              description="No sender approvals are waiting right now."
+              icon={<CheckCircle2 className="h-5 w-5" />}
+              title="All senders are reviewed"
+            />
           ) : null}
 
           <div className="grid gap-3">
@@ -1057,6 +1120,17 @@ export function TrustedSendersPage() {
                 </tr>
               </thead>
               <tbody>
+                {whitelistQuery.isLoading ? (
+                  <tr>
+                    <td className="px-4 py-8" colSpan={5}>
+                      <LoadingState
+                        className="border-0 bg-transparent py-2 shadow-none"
+                        description="Loading trusted addresses."
+                        title="Loading senders"
+                      />
+                    </td>
+                  </tr>
+                ) : null}
                 {trustedSenders.map((entry) => (
                   <tr key={entry.id} className="border-t">
                     <td className="px-4 py-3 font-medium">{entry.email}</td>
@@ -1086,8 +1160,12 @@ export function TrustedSendersPage() {
                 ))}
                 {!whitelistQuery.isLoading && trustedSenders.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
-                      No trusted senders yet.
+                    <td className="px-4 py-8" colSpan={5}>
+                      <EmptyState
+                        className="border-0 bg-transparent py-2 shadow-none"
+                        description="Trusted reply addresses will appear here after you add them or approve detected senders."
+                        title="No trusted senders yet"
+                      />
                     </td>
                   </tr>
                 ) : null}
@@ -1179,6 +1257,9 @@ export function NeedsAttentionPage() {
       ]);
     },
   });
+  const retryManual = () => {
+    void manualQuery.refetch();
+  };
 
   function resetRecord(record: OptOutRecord) {
     const confirmed = window.confirm(`Reset ${record.broker_name} to pending so Smokescreen can try again?`);
@@ -1189,8 +1270,20 @@ export function NeedsAttentionPage() {
 
   return (
     <section className="mx-auto grid max-w-6xl gap-5 px-5 py-6 sm:px-6 lg:px-8">
-      {manualQuery.error ? <ApiError message={manualQuery.error.message} /> : null}
-      {resetMutation.error ? <ApiError message={resetMutation.error.message} /> : null}
+      {manualQuery.error ? (
+        <ErrorState
+          description="Smokescreen could not load broker replies that need review. Refresh after checking the local API."
+          onAction={retryManual}
+          title="Needs-attention items are unavailable"
+        />
+      ) : null}
+      {resetMutation.error ? (
+        <ErrorState
+          description="Smokescreen could not reset that broker. Refresh the page before trying again."
+          onAction={retryManual}
+          title="Broker was not reset"
+        />
+      ) : null}
 
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
@@ -1203,7 +1296,7 @@ export function NeedsAttentionPage() {
           variant="outline"
           size="sm"
           onClick={() => {
-            void manualQuery.refetch();
+            retryManual();
           }}
         >
           <RefreshCcw className="h-4 w-4" />
@@ -1211,6 +1304,9 @@ export function NeedsAttentionPage() {
         </Button>
       </div>
 
+      {manualQuery.isLoading ? (
+        <LoadingState description="Checking for broker replies that need your review." title="Loading review queue" />
+      ) : null}
       {!manualQuery.isLoading && records.length === 0 ? <EmptyAttentionState /> : null}
 
       <div className="grid gap-4">
@@ -1287,22 +1383,19 @@ function AttentionFact({ icon, label, value }: { icon: ReactNode; label: string;
 
 function EmptyAttentionState() {
   return (
-    <div className="rounded-md border bg-card px-6 py-12 text-center">
-      <CheckCircle2 className="mx-auto h-10 w-10 text-primary" />
-      <h2 className="mt-4 text-xl font-semibold tracking-normal">Nothing needs your attention</h2>
-      <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-        Smokescreen is handling replies on its own. If a broker sends something confusing or asks you to step in, it will
-        show up here.
-      </p>
-    </div>
+    <EmptyState
+      description="Smokescreen is handling replies on its own. If a broker sends something confusing or asks you to step in, it will show up here."
+      icon={<CheckCircle2 className="h-5 w-5" />}
+      title="Nothing needs your attention"
+    />
   );
 }
 
 export function ApiError({ message }: { message: string }) {
   return (
-    <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-      <AlertTriangle className="h-4 w-4" />
-      API unavailable: {message}
-    </div>
+    <ErrorState
+      description={message ? "Smokescreen could not complete that request. Refresh the view and try again." : "Smokescreen could not complete that request."}
+      title="Request unavailable"
+    />
   );
 }
