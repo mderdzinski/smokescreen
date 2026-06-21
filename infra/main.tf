@@ -221,6 +221,8 @@ resource "google_cloud_scheduler_job" "poll_schedule" {
   schedule = "*/10 * * * *"
   region   = var.region
 
+  depends_on = [google_cloud_run_v2_job_iam_member.poll_scheduler_invoker]
+
   http_target {
     uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/smokescreen-poll:run"
     http_method = "POST"
@@ -236,6 +238,8 @@ resource "google_cloud_scheduler_job" "outreach_schedule" {
   schedule = "0 9 * * *"
   region   = var.region
 
+  depends_on = [google_cloud_run_v2_job_iam_member.outreach_scheduler_invoker]
+
   http_target {
     uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/smokescreen-outreach:run"
     http_method = "POST"
@@ -246,9 +250,19 @@ resource "google_cloud_scheduler_job" "outreach_schedule" {
   }
 }
 
-# Allow scheduler SA to invoke Cloud Run jobs
-resource "google_project_iam_member" "scheduler_invoker" {
-  project = var.project_id
-  role    = "roles/run.invoker"
-  member  = "serviceAccount:${google_service_account.smokescreen.email}"
+# Allow scheduler SA to invoke only the Smokescreen Cloud Run jobs.
+resource "google_cloud_run_v2_job_iam_member" "poll_scheduler_invoker" {
+  project  = var.project_id
+  location = google_cloud_run_v2_job.poll_and_reply.location
+  name     = google_cloud_run_v2_job.poll_and_reply.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.smokescreen.email}"
+}
+
+resource "google_cloud_run_v2_job_iam_member" "outreach_scheduler_invoker" {
+  project  = var.project_id
+  location = google_cloud_run_v2_job.outreach.location
+  name     = google_cloud_run_v2_job.outreach.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.smokescreen.email}"
 }
