@@ -620,19 +620,12 @@ ADVANCED_SETTINGS_FIELDS: tuple[str, ...] = (
 class SettingsUpdate(BaseModel):
     model_config = {"extra": "forbid"}
 
-    gmail_credentials_path: str | None = None
-    gmail_token_path: str | None = None
     gmail_credentials_json: str | None = None
     gmail_token_json: str | None = None
-    gmail_oauth_interactive: bool | None = None
     sender_email: str | None = None
     sender_name: str | None = None
     anthropic_api_key: str | None = None
     anthropic_model: str | None = None
-    state_backend: str | None = None
-    sqlite_path: str | None = None
-    firestore_project: str | None = None
-    firestore_collection: str | None = None
     identity_docs_dir: str | None = None
     max_retries: int | None = None
     poll_label: str | None = None

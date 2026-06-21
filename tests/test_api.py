@@ -555,14 +555,33 @@ def test_put_settings_saves_to_file(settings_client):
     assert file_data["poll_label"] == "custom-label"
 
 
-def test_put_settings_restart_required(settings_client):
+def test_put_settings_restart_required_for_ui_field(settings_client):
     client, _ = settings_client
     resp = client.put(
         "/api/settings",
-        json={"state_backend": "firestore"},
+        json={"sender_email": "updated@example.com"},
     )
     assert resp.status_code == 200
     assert resp.json()["restart_required"] is True
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("state_backend", "firestore"),
+        ("sqlite_path", "/tmp/smokescreen.db"),
+        ("firestore_project", "test-project"),
+        ("firestore_collection", "test-collection"),
+        ("gmail_credentials_path", "/tmp/credentials.json"),
+        ("gmail_token_path", "/tmp/token.json"),
+        ("gmail_oauth_interactive", False),
+    ],
+)
+def test_put_settings_rejects_infrastructure_fields(settings_client, field, value):
+    client, settings_file = settings_client
+    resp = client.put("/api/settings", json={field: value})
+    assert resp.status_code == 422
+    assert not settings_file.exists()
 
 
 def test_put_settings_restart_not_required(settings_client):
