@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
@@ -34,6 +34,11 @@ app = FastAPI(title="Smokescreen Dashboard", version="0.1.0")
 _static_dir = Path(__file__).parent / "static"
 if _static_dir.is_dir():
     app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+
+_web_dist_dir = Path(__file__).parent / "web_dist"
+_web_assets_dir = _web_dist_dir / "assets"
+if _web_assets_dir.is_dir():
+    app.mount("/app/assets", StaticFiles(directory=_web_assets_dir), name="app-assets")
 
 _store: StateStore | None = None
 _registry: BrokerRegistry | None = None
@@ -118,6 +123,28 @@ class StatsResponse(BaseModel):
 async def dashboard():
     html_path = Path(__file__).parent / "dashboard.html"
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
+
+@app.get("/old-dashboard", response_class=HTMLResponse)
+async def old_dashboard():
+    html_path = Path(__file__).parent / "dashboard.html"
+    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
+
+@app.get("/app", include_in_schema=False)
+async def react_app_redirect():
+    return RedirectResponse(url="/app/")
+
+
+@app.get("/app/{path:path}", response_class=HTMLResponse, include_in_schema=False)
+async def react_app(path: str):
+    index_path = _web_dist_dir / "index.html"
+    if not index_path.is_file():
+        raise HTTPException(
+            503,
+            "React app has not been built. Run `npm --prefix web run build` first.",
+        )
+    return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
 
 
 # --- Broker endpoints ---

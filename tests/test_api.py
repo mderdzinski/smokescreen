@@ -61,6 +61,18 @@ def test_dashboard_returns_html(client):
     assert "Smokescreen Dashboard" in resp.text
 
 
+def test_old_dashboard_returns_html(client):
+    resp = client.get("/old-dashboard")
+    assert resp.status_code == 200
+    assert "Smokescreen Dashboard" in resp.text
+
+
+def test_react_app_redirect(client):
+    resp = client.get("/app", follow_redirects=False)
+    assert resp.status_code == 307
+    assert resp.headers["location"] == "/app/"
+
+
 # --- Broker endpoints ---
 
 

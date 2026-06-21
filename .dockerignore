@@ -1,0 +1,15 @@
+.git/
+.runtime/
+.beads/
+.logs/
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.db
+credentials.json
+token.json
+identity/
+web/node_modules/
+web/.vite/
+src/smokescreen/web_dist/

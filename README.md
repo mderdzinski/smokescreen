@@ -43,6 +43,14 @@ smokescreen serve
 # Opens at http://127.0.0.1:8000
 ```
 
+For the React rewrite foundation, run both the FastAPI API and Vite frontend:
+
+```bash
+scripts/dev.sh
+# React app: http://127.0.0.1:5173/app
+# FastAPI API and legacy dashboard: http://127.0.0.1:8000
+```
+
 ## Gmail setup
 
 ### Local development
@@ -99,6 +107,10 @@ The web dashboard provides a UI for monitoring and managing the opt-out process:
 smokescreen serve                    # default: http://127.0.0.1:8000
 smokescreen serve --host 0.0.0.0 --port 9000
 ```
+
+The legacy dashboard remains at `/` and `/old-dashboard` during the React rewrite.
+After building the frontend with `npm --prefix web run build`, `smokescreen serve`
+also serves the React app at `/app`.
 
 **Tabs:**
 

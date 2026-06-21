@@ -194,6 +194,13 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+# Frontend
+web/node_modules/
+web/.vite/
+src/smokescreen/web_dist/
+!web/src/lib/
+!web/src/lib/**
+
 # PyPI configuration file
 .pypirc
 
