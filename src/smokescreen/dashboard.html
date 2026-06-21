@@ -629,7 +629,11 @@ let _apiKeyEditing = false;
 let _currentSettings = {};
 
 async function loadSettings() {
-  const data = await api('/api/settings');
+  const [settings, advancedSettings] = await Promise.all([
+    api('/api/settings'),
+    api('/api/settings/advanced')
+  ]);
+  const data = { ...advancedSettings, ...settings };
   _currentSettings = data;
   for (const field of SETTINGS_FIELDS) {
     const el = document.getElementById('s-' + field);

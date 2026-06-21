@@ -79,7 +79,7 @@ class Settings(BaseSettings):
         description="State backend: 'sqlite' or 'firestore'",
     )
     sqlite_path: Path = Field(
-        default=Path("smokescreen.db"),
+        default_factory=lambda: Path.home() / ".smokescreen" / "data.db",
         description="Path to SQLite database (local dev)",
     )
     firestore_project: str = Field(

@@ -453,6 +453,31 @@ async def reject_pending(entry_id: int):
 # --- Settings endpoints ---
 
 
+FRIENDLY_SETTINGS_FIELDS: tuple[str, ...] = (
+    "sender_email",
+    "sender_name",
+    "anthropic_api_key",
+    "anthropic_model",
+    "identity_docs_dir",
+    "max_retries",
+    "poll_label",
+    "dry_run",
+    "rerequest_interval_days",
+)
+
+ADVANCED_SETTINGS_FIELDS: tuple[str, ...] = (
+    "gmail_credentials_path",
+    "gmail_token_path",
+    "gmail_credentials_json",
+    "gmail_token_json",
+    "gmail_oauth_interactive",
+    "state_backend",
+    "sqlite_path",
+    "firestore_project",
+    "firestore_collection",
+)
+
+
 class SettingsUpdate(BaseModel):
     model_config = {"extra": "forbid"}
 
@@ -476,11 +501,11 @@ class SettingsUpdate(BaseModel):
     rerequest_interval_days: int | None = None
 
 
-@app.get("/api/settings")
-async def get_settings_endpoint():
-    settings = get_settings_obj()
+def _settings_response(
+    settings: Settings, field_names: tuple[str, ...]
+) -> dict[str, Any]:
     data: dict[str, Any] = {}
-    for field_name in Settings.model_fields:
+    for field_name in field_names:
         value = getattr(settings, field_name)
         if isinstance(value, Path):
             value = str(value)
@@ -488,6 +513,16 @@ async def get_settings_endpoint():
             value = _mask_value(str(value))
         data[field_name] = value
     return data
+
+
+@app.get("/api/settings")
+async def get_settings_endpoint():
+    return _settings_response(get_settings_obj(), FRIENDLY_SETTINGS_FIELDS)
+
+
+@app.get("/api/settings/advanced")
+async def get_advanced_settings_endpoint():
+    return _settings_response(get_settings_obj(), ADVANCED_SETTINGS_FIELDS)
 
 
 @app.put("/api/settings")
