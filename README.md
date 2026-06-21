@@ -37,20 +37,50 @@ smokescreen status
 
 # Reset a broker to try again
 smokescreen reset spokeo
-
-# Build and start the web dashboard
-npm --prefix web ci
-npm --prefix web run build
-smokescreen serve
-# Opens at http://127.0.0.1:8000
 ```
 
-For local UI development, run both the FastAPI API and Vite frontend:
+## Local dashboard
+
+Install both the Python app and React dashboard dependencies before launching
+locally:
 
 ```bash
-scripts/dev.sh
-# React app: http://127.0.0.1:5173
-# FastAPI API and legacy dashboard: http://127.0.0.1:8000
+uv sync
+npm --prefix web install
+```
+
+Use split dev mode for day-to-day React work. This starts FastAPI on
+`http://127.0.0.1:8000` and Vite on `http://127.0.0.1:5173`; open the React app
+at the Vite URL. Vite proxies `/api` and `/old-dashboard` to FastAPI.
+
+```bash
+./scripts/dev.sh
+```
+
+Use production-style local mode to verify the built React bundle served by the
+FastAPI app. Open `http://127.0.0.1:8000` after the server starts.
+
+```bash
+npm --prefix web run build
+smokescreen serve
+```
+
+The React dashboard is the default UI at `/`. The old HTML dashboard remains
+available at `/old-dashboard`, and the former `/app` mount redirects to `/`.
+
+For verification, run the full project check before handing off changes when
+Docker is available:
+
+```bash
+./scripts/check
+```
+
+For a lighter local check while iterating on the dashboard, run:
+
+```bash
+uv run --extra dev ruff check src/ tests/
+uv run --extra dev pytest tests/ -v
+npm --prefix web run build
 ```
 
 ## Gmail setup
@@ -109,23 +139,6 @@ The web dashboard provides a UI for monitoring and managing the opt-out process:
 smokescreen serve                    # default: http://127.0.0.1:8000
 smokescreen serve --host 0.0.0.0 --port 9000
 ```
-
-The React dashboard is the default UI at `/`. Build it before serving from the
-Python app:
-
-```bash
-npm --prefix web ci
-npm --prefix web run build
-smokescreen serve                    # React UI: http://127.0.0.1:8000
-```
-
-The old HTML dashboard remains available at `/old-dashboard`. The former `/app`
-mount redirects to `/`, and `/app/<route>` redirects to the matching root route
-such as `/needs-attention`.
-
-For day-to-day frontend work, `scripts/dev.sh` starts FastAPI on
-`127.0.0.1:8000` and Vite on `127.0.0.1:5173`. Vite serves the React app at `/`
-and proxies `/api` plus `/old-dashboard` to FastAPI.
 
 **Tabs:**
 
