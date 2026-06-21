@@ -51,7 +51,7 @@ npm --prefix web install
 
 Use split dev mode for day-to-day React work. This starts FastAPI on
 `http://127.0.0.1:8000` and Vite on `http://127.0.0.1:5173`; open the React app
-at the Vite URL. Vite proxies `/api` and `/old-dashboard` to FastAPI.
+at the Vite URL. Vite proxies `/api` to FastAPI.
 
 ```bash
 ./scripts/dev.sh
@@ -65,8 +65,8 @@ npm --prefix web run build
 smokescreen serve
 ```
 
-The React dashboard is the default UI at `/`. The old HTML dashboard remains
-available at `/old-dashboard`, and the former `/app` mount redirects to `/`.
+The React dashboard is the default UI at `/`, and the former `/app` mount
+redirects to `/`.
 
 For verification, run the full project check before handing off changes when
 Docker is available:
@@ -369,7 +369,7 @@ The dashboard server exposes a REST API:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/` | Dashboard HTML |
+| `GET` | `/` | React dashboard |
 | `GET` | `/api/brokers` | List all brokers |
 | `POST` | `/api/brokers` | Add a broker |
 | `PUT` | `/api/brokers/{id}` | Update a broker |
@@ -393,8 +393,7 @@ src/smokescreen/
     cli.py              # Click CLI (outreach, poll, status, reset, serve)
     config.py           # Pydantic Settings with JSON file persistence
     models.py           # Domain models
-    api.py              # FastAPI REST API + dashboard
-    dashboard.html      # Single-page dashboard UI
+    api.py              # FastAPI REST API + React dashboard serving
     brokers/
         registry.py     # Broker lookup
         brokers.yaml    # Broker definitions

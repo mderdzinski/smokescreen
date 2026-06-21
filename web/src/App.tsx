@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock3,
-  ExternalLink,
   Inbox,
   KeyRound,
   Mail,
@@ -158,22 +157,14 @@ export function App() {
                 Track privacy opt-out requests without managing the underlying workflow.
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <nav className="flex items-center gap-1 rounded-md border bg-background p-1">
-                <AppNavLink to="/">Status</AppNavLink>
-                <AppNavLink to="/onboarding">Setup</AppNavLink>
-                <AppNavLink to="/needs-attention">Needs Attention</AppNavLink>
-                <AppNavLink to="/brokers">Brokers</AppNavLink>
-                <AppNavLink to="/trusted-senders">Trusted Senders</AppNavLink>
-                <AppNavLink to="/settings">Settings</AppNavLink>
-              </nav>
-              <Button asChild variant="outline" size="sm">
-                <a href="/old-dashboard">
-                  <ExternalLink className="h-4 w-4" />
-                  Old dashboard
-                </a>
-              </Button>
-            </div>
+            <nav className="flex flex-wrap items-center gap-1 rounded-md border bg-background p-1">
+              <AppNavLink to="/">Status</AppNavLink>
+              <AppNavLink to="/onboarding">Setup</AppNavLink>
+              <AppNavLink to="/needs-attention">Needs Attention</AppNavLink>
+              <AppNavLink to="/brokers">Brokers</AppNavLink>
+              <AppNavLink to="/trusted-senders">Trusted Senders</AppNavLink>
+              <AppNavLink to="/settings">Settings</AppNavLink>
+            </nav>
           </div>
         </div>
       </section>

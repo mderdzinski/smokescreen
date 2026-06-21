@@ -138,12 +138,6 @@ async def dashboard():
     return _react_index_response()
 
 
-@app.get("/old-dashboard", response_class=HTMLResponse)
-async def old_dashboard():
-    html_path = Path(__file__).parent / "dashboard.html"
-    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
-
-
 @app.get("/app", include_in_schema=False)
 async def react_app_redirect():
     return RedirectResponse(url="/")
@@ -624,6 +618,6 @@ async def update_settings(update: SettingsUpdate):
 
 @app.get("/{path:path}", response_class=HTMLResponse, include_in_schema=False)
 async def react_app_fallback(path: str):
-    if path.startswith(("api/", "assets/", "static/")):
+    if path == "old-dashboard" or path.startswith(("api/", "assets/", "static/")):
         raise HTTPException(404, "Not found")
     return _react_index_response()
