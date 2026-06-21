@@ -1,14 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
-  Activity,
   AlertTriangle,
+  ArrowRight,
   Brain,
   Check,
   CheckCircle2,
   ChevronDown,
   Clock3,
-  Database,
   ExternalLink,
   Inbox,
   KeyRound,
@@ -50,28 +49,76 @@ import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 
-const ONBOARDING_COMPLETE_KEY = "smokescreen:onboarding-complete";
+type BrokerStatusGroup = "working" | "done" | "needs-attention";
 
-function formatStatus(status: string): string {
-  return status
-    .toLowerCase()
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+interface BrokerStatusCopy {
+  group: BrokerStatusGroup;
+  label: string;
+  description: string;
 }
 
-function statusVariant(status: BrokerStatus): "default" | "secondary" | "destructive" | "outline" {
-  if (status === "COMPLETED") {
-    return "default";
-  }
-  if (status === "FAILED" || status === "NEEDS_MANUAL") {
-    return "destructive";
-  }
-  if (status === "PENDING") {
-    return "outline";
-  }
-  return "secondary";
-}
+const brokerStatusCopy: Record<BrokerStatus, BrokerStatusCopy> = {
+  PENDING: {
+    group: "working",
+    label: "Queued",
+    description: "Smokescreen is preparing the removal request.",
+  },
+  INITIAL_SENT: {
+    group: "working",
+    label: "Request sent",
+    description: "The broker has the opt-out request.",
+  },
+  AWAITING_RESPONSE: {
+    group: "working",
+    label: "Waiting on broker",
+    description: "Smokescreen is watching for the broker's reply.",
+  },
+  IDENTITY_REQUESTED: {
+    group: "working",
+    label: "Identity requested",
+    description: "The broker asked for identity details before continuing.",
+  },
+  IDENTITY_SENT: {
+    group: "working",
+    label: "Identity sent",
+    description: "Smokescreen sent the requested identity details.",
+  },
+  COMPLETED: {
+    group: "done",
+    label: "Removed",
+    description: "The broker marked the opt-out request complete.",
+  },
+  REJECTED: {
+    group: "needs-attention",
+    label: "Blocked by broker",
+    description: "The broker declined the request and needs review.",
+  },
+  NEEDS_MANUAL: {
+    group: "needs-attention",
+    label: "Needs review",
+    description: "Smokescreen needs you to review the broker's reply.",
+  },
+  FAILED: {
+    group: "needs-attention",
+    label: "Could not finish",
+    description: "Smokescreen could not complete this request automatically.",
+  },
+};
+
+const statusGroupLabels: Record<BrokerStatusGroup, { title: string; description: string }> = {
+  working: {
+    title: "Working",
+    description: "Requests Smokescreen is sending, tracking, or following up on.",
+  },
+  done: {
+    title: "Done",
+    description: "Brokers that have confirmed removal or completion.",
+  },
+  "needs-attention": {
+    title: "Needs attention",
+    description: "Items that need a human review before Smokescreen can continue.",
+  },
+};
 
 function formatUpdatedAt(value: string): string {
   return new Date(value).toLocaleString(undefined, {
@@ -105,11 +152,14 @@ export function App() {
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
             <div>
               <p className="text-sm font-medium text-muted-foreground">Smokescreen</p>
-              <h1 className="mt-1 text-3xl font-semibold tracking-normal">Privacy opt-out control center</h1>
+              <h1 className="mt-1 text-3xl font-semibold tracking-normal">Smokescreen</h1>
+              <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+                Track privacy opt-out requests without managing the underlying workflow.
+              </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <nav className="flex items-center gap-1 rounded-md border bg-background p-1">
-                <AppNavLink to="/">Overview</AppNavLink>
+                <AppNavLink to="/">Status</AppNavLink>
                 <AppNavLink to="/onboarding">Setup</AppNavLink>
                 <AppNavLink to="/needs-attention">Needs Attention</AppNavLink>
                 <AppNavLink to="/brokers">Brokers</AppNavLink>
@@ -138,123 +188,287 @@ export function OverviewPage() {
   const optOuts = optOutsQuery.data ?? [];
   const loading = statsQuery.isLoading || optOutsQuery.isLoading;
   const error = statsQuery.error ?? optOutsQuery.error;
-  const onboardingComplete = window.localStorage.getItem(ONBOARDING_COMPLETE_KEY) === "true";
+  const groupedOptOuts = useMemo(() => groupOptOuts(optOuts), [optOuts]);
+  const totalCount = stats?.total ?? optOuts.length;
+  const workingCount = groupedOptOuts.working.length;
+  const doneCount = groupedOptOuts.done.length;
+  const attentionCount = groupedOptOuts["needs-attention"].length;
+  const cta = primaryStatusCta({ attentionCount, totalCount, workingCount });
 
   return (
-    <section className="mx-auto grid max-w-6xl gap-5 px-5 py-6 sm:px-6 lg:px-8">
+    <section className="mx-auto grid max-w-6xl gap-6 px-5 py-6 sm:px-6 lg:px-8">
       {error ? <ApiError message={error.message} /> : null}
 
-      {!onboardingComplete && !loading ? (
-        <div className="flex flex-col justify-between gap-4 rounded-md border bg-card p-5 sm:flex-row sm:items-center">
-          <div>
-            <h2 className="text-lg font-semibold tracking-normal">Finish setup</h2>
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Connect Gmail, add Claude, pick brokers, and send the first batch from one guided flow.
+      <div className="rounded-md border bg-card p-5 shadow-sm sm:p-6">
+        <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center">
+          <div className="max-w-3xl">
+            <p className="text-sm font-medium text-primary">Privacy removal status</p>
+            <h2 className="mt-2 text-3xl font-semibold tracking-normal sm:text-4xl">
+              {statusHeadline({ attentionCount, loading, totalCount, workingCount })}
+            </h2>
+            <p className="mt-3 max-w-2xl text-base leading-7 text-muted-foreground">
+              {statusSummary({ attentionCount, doneCount, loading, totalCount, workingCount })}
             </p>
           </div>
-          <Button asChild>
-            <Link to="/onboarding">
-              <CheckCircle2 className="h-4 w-4" />
-              Open setup
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild>
+              {cta.kind === "link" ? (
+                <Link to={cta.to}>
+                  {cta.label}
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              ) : (
+                <a href={cta.href}>
+                  {cta.label}
+                  <ArrowRight className="h-4 w-4" />
+                </a>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                void statsQuery.refetch();
+                void optOutsQuery.refetch();
+              }}
+            >
+              <RefreshCcw className="h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
         </div>
-      ) : null}
-
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Total brokers</CardTitle>
-            <Database className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold">{loading ? "--" : stats?.total ?? 0}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Completed</CardTitle>
-            <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold">{loading ? "--" : stats?.completed_count ?? 0}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Success rate</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold">{loading ? "--" : `${stats?.success_rate ?? 0}%`}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Needs attention</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold">{loading ? "--" : stats?.needs_attention ?? 0}</p>
-          </CardContent>
-        </Card>
       </div>
 
-      <Card>
-        <CardHeader className="items-start sm:items-center">
-          <div>
-            <CardTitle>Broker status</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">Live data from the existing FastAPI JSON endpoints.</p>
-          </div>
-          <Button
-            variant="outline"
-            size="icon"
-            aria-label="Refresh broker data"
-            onClick={() => {
-              void statsQuery.refetch();
-              void optOutsQuery.refetch();
-            }}
-          >
-            <RefreshCcw className="h-4 w-4" />
-          </Button>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-hidden rounded-md border">
-            <table className="w-full min-w-[720px] border-collapse text-sm">
-              <thead className="bg-muted/70 text-left text-xs uppercase text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Broker</th>
-                  <th className="px-4 py-3 font-medium">Domain</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium">Retries</th>
-                  <th className="px-4 py-3 font-medium">Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {optOuts.map((record) => (
-                  <tr key={record.broker_id} className="border-t">
-                    <td className="px-4 py-3 font-medium">{record.broker_name}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{record.broker_domain || "Unknown"}</td>
-                    <td className="px-4 py-3">
-                      <Badge variant={statusVariant(record.status)}>{formatStatus(record.status)}</Badge>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{record.retries}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{formatUpdatedAt(record.updated_at)}</td>
-                  </tr>
-                ))}
-                {!loading && optOuts.length === 0 ? (
-                  <tr>
-                    <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
-                      No opt-out records yet.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatusMetric
+          icon={<Mail className="h-4 w-4" />}
+          label="Working"
+          value={loading ? "--" : workingCount}
+          tone="working"
+        />
+        <StatusMetric
+          icon={<CheckCircle2 className="h-4 w-4" />}
+          label="Done"
+          value={loading ? "--" : stats?.completed_count ?? doneCount}
+          tone="done"
+        />
+        <StatusMetric
+          icon={<AlertTriangle className="h-4 w-4" />}
+          label="Needs attention"
+          value={loading ? "--" : attentionCount}
+          tone="needs-attention"
+        />
+      </div>
+
+      <div id="broker-status" className="grid scroll-mt-6 gap-6 lg:grid-cols-3">
+        <StatusGroup group="working" records={groupedOptOuts.working} loading={loading} />
+        <StatusGroup group="done" records={groupedOptOuts.done} loading={loading} />
+        <StatusGroup group="needs-attention" records={groupedOptOuts["needs-attention"]} loading={loading} />
+      </div>
     </section>
+  );
+}
+
+function groupOptOuts(records: OptOutRecord[]): Record<BrokerStatusGroup, OptOutRecord[]> {
+  return records.reduce<Record<BrokerStatusGroup, OptOutRecord[]>>(
+    (groups, record) => {
+      groups[brokerStatusCopy[record.status].group].push(record);
+      return groups;
+    },
+    {
+      working: [],
+      done: [],
+      "needs-attention": [],
+    },
+  );
+}
+
+function statusHeadline({
+  attentionCount,
+  loading,
+  totalCount,
+  workingCount,
+}: {
+  attentionCount: number;
+  loading: boolean;
+  totalCount: number;
+  workingCount: number;
+}): string {
+  if (loading) {
+    return "Checking broker removals";
+  }
+  if (totalCount === 0) {
+    return "Smokescreen is ready for broker requests";
+  }
+  if (workingCount > 0) {
+    return `${workingCount} ${pluralize("broker", workingCount)} requesting removal of your data`;
+  }
+  if (attentionCount > 0) {
+    return `${attentionCount} ${pluralize("broker", attentionCount)} ${attentionCount === 1 ? "needs" : "need"} your review`;
+  }
+  return "All tracked brokers are clear";
+}
+
+function statusSummary({
+  attentionCount,
+  doneCount,
+  loading,
+  totalCount,
+  workingCount,
+}: {
+  attentionCount: number;
+  doneCount: number;
+  loading: boolean;
+  totalCount: number;
+  workingCount: number;
+}): string {
+  if (loading) {
+    return "Smokescreen is loading the latest broker status from your local API.";
+  }
+  if (totalCount === 0) {
+    return "Add brokers when you are ready, then Smokescreen will send requests and watch for replies.";
+  }
+  if (attentionCount > 0) {
+    return "Most of the workflow stays automatic, but these broker replies need a quick review before the next step.";
+  }
+  if (workingCount > 0) {
+    if (doneCount === 0) {
+      return "Smokescreen is sending requests and watching broker replies until each removal is confirmed.";
+    }
+    return `${doneCount} ${pluralize("broker", doneCount)} already finished. Smokescreen is still watching the rest for replies and completion notices.`;
+  }
+  return "No broker needs a follow-up right now. Smokescreen will keep the completed records here for reference.";
+}
+
+function primaryStatusCta({
+  attentionCount,
+  totalCount,
+  workingCount,
+}: {
+  attentionCount: number;
+  totalCount: number;
+  workingCount: number;
+}): { kind: "anchor"; href: string; label: string } | { kind: "link"; to: string; label: string } {
+  if (attentionCount > 0) {
+    return { kind: "link", to: "/needs-attention", label: "Review requests" };
+  }
+  if (workingCount > 0) {
+    return { kind: "anchor", href: "#broker-status", label: "See status" };
+  }
+  if (totalCount === 0) {
+    return { kind: "link", to: "/brokers", label: "Add brokers" };
+  }
+  return { kind: "link", to: "/brokers", label: "View brokers" };
+}
+
+function pluralize(word: string, count: number): string {
+  return count === 1 ? word : `${word}s`;
+}
+
+function StatusMetric({
+  icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: number | string;
+  tone: BrokerStatusGroup;
+}) {
+  const toneClass = {
+    working: "bg-accent/20 text-accent-foreground",
+    done: "bg-primary/10 text-primary",
+    "needs-attention": "bg-destructive/10 text-destructive",
+  }[tone];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{label}</CardTitle>
+        <div className={cn("flex h-8 w-8 items-center justify-center rounded-md", toneClass)}>{icon}</div>
+      </CardHeader>
+      <CardContent>
+        <p className="text-2xl font-semibold">{value}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function StatusGroup({
+  group,
+  records,
+  loading,
+}: {
+  group: BrokerStatusGroup;
+  records: OptOutRecord[];
+  loading: boolean;
+}) {
+  const copy = statusGroupLabels[group];
+
+  return (
+    <section className="grid content-start gap-3">
+      <div>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-xl font-semibold tracking-normal">{copy.title}</h2>
+          <Badge variant={group === "needs-attention" && records.length > 0 ? "destructive" : "secondary"}>
+            {loading ? "--" : records.length}
+          </Badge>
+        </div>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">{copy.description}</p>
+      </div>
+
+      {!loading && records.length === 0 ? <EmptyStatusGroup group={group} /> : null}
+      {records.map((record) => (
+        <BrokerStatusCard key={record.broker_id} record={record} />
+      ))}
+    </section>
+  );
+}
+
+function BrokerStatusCard({ record }: { record: OptOutRecord }) {
+  const copy = brokerStatusCopy[record.status];
+  const badgeVariant =
+    copy.group === "needs-attention" ? "destructive" : copy.group === "done" ? "default" : "secondary";
+
+  return (
+    <Card>
+      <CardHeader className="items-start pb-3">
+        <div className="min-w-0">
+          <CardTitle className="break-words text-base font-semibold text-foreground">{record.broker_name}</CardTitle>
+          <p className="mt-1 break-words text-sm text-muted-foreground">
+            {record.broker_domain || "Domain not listed"}
+          </p>
+        </div>
+        <Badge variant={badgeVariant}>{copy.label}</Badge>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <p className="text-sm leading-6 text-muted-foreground">{copy.description}</p>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Clock3 className="h-4 w-4" />
+          Updated {formatUpdatedAt(record.updated_at)}
+        </div>
+        {copy.group === "needs-attention" && record.notes.trim() ? (
+          <div className="rounded-md border bg-muted/40 p-3">
+            <p className="text-xs font-medium uppercase text-muted-foreground">Broker note</p>
+            <p className="mt-1 break-words text-sm leading-6">{record.notes}</p>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function EmptyStatusGroup({ group }: { group: BrokerStatusGroup }) {
+  const emptyCopy = {
+    working: "No brokers are in progress.",
+    done: "Completed requests will appear here.",
+    "needs-attention": "Nothing needs your attention.",
+  }[group];
+
+  return (
+    <div className="rounded-md border border-dashed bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground">
+      {emptyCopy}
+    </div>
   );
 }
 
@@ -1028,7 +1242,7 @@ function AttentionItem({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <CardTitle className="text-base font-semibold text-foreground">{record.broker_name}</CardTitle>
-            <Badge variant="destructive">{formatStatus(record.status)}</Badge>
+            <Badge variant="destructive">{brokerStatusCopy[record.status].label}</Badge>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             {record.broker_domain || "Unknown domain"} - {record.broker_privacy_email || "No privacy email listed"}
@@ -1040,9 +1254,8 @@ function AttentionItem({
         </Button>
       </CardHeader>
       <CardContent className="grid gap-4">
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <AttentionFact icon={<Clock3 className="h-4 w-4" />} label="Last updated" value={formatUpdatedAt(record.updated_at)} />
-          <AttentionFact icon={<RefreshCcw className="h-4 w-4" />} label="Retries" value={String(record.retries)} />
           <AttentionFact icon={<Inbox className="h-4 w-4" />} label="Thread" value={record.thread_id ?? "Not linked"} />
         </div>
 
