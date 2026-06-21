@@ -81,6 +81,31 @@ export interface BrokerImportResult {
   errors: string[];
 }
 
+export interface FriendlySettings {
+  sender_email: string;
+  sender_name: string;
+  identity_docs_dir: string;
+  anthropic_api_key: string;
+  gmail_connected: boolean;
+  gmail_connected_email: string;
+}
+
+export interface AdvancedSettings {
+  poll_label: string;
+  max_retries: number;
+  rerequest_interval_days: number;
+  dry_run: boolean;
+  anthropic_model: string;
+}
+
+export type SettingsUpdate = Partial<
+  Pick<FriendlySettings, "sender_email" | "sender_name" | "identity_docs_dir" | "anthropic_api_key"> &
+    AdvancedSettings & {
+      gmail_token_json: string;
+      gmail_credentials_json: string;
+    }
+>;
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -149,6 +174,16 @@ export const api = {
       body: brokerImportForm(input),
     }),
   getExtendedStats: () => requestJson<ExtendedStats>("/api/stats/extended"),
+  getSettings: () => requestJson<FriendlySettings>("/api/settings"),
+  getAdvancedSettings: () => requestJson<AdvancedSettings>("/api/settings/advanced"),
+  updateSettings: (settings: SettingsUpdate) =>
+    requestJson<{ status: "saved"; restart_required: boolean }>("/api/settings", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(settings),
+    }),
   listOptOuts: (status?: BrokerStatus) => {
     const params = status ? `?status=${encodeURIComponent(status)}` : "";
     return requestJson<OptOutRecord[]>(`/api/optouts${params}`);

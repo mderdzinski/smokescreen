@@ -480,24 +480,15 @@ FRIENDLY_SETTINGS_FIELDS: tuple[str, ...] = (
     "sender_email",
     "sender_name",
     "anthropic_api_key",
-    "anthropic_model",
     "identity_docs_dir",
+)
+
+ADVANCED_SETTINGS_FIELDS: tuple[str, ...] = (
     "max_retries",
     "poll_label",
     "dry_run",
     "rerequest_interval_days",
-)
-
-ADVANCED_SETTINGS_FIELDS: tuple[str, ...] = (
-    "gmail_credentials_path",
-    "gmail_token_path",
-    "gmail_credentials_json",
-    "gmail_token_json",
-    "gmail_oauth_interactive",
-    "state_backend",
-    "sqlite_path",
-    "firestore_project",
-    "firestore_collection",
+    "anthropic_model",
 )
 
 
@@ -535,6 +526,9 @@ def _settings_response(
         if field_name in SENSITIVE_FIELDS and value:
             value = _mask_value(str(value))
         data[field_name] = value
+    if field_names == FRIENDLY_SETTINGS_FIELDS:
+        data["gmail_connected"] = bool(settings.sender_email)
+        data["gmail_connected_email"] = settings.sender_email
     return data
 
 

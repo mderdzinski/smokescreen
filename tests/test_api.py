@@ -328,14 +328,16 @@ def test_get_settings(settings_client):
     data = resp.json()
     assert data["sender_email"] == "test@example.com"
     assert data["sender_name"] == "Test User"
-    assert data["max_retries"] == 5
-    assert data["dry_run"] is False
+    assert data["gmail_connected"] is True
+    assert data["gmail_connected_email"] == "test@example.com"
     assert "state_backend" not in data
     assert "sqlite_path" not in data
     assert "firestore_project" not in data
     assert "firestore_collection" not in data
     assert "gmail_credentials_path" not in data
     assert "gmail_token_path" not in data
+    assert "max_retries" not in data
+    assert "dry_run" not in data
 
 
 def test_get_advanced_settings(settings_client):
@@ -343,15 +345,19 @@ def test_get_advanced_settings(settings_client):
     resp = client.get("/api/settings/advanced")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["state_backend"] == "sqlite"
-    assert data["sqlite_path"].endswith("/.smokescreen/data.db")
-    assert data["firestore_project"] == ""
-    assert data["firestore_collection"] == "opt_outs"
-    assert data["gmail_credentials_path"] == "credentials.json"
-    assert data["gmail_token_path"] == "token.json"
-    assert data["gmail_oauth_interactive"] is True
+    assert data["poll_label"] == "smokescreen"
+    assert data["max_retries"] == 5
+    assert data["rerequest_interval_days"] == 60
+    assert data["dry_run"] is False
+    assert data["anthropic_model"] == "claude-sonnet-4-20250514"
     assert "sender_email" not in data
     assert "sender_name" not in data
+    assert "state_backend" not in data
+    assert "sqlite_path" not in data
+    assert "firestore_project" not in data
+    assert "firestore_collection" not in data
+    assert "gmail_credentials_path" not in data
+    assert "gmail_token_path" not in data
 
 
 def test_get_advanced_settings_masks_gmail_secrets(settings_client):
@@ -368,10 +374,8 @@ def test_get_advanced_settings_masks_gmail_secrets(settings_client):
 
     resp = client.get("/api/settings/advanced")
     data = resp.json()
-    assert data["gmail_credentials_json"] == "cred****lue"
-    assert data["gmail_token_json"] == "toke****lue"
-    assert "secret" not in data["gmail_credentials_json"]
-    assert "secret" not in data["gmail_token_json"]
+    assert "gmail_credentials_json" not in data
+    assert "gmail_token_json" not in data
 
 
 def test_get_settings_masks_api_key(settings_client):
@@ -445,7 +449,7 @@ def test_put_settings_updates_in_memory(settings_client):
     client, _ = settings_client
     client.put("/api/settings", json={"poll_label": "new-label"})
 
-    resp = client.get("/api/settings")
+    resp = client.get("/api/settings/advanced")
     assert resp.json()["poll_label"] == "new-label"
 
 

@@ -16,6 +16,20 @@ export function useBrokers() {
   });
 }
 
+export function useSettings() {
+  return useQuery({
+    queryKey: ["settings"],
+    queryFn: api.getSettings,
+  });
+}
+
+export function useAdvancedSettings() {
+  return useQuery({
+    queryKey: ["settings", "advanced"],
+    queryFn: api.getAdvancedSettings,
+  });
+}
+
 export function useOptOuts(status?: BrokerStatus) {
   return useQuery({
     queryKey: ["opt-outs", status ?? "all"],
