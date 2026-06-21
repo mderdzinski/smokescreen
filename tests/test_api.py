@@ -243,6 +243,34 @@ def test_reset_optout_not_found(client):
 # --- Outreach ---
 
 
+def test_run_outreach_omitted_broker_ids_processes_all_dry_run(settings_client):
+    client, _ = settings_client
+    client.put("/api/settings", json={"dry_run": True})
+
+    resp = client.post("/api/outreach", json={})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "sent"
+    assert data["processed"] == ["spokeo", "beenverified"]
+    assert data["processed_count"] == 2
+    assert data["dry_run"] is True
+
+
+def test_run_outreach_empty_broker_ids_is_noop_dry_run(settings_client):
+    client, _ = settings_client
+    client.put("/api/settings", json={"dry_run": True})
+
+    resp = client.post("/api/outreach", json={"broker_ids": []})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "sent"
+    assert data["processed"] == []
+    assert data["processed_count"] == 0
+    assert data["dry_run"] is True
+
+
 def test_run_outreach_selected_brokers_dry_run(settings_client):
     client, _ = settings_client
     client.put("/api/settings", json={"dry_run": True})

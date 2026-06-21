@@ -403,7 +403,7 @@ async def reset_optout(broker_id: str):
 async def run_outreach_endpoint(request: OutreachRequest):
     settings = get_settings_obj()
     registry = get_registry()
-    selected_ids = request.broker_ids or registry.ids()
+    selected_ids = registry.ids() if request.broker_ids is None else request.broker_ids
     selected_brokers = []
 
     for broker_id in selected_ids:
