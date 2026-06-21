@@ -81,6 +81,13 @@ export interface BrokerImportResult {
   errors: string[];
 }
 
+export interface OutreachResult {
+  status: "sent";
+  processed: string[];
+  processed_count: number;
+  dry_run: boolean;
+}
+
 export interface FriendlySettings {
   sender_email: string;
   sender_name: string;
@@ -202,6 +209,8 @@ export const api = {
       },
       body: JSON.stringify(settings),
     }),
+  runOutreach: (brokerIds: string[]) =>
+    requestJson<OutreachResult>("/api/outreach", jsonRequest("POST", { broker_ids: brokerIds })),
   listOptOuts: (status?: BrokerStatus) => {
     const params = status ? `?status=${encodeURIComponent(status)}` : "";
     return requestJson<OptOutRecord[]>(`/api/optouts${params}`);

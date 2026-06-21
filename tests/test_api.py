@@ -195,6 +195,33 @@ def test_reset_optout_not_found(client):
     assert resp.status_code == 404
 
 
+# --- Outreach ---
+
+
+def test_run_outreach_selected_brokers_dry_run(settings_client):
+    client, _ = settings_client
+    client.put("/api/settings", json={"dry_run": True})
+
+    resp = client.post("/api/outreach", json={"broker_ids": ["spokeo"]})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "sent"
+    assert data["processed"] == ["spokeo"]
+    assert data["processed_count"] == 1
+    assert data["dry_run"] is True
+
+
+def test_run_outreach_rejects_unknown_broker(settings_client):
+    client, _ = settings_client
+    client.put("/api/settings", json={"dry_run": True})
+
+    resp = client.post("/api/outreach", json={"broker_ids": ["missing"]})
+
+    assert resp.status_code == 404
+    assert "Broker missing not found" in resp.text
+
+
 # --- Stats ---
 
 

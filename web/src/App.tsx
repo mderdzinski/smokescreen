@@ -26,7 +26,7 @@ import {
   UserRound,
   XCircle,
 } from "lucide-react";
-import { NavLink, Outlet } from "react-router-dom";
+import { Link, NavLink, Outlet } from "react-router-dom";
 
 import {
   api,
@@ -49,6 +49,8 @@ import { cn } from "./lib/utils";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
+
+const ONBOARDING_COMPLETE_KEY = "smokescreen:onboarding-complete";
 
 function formatStatus(status: string): string {
   return status
@@ -108,6 +110,7 @@ export function App() {
             <div className="flex flex-wrap items-center gap-2">
               <nav className="flex items-center gap-1 rounded-md border bg-background p-1">
                 <AppNavLink to="/">Overview</AppNavLink>
+                <AppNavLink to="/onboarding">Setup</AppNavLink>
                 <AppNavLink to="/needs-attention">Needs Attention</AppNavLink>
                 <AppNavLink to="/brokers">Brokers</AppNavLink>
                 <AppNavLink to="/trusted-senders">Trusted Senders</AppNavLink>
@@ -135,10 +138,28 @@ export function OverviewPage() {
   const optOuts = optOutsQuery.data ?? [];
   const loading = statsQuery.isLoading || optOutsQuery.isLoading;
   const error = statsQuery.error ?? optOutsQuery.error;
+  const onboardingComplete = window.localStorage.getItem(ONBOARDING_COMPLETE_KEY) === "true";
 
   return (
     <section className="mx-auto grid max-w-6xl gap-5 px-5 py-6 sm:px-6 lg:px-8">
       {error ? <ApiError message={error.message} /> : null}
+
+      {!onboardingComplete && !loading ? (
+        <div className="flex flex-col justify-between gap-4 rounded-md border bg-card p-5 sm:flex-row sm:items-center">
+          <div>
+            <h2 className="text-lg font-semibold tracking-normal">Finish setup</h2>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+              Connect Gmail, add Claude, pick brokers, and send the first batch from one guided flow.
+            </p>
+          </div>
+          <Button asChild>
+            <Link to="/onboarding">
+              <CheckCircle2 className="h-4 w-4" />
+              Open setup
+            </Link>
+          </Button>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-4">
         <Card>

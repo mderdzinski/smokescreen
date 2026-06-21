@@ -116,6 +116,10 @@ class StatsResponse(BaseModel):
     completion_pct: float
 
 
+class OutreachRequest(BaseModel):
+    broker_ids: list[str] | None = None
+
+
 # --- Dashboard ---
 
 
@@ -311,6 +315,48 @@ async def reset_optout(broker_id: str):
     record.updated_at = datetime.utcnow()
     store.upsert(record)
     return {"status": "reset", "broker_id": broker_id}
+
+
+# --- Outreach ---
+
+
+@app.post("/api/outreach")
+async def run_outreach_endpoint(request: OutreachRequest):
+    settings = get_settings_obj()
+    registry = get_registry()
+    selected_ids = request.broker_ids or registry.ids()
+    selected_brokers = []
+
+    for broker_id in selected_ids:
+        broker = registry.get(broker_id)
+        if broker is None:
+            raise HTTPException(404, f"Broker {broker_id} not found")
+        selected_brokers.append(broker)
+
+    gmail = None
+    if not settings.dry_run:
+        from smokescreen.email.client import GmailClient
+        from smokescreen.email.oauth import get_credentials
+
+        credentials = get_credentials(
+            settings.gmail_credentials_path,
+            settings.gmail_token_path,
+            credentials_json=settings.gmail_credentials_json,
+            token_json=settings.gmail_token_json,
+            interactive=settings.gmail_oauth_interactive,
+        )
+        gmail = GmailClient(credentials)
+
+    from smokescreen.jobs.outreach import run_outreach
+
+    selected_registry = BrokerRegistry(selected_brokers)
+    processed = run_outreach(settings, selected_registry, get_store(), gmail)
+    return {
+        "status": "sent",
+        "processed": processed,
+        "processed_count": len(processed),
+        "dry_run": settings.dry_run,
+    }
 
 
 # --- Stats ---
