@@ -170,11 +170,14 @@ uv sync --extra dev
 ./scripts/check
 ```
 
-The quality gate runs Ruff before the test suite:
+The quality gate runs Ruff, the test suite, and a Docker image smoke check:
 
 ```bash
 uv run --extra dev ruff check src/ tests/
 uv run --extra dev pytest tests/ -v
+docker_image="${SMOKESCREEN_DOCKER_IMAGE:-smokescreen:check}"
+docker build -t "$docker_image" .
+docker run --rm "$docker_image" --help
 ```
 
 ## API endpoints
