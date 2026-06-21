@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+import smokescreen.api as api_module
 from smokescreen.api import app, init_app
 from smokescreen.brokers.registry import BrokerRegistry
 from smokescreen.config import Settings
@@ -55,10 +56,30 @@ def seeded_client(client):
 # --- Dashboard ---
 
 
-def test_dashboard_returns_html(client):
+def test_dashboard_returns_react_app(client, monkeypatch, tmp_path):
+    web_dist = tmp_path / "web_dist"
+    web_dist.mkdir()
+    (web_dist / "index.html").write_text(
+        "<!doctype html><title>Smokescreen React</title><div id='root'></div>",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(api_module, "_web_dist_dir", web_dist)
+
     resp = client.get("/")
     assert resp.status_code == 200
-    assert "Smokescreen Dashboard" in resp.text
+    assert "Smokescreen React" in resp.text
+
+    deep_link_resp = client.get("/needs-attention")
+    assert deep_link_resp.status_code == 200
+    assert "Smokescreen React" in deep_link_resp.text
+
+
+def test_dashboard_requires_built_react_app(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(api_module, "_web_dist_dir", tmp_path / "missing")
+
+    resp = client.get("/")
+    assert resp.status_code == 503
+    assert "React app has not been built" in resp.text
 
 
 def test_old_dashboard_returns_html(client):
@@ -70,7 +91,24 @@ def test_old_dashboard_returns_html(client):
 def test_react_app_redirect(client):
     resp = client.get("/app", follow_redirects=False)
     assert resp.status_code == 307
-    assert resp.headers["location"] == "/app/"
+    assert resp.headers["location"] == "/"
+
+    deep_link_resp = client.get("/app/needs-attention", follow_redirects=False)
+    assert deep_link_resp.status_code == 307
+    assert deep_link_resp.headers["location"] == "/needs-attention"
+
+
+def test_unknown_api_path_does_not_fall_through_to_react(client, monkeypatch, tmp_path):
+    web_dist = tmp_path / "web_dist"
+    web_dist.mkdir()
+    (web_dist / "index.html").write_text(
+        "<!doctype html><title>Smokescreen React</title><div id='root'></div>",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(api_module, "_web_dist_dir", web_dist)
+
+    resp = client.get("/api/not-real")
+    assert resp.status_code == 404
 
 
 # --- Broker endpoints ---

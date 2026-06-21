@@ -38,7 +38,7 @@ if _static_dir.is_dir():
 _web_dist_dir = Path(__file__).parent / "web_dist"
 _web_assets_dir = _web_dist_dir / "assets"
 if _web_assets_dir.is_dir():
-    app.mount("/app/assets", StaticFiles(directory=_web_assets_dir), name="app-assets")
+    app.mount("/assets", StaticFiles(directory=_web_assets_dir), name="app-assets")
 
 _store: StateStore | None = None
 _registry: BrokerRegistry | None = None
@@ -123,10 +123,19 @@ class OutreachRequest(BaseModel):
 # --- Dashboard ---
 
 
+def _react_index_response() -> HTMLResponse:
+    index_path = _web_dist_dir / "index.html"
+    if not index_path.is_file():
+        raise HTTPException(
+            503,
+            "React app has not been built. Run `npm --prefix web run build` first.",
+        )
+    return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
-    html_path = Path(__file__).parent / "dashboard.html"
-    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+    return _react_index_response()
 
 
 @app.get("/old-dashboard", response_class=HTMLResponse)
@@ -137,18 +146,13 @@ async def old_dashboard():
 
 @app.get("/app", include_in_schema=False)
 async def react_app_redirect():
-    return RedirectResponse(url="/app/")
+    return RedirectResponse(url="/")
 
 
-@app.get("/app/{path:path}", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/app/{path:path}", include_in_schema=False)
 async def react_app(path: str):
-    index_path = _web_dist_dir / "index.html"
-    if not index_path.is_file():
-        raise HTTPException(
-            503,
-            "React app has not been built. Run `npm --prefix web run build` first.",
-        )
-    return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
+    target = f"/{path.lstrip('/')}" if path else "/"
+    return RedirectResponse(url=target)
 
 
 # --- Broker endpoints ---
@@ -616,3 +620,10 @@ async def update_settings(update: SettingsUpdate):
     restart_required = bool(changed_fields & RESTART_FIELDS)
 
     return {"status": "saved", "restart_required": restart_required}
+
+
+@app.get("/{path:path}", response_class=HTMLResponse, include_in_schema=False)
+async def react_app_fallback(path: str):
+    if path.startswith(("api/", "assets/", "static/")):
+        raise HTTPException(404, "Not found")
+    return _react_index_response()

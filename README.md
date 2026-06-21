@@ -38,16 +38,18 @@ smokescreen status
 # Reset a broker to try again
 smokescreen reset spokeo
 
-# Start the web dashboard
+# Build and start the web dashboard
+npm --prefix web ci
+npm --prefix web run build
 smokescreen serve
 # Opens at http://127.0.0.1:8000
 ```
 
-For the React rewrite foundation, run both the FastAPI API and Vite frontend:
+For local UI development, run both the FastAPI API and Vite frontend:
 
 ```bash
 scripts/dev.sh
-# React app: http://127.0.0.1:5173/app
+# React app: http://127.0.0.1:5173
 # FastAPI API and legacy dashboard: http://127.0.0.1:8000
 ```
 
@@ -108,9 +110,22 @@ smokescreen serve                    # default: http://127.0.0.1:8000
 smokescreen serve --host 0.0.0.0 --port 9000
 ```
 
-The legacy dashboard remains at `/` and `/old-dashboard` during the React rewrite.
-After building the frontend with `npm --prefix web run build`, `smokescreen serve`
-also serves the React app at `/app`.
+The React dashboard is the default UI at `/`. Build it before serving from the
+Python app:
+
+```bash
+npm --prefix web ci
+npm --prefix web run build
+smokescreen serve                    # React UI: http://127.0.0.1:8000
+```
+
+The old HTML dashboard remains available at `/old-dashboard`. The former `/app`
+mount redirects to `/`, and `/app/<route>` redirects to the matching root route
+such as `/needs-attention`.
+
+For day-to-day frontend work, `scripts/dev.sh` starts FastAPI on
+`127.0.0.1:8000` and Vite on `127.0.0.1:5173`. Vite serves the React app at `/`
+and proxies `/api` plus `/old-dashboard` to FastAPI.
 
 **Tabs:**
 
