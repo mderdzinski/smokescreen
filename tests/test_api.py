@@ -118,9 +118,24 @@ def test_create_duplicate_broker(client):
 
 
 def test_update_broker(client):
-    resp = client.put("/api/brokers/spokeo", json={"name": "Spokeo Updated"})
+    resp = client.put(
+        "/api/brokers/spokeo",
+        json={
+            "name": "Spokeo Updated",
+            "domain": "updated.spokeo.com",
+            "aliases": ["alias.spokeo.com"],
+        },
+    )
     assert resp.status_code == 200
     assert resp.json()["name"] == "Spokeo Updated"
+    assert resp.json()["domain"] == "updated.spokeo.com"
+
+    from smokescreen.api import get_registry
+
+    registry = get_registry()
+    assert registry.get_by_domain("spokeo.com") is None
+    assert registry.get_by_domain("updated.spokeo.com").id == "spokeo"
+    assert registry.get_by_domain("alias.spokeo.com").id == "spokeo"
 
 
 def test_update_broker_not_found(client):
@@ -135,6 +150,10 @@ def test_delete_broker(client):
     resp = client.get("/api/brokers")
     ids = {b["id"] for b in resp.json()}
     assert "spokeo" not in ids
+
+    from smokescreen.api import get_registry
+
+    assert get_registry().get_by_domain("spokeo.com") is None
 
 
 # --- Opt-out endpoints ---

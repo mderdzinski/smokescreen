@@ -162,11 +162,7 @@ async def create_broker(data: BrokerCreate):
     if registry.get(data.id) is not None:
         raise HTTPException(400, f"Broker {data.id} already exists")
     broker = Broker(**data.model_dump())
-    # Add to registry's internal dict
-    registry._brokers[broker.id] = broker
-    registry._by_domain[broker.domain] = broker
-    for alias in broker.aliases:
-        registry._by_domain[alias] = broker
+    registry.add(broker)
     # Sync whitelist
     store = get_store()
     store.sync_registry_whitelist([broker])
@@ -180,9 +176,10 @@ async def update_broker(broker_id: str, data: BrokerUpdate):
     if broker is None:
         raise HTTPException(404, f"Broker {broker_id} not found")
     update = data.model_dump(exclude_none=True)
-    for k, v in update.items():
-        setattr(broker, k, v)
-    registry._brokers[broker_id] = broker
+    broker = broker.model_copy(update=update)
+    registry.update(broker_id, broker)
+    store = get_store()
+    store.sync_registry_whitelist([broker])
     return broker.model_dump()
 
 
@@ -191,7 +188,7 @@ async def delete_broker(broker_id: str):
     registry = get_registry()
     if registry.get(broker_id) is None:
         raise HTTPException(404, f"Broker {broker_id} not found")
-    del registry._brokers[broker_id]
+    registry.delete(broker_id)
 
 
 _file_field = File(...)
@@ -259,8 +256,7 @@ async def import_brokers_csv(
         broker = Broker(
             id=broker_id, name=name, domain=domain, privacy_email=email, notes=notes
         )
-        registry._brokers[broker.id] = broker
-        registry._by_domain[broker.domain] = broker
+        registry.add(broker)
         store.sync_registry_whitelist([broker])
         imported += 1
 

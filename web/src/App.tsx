@@ -80,6 +80,7 @@ export function App() {
               <nav className="flex items-center gap-1 rounded-md border bg-background p-1">
                 <AppNavLink to="/">Overview</AppNavLink>
                 <AppNavLink to="/needs-attention">Needs Attention</AppNavLink>
+                <AppNavLink to="/brokers">Brokers</AppNavLink>
               </nav>
               <Button asChild variant="outline" size="sm">
                 <a href="/old-dashboard">
@@ -338,7 +339,7 @@ function EmptyAttentionState() {
   );
 }
 
-function ApiError({ message }: { message: string }) {
+export function ApiError({ message }: { message: string }) {
   return (
     <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
       <AlertTriangle className="h-4 w-4" />

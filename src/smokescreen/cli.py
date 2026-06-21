@@ -250,8 +250,7 @@ def _run_csv_import(
                 privacy_email=email,
                 notes=notes,
             )
-            registry._brokers[broker.id] = broker
-            registry._by_domain[broker.domain] = broker
+            registry.add(broker)
             store.sync_registry_whitelist([broker])
             imported += 1
 

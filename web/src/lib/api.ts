@@ -40,13 +40,54 @@ export interface ExtendedStats {
   }>;
 }
 
+export interface Broker {
+  id: string;
+  name: string;
+  domain: string;
+  privacy_email: string;
+  aliases: string[];
+  notes: string;
+}
+
+export interface BrokerInput {
+  id: string;
+  name: string;
+  domain: string;
+  privacy_email: string;
+  aliases: string[];
+  notes: string;
+}
+
+export interface BrokerUpdate {
+  name?: string;
+  domain?: string;
+  privacy_email?: string;
+  aliases?: string[];
+  notes?: string;
+}
+
+export interface BrokerImportInput {
+  file: File;
+  name_col: string;
+  email_col: string;
+  domain_col: string;
+  id_col: string;
+  notes_col: string;
+}
+
+export interface BrokerImportResult {
+  imported: number;
+  skipped: number;
+  errors: string[];
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
     headers: {
       Accept: "application/json",
       ...init?.headers,
     },
-    ...init,
   });
 
   if (!response.ok) {
@@ -57,7 +98,56 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function requestVoid(path: string, init?: RequestInit): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      Accept: "application/json",
+      ...init?.headers,
+    },
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Request failed with ${response.status}`);
+  }
+}
+
+function jsonRequest<T>(method: "POST" | "PUT", body: T): RequestInit {
+  return {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  };
+}
+
+function brokerImportForm(input: BrokerImportInput): FormData {
+  const form = new FormData();
+  form.append("file", input.file);
+  form.append("name_col", input.name_col);
+  form.append("email_col", input.email_col);
+  form.append("domain_col", input.domain_col);
+  form.append("id_col", input.id_col);
+  form.append("notes_col", input.notes_col);
+  return form;
+}
+
 export const api = {
+  listBrokers: () => requestJson<Broker[]>("/api/brokers"),
+  createBroker: (input: BrokerInput) => requestJson<Broker>("/api/brokers", jsonRequest("POST", input)),
+  updateBroker: (brokerId: string, input: BrokerUpdate) =>
+    requestJson<Broker>(`/api/brokers/${encodeURIComponent(brokerId)}`, jsonRequest("PUT", input)),
+  deleteBroker: (brokerId: string) =>
+    requestVoid(`/api/brokers/${encodeURIComponent(brokerId)}`, {
+      method: "DELETE",
+    }),
+  importBrokersCsv: (input: BrokerImportInput) =>
+    requestJson<BrokerImportResult>("/api/brokers/import", {
+      method: "POST",
+      body: brokerImportForm(input),
+    }),
   getExtendedStats: () => requestJson<ExtendedStats>("/api/stats/extended"),
   listOptOuts: (status?: BrokerStatus) => {
     const params = status ? `?status=${encodeURIComponent(status)}` : "";
