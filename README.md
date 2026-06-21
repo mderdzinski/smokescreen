@@ -53,6 +53,15 @@ smokescreen serve
 
 Required scopes: `gmail.send` + `gmail.readonly`
 
+### Polling scope
+
+`smokescreen poll` only processes active broker records with stored Gmail
+thread IDs. When `SMOKESCREEN_POLL_LABEL` is non-empty, polling first searches
+Gmail for messages with that label and then only fetches active records whose
+stored thread ID appears in the labeled search results. Set
+`SMOKESCREEN_POLL_LABEL=""` to disable label filtering and poll every active
+stored thread.
+
 ## Dashboard
 
 The web dashboard provides a UI for monitoring and managing the opt-out process:
@@ -91,7 +100,7 @@ All settings use the `SMOKESCREEN_` env prefix. They can be set via environment 
 | `SMOKESCREEN_GMAIL_TOKEN_PATH` | `token.json` | Cached OAuth token |
 | `SMOKESCREEN_IDENTITY_DOCS_DIR` | `identity/` | Pre-redacted ID documents |
 | `SMOKESCREEN_MAX_RETRIES` | `5` | Max retries before FAILED |
-| `SMOKESCREEN_POLL_LABEL` | `smokescreen` | Gmail label to filter poll results |
+| `SMOKESCREEN_POLL_LABEL` | `smokescreen` | Gmail label used to select active stored threads during polling; set blank to poll all active stored threads |
 | `SMOKESCREEN_DRY_RUN` | `false` | Skip actual sends |
 | `SMOKESCREEN_SETTINGS_FILE` | `settings.json` | Path to the settings JSON file |
 

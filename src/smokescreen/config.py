@@ -83,7 +83,10 @@ class Settings(BaseSettings):
     )
     poll_label: str = Field(
         default="smokescreen",
-        description="Gmail label to filter poll results",
+        description=(
+            "Gmail label used to select active threads during polling; "
+            "blank disables label filtering"
+        ),
     )
     dry_run: bool = Field(
         default=False,

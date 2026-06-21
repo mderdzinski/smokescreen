@@ -59,6 +59,7 @@ def run_poll(
     if settings.anthropic_api_key:
         anthropic_client = Anthropic(api_key=settings.anthropic_api_key)
 
+    labeled_thread_ids = _poll_label_thread_ids(settings, gmail)
     processed: list[str] = []
 
     for record in active_records:
@@ -69,6 +70,18 @@ def run_poll(
 
         if record.thread_id is None:
             log.warning("poll_no_thread", broker_id=record.broker_id)
+            continue
+
+        if (
+            labeled_thread_ids is not None
+            and record.thread_id not in labeled_thread_ids
+        ):
+            log.debug(
+                "poll_thread_not_in_label",
+                broker_id=record.broker_id,
+                thread_id=record.thread_id,
+                poll_label=settings.poll_label,
+            )
             continue
 
         result = _process_thread(
@@ -84,6 +97,49 @@ def run_poll(
             processed.append(record.broker_id)
 
     return processed
+
+
+def _poll_label_thread_ids(
+    settings: Settings, gmail: GmailClient | None
+) -> set[str] | None:
+    """Return thread IDs matching the configured poll label.
+
+    A blank poll_label disables label scoping. Otherwise, polling remains
+    thread-based and only active records whose stored thread_id appears in the
+    Gmail label search are processed.
+    """
+    label = settings.poll_label.strip()
+    if not label or gmail is None:
+        return None
+
+    query = _poll_label_query(label)
+    message_ids = gmail.search(query)
+    if not message_ids:
+        log.info("poll_label_no_messages", poll_label=label, query=query)
+        return set()
+
+    thread_ids: set[str] = set()
+    for message_id in message_ids:
+        message = gmail.get_message(message_id)
+        if message.thread_id:
+            thread_ids.add(message.thread_id)
+
+    log.info(
+        "poll_label_threads",
+        poll_label=label,
+        query=query,
+        message_count=len(message_ids),
+        thread_count=len(thread_ids),
+    )
+    return thread_ids
+
+
+def _poll_label_query(label: str) -> str:
+    """Build a Gmail search query for a user-configured label."""
+    if any(c.isspace() for c in label):
+        escaped = label.replace('"', r"\"")
+        return f'label:"{escaped}"'
+    return f"label:{label}"
 
 
 def _process_thread(
