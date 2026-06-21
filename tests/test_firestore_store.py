@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime
+from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
@@ -98,9 +99,7 @@ class FakeQuery:
             if op != "==":
                 raise AssertionError(f"unsupported fake Firestore operator: {op}")
             items = [
-                (doc_id, data)
-                for doc_id, data in items
-                if data.get(field) == value
+                (doc_id, data) for doc_id, data in items if data.get(field) == value
             ]
         if self._order_field is not None:
             items.sort(key=lambda item: item[1].get(self._order_field))
@@ -138,6 +137,14 @@ def _store() -> FirestoreStore:
 
     store._next_id = next_id
     return store
+
+
+def _mock_anthropic(label: str) -> MagicMock:
+    client = MagicMock()
+    content_block = MagicMock()
+    content_block.text = label
+    client.messages.create.return_value = MagicMock(content=[content_block])
+    return client
 
 
 def test_firestore_upsert_persists_last_completed_at():
@@ -217,9 +224,7 @@ def test_firestore_pending_approve_and_reject():
             message_subject="Verify identity",
         )
     )
-    rejected = store.add_pending_whitelist(
-        PendingWhitelistEntry(email="spam@test.com")
-    )
+    rejected = store.add_pending_whitelist(PendingWhitelistEntry(email="spam@test.com"))
 
     approved = store.approve_pending(pending.id)
     assert approved is not None
@@ -303,3 +308,47 @@ def test_poll_adds_pending_whitelist_for_firestore_store():
     pending = store.list_pending_whitelist(PendingWhitelistStatus.PENDING)
     assert len(pending) == 1
     assert pending[0].email == "verify@spokeo.com"
+
+
+def test_poll_updates_firestore_record_for_completed_reply():
+    class FakeGmail:
+        def get_thread(self, _thread_id):
+            return [
+                EmailMessage(
+                    message_id="msg-2",
+                    thread_id="thread-1",
+                    sender="privacy@spokeo.com",
+                    subject="Complete",
+                    body="Your opt-out request has been completed.",
+                )
+            ]
+
+    store = _store()
+    record = OptOutRecord(
+        broker_id="spokeo",
+        status=BrokerStatus.AWAITING_RESPONSE,
+        thread_id="thread-1",
+        last_message_id="msg-1",
+    )
+    store.upsert(record)
+    store.add_whitelist(WhitelistEntry(broker_id="spokeo", email="privacy@spokeo.com"))
+
+    processed = _process_thread(
+        settings=Settings(
+            sender_email="me@example.com",
+            sender_name="Me",
+            dry_run=True,
+        ),
+        record=record,
+        broker_name="Spokeo",
+        broker_email="privacy@spokeo.com",
+        store=store,
+        gmail=FakeGmail(),
+        anthropic_client=_mock_anthropic("COMPLETED"),
+    )
+
+    assert processed is True
+    updated = store.get("spokeo")
+    assert updated.status == BrokerStatus.COMPLETED
+    assert updated.last_message_id == "msg-2"
+    assert updated.last_completed_at is not None

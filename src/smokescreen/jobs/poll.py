@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from email.utils import parseaddr
 from pathlib import Path
 
 import structlog
@@ -160,10 +161,12 @@ def _process_thread(
         return False
 
     # Find the latest message we haven't processed
+    sender_email = _sender_address(settings.sender_email)
     new_messages = [
         m
         for m in thread
-        if m.message_id != record.last_message_id and m.sender != settings.sender_email
+        if m.message_id != record.last_message_id
+        and _sender_address(m.sender) != sender_email
     ]
 
     if not new_messages:
@@ -178,16 +181,17 @@ def _process_thread(
     )
 
     # Whitelist check: only process replies from whitelisted senders
-    if not store.is_whitelisted(latest.sender):
+    latest_sender = _sender_address(latest.sender)
+    if not store.is_whitelisted(latest_sender):
         log.info(
             "poll_sender_not_whitelisted",
             broker=record.broker_id,
-            sender=latest.sender,
+            sender=latest_sender,
         )
         store.add_pending_whitelist(
             PendingWhitelistEntry(
                 broker_id=record.broker_id,
-                email=latest.sender,
+                email=latest_sender,
                 message_subject=latest.subject,
                 message_snippet=latest.body[:200] if latest.body else "",
             )
@@ -228,6 +232,12 @@ def _process_thread(
         gmail=gmail,
         anthropic_client=anthropic_client,
     )
+
+
+def _sender_address(sender: str) -> str:
+    """Return the bare address from a raw email sender header."""
+    parsed = parseaddr(sender)[1]
+    return (parsed or sender).strip().lower()
 
 
 def _handle_classification(
