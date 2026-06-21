@@ -167,8 +167,14 @@ docker push gcr.io/your-project/smokescreen:latest
 
 ```bash
 uv sync --extra dev
-uv run pytest tests/ -v
-uv run ruff check src/ tests/
+./scripts/check
+```
+
+The quality gate runs Ruff before the test suite:
+
+```bash
+uv run --extra dev ruff check src/ tests/
+uv run --extra dev pytest tests/ -v
 ```
 
 ## API endpoints

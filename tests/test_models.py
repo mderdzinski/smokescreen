@@ -1,6 +1,12 @@
 """Tests for domain models."""
 
-from smokescreen.models import BrokerStatus, OptOutRecord, Broker, EmailMessage, ReplyClassification
+from smokescreen.models import (
+    Broker,
+    BrokerStatus,
+    EmailMessage,
+    OptOutRecord,
+    ReplyClassification,
+)
 
 
 def test_broker_status_values():

@@ -6,13 +6,16 @@ in response to personal data deletion requests.
 
 Classify the reply into exactly one category:
 
-- ACKNOWLEDGMENT: The broker acknowledges receipt and says they will process the request.
-- IDENTITY_REQUEST: The broker asks for identity verification documents (ID, proof of address, etc).
+- ACKNOWLEDGMENT: The broker acknowledges receipt and says they will process \
+the request.
+- IDENTITY_REQUEST: The broker asks for identity verification documents \
+(ID, proof of address, etc).
 - COMPLETED: The broker confirms the data has been deleted or the opt-out is complete.
 - REJECTED: The broker refuses the request (not applicable, not a valid request, etc).
 - NEEDS_MANUAL: The reply is confusing, contains a portal link to complete manually, \
 or otherwise requires human intervention.
-- UNRELATED: The reply is an auto-reply, marketing email, or otherwise unrelated to the opt-out.
+- UNRELATED: The reply is an auto-reply, marketing email, or otherwise unrelated \
+to the opt-out.
 
 Respond with ONLY the classification label, nothing else."""
 

@@ -1,9 +1,9 @@
 """Tests for email templates."""
 
 from smokescreen.email.templates import (
-    render_initial_opt_out,
-    render_identity_response,
     render_follow_up,
+    render_identity_response,
+    render_initial_opt_out,
 )
 
 

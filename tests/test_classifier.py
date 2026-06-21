@@ -16,23 +16,47 @@ def _mock_client(response_text: str) -> MagicMock:
 
 def test_classify_acknowledgment():
     client = _mock_client("ACKNOWLEDGMENT")
-    result = classify_reply(client, "claude-sonnet-4-20250514", "Spokeo", "Re: Request", "We received your request.")
+    result = classify_reply(
+        client,
+        "claude-sonnet-4-20250514",
+        "Spokeo",
+        "Re: Request",
+        "We received your request.",
+    )
     assert result == ReplyClassification.ACKNOWLEDGMENT
 
 
 def test_classify_identity_request():
     client = _mock_client("IDENTITY_REQUEST")
-    result = classify_reply(client, "claude-sonnet-4-20250514", "Spokeo", "Verification", "Please send ID.")
+    result = classify_reply(
+        client,
+        "claude-sonnet-4-20250514",
+        "Spokeo",
+        "Verification",
+        "Please send ID.",
+    )
     assert result == ReplyClassification.IDENTITY_REQUEST
 
 
 def test_classify_completed():
     client = _mock_client("COMPLETED")
-    result = classify_reply(client, "claude-sonnet-4-20250514", "Spokeo", "Done", "Your data has been deleted.")
+    result = classify_reply(
+        client,
+        "claude-sonnet-4-20250514",
+        "Spokeo",
+        "Done",
+        "Your data has been deleted.",
+    )
     assert result == ReplyClassification.COMPLETED
 
 
 def test_classify_unknown_falls_back_to_needs_manual():
     client = _mock_client("SOME_GARBAGE_OUTPUT")
-    result = classify_reply(client, "claude-sonnet-4-20250514", "Spokeo", "Re: Request", "Unclear response.")
+    result = classify_reply(
+        client,
+        "claude-sonnet-4-20250514",
+        "Spokeo",
+        "Re: Request",
+        "Unclear response.",
+    )
     assert result == ReplyClassification.NEEDS_MANUAL
