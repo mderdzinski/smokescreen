@@ -675,7 +675,7 @@ export function SettingsPage() {
         <SettingsCard
           icon={<Mail className="h-5 w-5" />}
           title="Connect Gmail"
-          description="Gmail is used to send requests and watch broker replies."
+          description="Gmail requires a reusable OAuth token before Smokescreen can send requests or watch replies."
         >
           <div className="grid gap-4">
             <div className="rounded-md border bg-muted/40 p-4">
@@ -690,7 +690,9 @@ export function SettingsPage() {
               <p className="mt-2 break-words text-sm text-muted-foreground">
                 {settings?.gmail_connected
                   ? `Connected as ${settings.gmail_connected_email}`
-                  : "Add a sender email to prepare Gmail for Smokescreen."}
+                  : settings?.gmail_credentials_available
+                    ? "OAuth client credentials are available, but no reusable Gmail token is configured."
+                    : "No reusable Gmail OAuth token is configured."}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">

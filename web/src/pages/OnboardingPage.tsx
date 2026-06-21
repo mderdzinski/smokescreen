@@ -95,10 +95,11 @@ export function OnboardingPage() {
     [brokers, selectedBrokerIds],
   );
 
-  const gmailComplete = Boolean(settings?.gmail_connected && settings.gmail_connected_email);
+  const identityComplete = Boolean(settings?.identity_configured);
+  const gmailReady = Boolean(settings?.gmail_connected);
   const claudeComplete = Boolean(settings?.anthropic_api_key);
   const brokersComplete = selectedBrokerIds.length > 0;
-  const canSend = gmailComplete && claudeComplete && brokersComplete;
+  const canSend = identityComplete && gmailReady && claudeComplete && brokersComplete;
   const activeError =
     settingsQuery.error?.message ??
     advancedSettingsQuery.error?.message ??
@@ -231,7 +232,7 @@ export function OnboardingPage() {
         <div>
           <h2 className="text-2xl font-semibold tracking-normal">Set up Smokescreen</h2>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Connect the inbox, add Claude, choose brokers, and start the first opt-out batch.
+            Configure your identity, connect Gmail, add Claude, choose brokers, and start the first opt-out batch.
           </p>
         </div>
         <Button asChild variant="outline" size="sm">
@@ -246,7 +247,7 @@ export function OnboardingPage() {
         {steps.map((step) => {
           const Icon = step.icon;
           const complete =
-            (step.id === 0 && gmailComplete) ||
+            (step.id === 0 && identityComplete) ||
             (step.id === 1 && claudeComplete) ||
             (step.id === 2 && brokersComplete) ||
             false;
@@ -282,9 +283,9 @@ export function OnboardingPage() {
               <Mail className="h-5 w-5" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-lg font-semibold tracking-normal">Connect Gmail</h3>
+              <h3 className="text-lg font-semibold tracking-normal">Configure identity</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Smokescreen sends broker requests from your Gmail address and watches that inbox for replies.
+                Smokescreen uses these details in broker requests. Gmail connection status is checked separately.
               </p>
             </div>
           </div>
@@ -314,12 +315,18 @@ export function OnboardingPage() {
                 disabled={!gmailForm.senderName.trim() || !gmailForm.senderEmail.trim() || updateSettingsMutation.isPending}
               >
                 <Mail className="h-4 w-4" />
-                Connect Gmail
+                Save identity
               </Button>
-              {gmailComplete ? (
+              {identityComplete ? (
                 <Badge variant="secondary">
                   <Check className="mr-1 h-3 w-3" />
-                  {settings?.gmail_connected_email}
+                  Identity saved
+                </Badge>
+              ) : null}
+              {gmailReady ? (
+                <Badge variant="outline">
+                  <Mail className="mr-1 h-3 w-3" />
+                  Gmail token available
                 </Badge>
               ) : null}
             </div>
@@ -479,8 +486,17 @@ export function OnboardingPage() {
             </div>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <SetupCheck complete={gmailComplete} label="Gmail connected" value={settings?.gmail_connected_email || "Not connected"} />
+          <div className="mt-5 grid gap-3 sm:grid-cols-4">
+            <SetupCheck
+              complete={identityComplete}
+              label="Identity configured"
+              value={identityComplete ? settings?.sender_email || "Saved" : "Missing identity"}
+            />
+            <SetupCheck
+              complete={gmailReady}
+              label="Gmail token"
+              value={gmailReady ? settings?.gmail_connected_email || "Available" : "Not connected"}
+            />
             <SetupCheck complete={claudeComplete} label="Claude ready" value={claudeComplete ? "Key saved" : "Missing key"} />
             <SetupCheck
               complete={brokersComplete}

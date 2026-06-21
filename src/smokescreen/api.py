@@ -652,8 +652,23 @@ def _settings_response(
             value = _mask_value(str(value))
         data[field_name] = value
     if field_names == FRIENDLY_SETTINGS_FIELDS:
-        data["gmail_connected"] = bool(settings.sender_email)
-        data["gmail_connected_email"] = settings.sender_email
+        identity_configured = bool(
+            settings.sender_name.strip() and settings.sender_email.strip()
+        )
+        gmail_token_available = bool(
+            settings.gmail_token_json.strip() or settings.gmail_token_path.exists()
+        )
+        gmail_credentials_available = bool(
+            settings.gmail_credentials_json.strip()
+            or settings.gmail_credentials_path.exists()
+        )
+        data["identity_configured"] = identity_configured
+        data["gmail_token_available"] = gmail_token_available
+        data["gmail_credentials_available"] = gmail_credentials_available
+        data["gmail_connected"] = gmail_token_available
+        data["gmail_connected_email"] = (
+            settings.sender_email if gmail_token_available else ""
+        )
     return data
 
 

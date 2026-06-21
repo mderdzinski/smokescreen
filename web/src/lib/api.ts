@@ -93,6 +93,9 @@ export interface FriendlySettings {
   sender_name: string;
   identity_docs_dir: string;
   anthropic_api_key: string;
+  identity_configured: boolean;
+  gmail_token_available: boolean;
+  gmail_credentials_available: boolean;
   gmail_connected: boolean;
   gmail_connected_email: string;
 }

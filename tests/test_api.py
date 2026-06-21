@@ -414,7 +414,12 @@ def settings_client(tmp_path):
     os.environ["SMOKESCREEN_SETTINGS_FILE"] = str(settings_file)
     store = SQLiteStore(db_path)
     registry = BrokerRegistry(_make_brokers())
-    settings = Settings(sender_email="test@example.com", sender_name="Test User")
+    settings = Settings(
+        sender_email="test@example.com",
+        sender_name="Test User",
+        gmail_credentials_path=tmp_path / "credentials.json",
+        gmail_token_path=tmp_path / "token.json",
+    )
     init_app(store, registry, settings)
     yield TestClient(app), settings_file
     store.close()
@@ -428,8 +433,11 @@ def test_get_settings(settings_client):
     data = resp.json()
     assert data["sender_email"] == "test@example.com"
     assert data["sender_name"] == "Test User"
-    assert data["gmail_connected"] is True
-    assert data["gmail_connected_email"] == "test@example.com"
+    assert data["identity_configured"] is True
+    assert data["gmail_token_available"] is False
+    assert data["gmail_credentials_available"] is False
+    assert data["gmail_connected"] is False
+    assert data["gmail_connected_email"] == ""
     assert "state_backend" not in data
     assert "sqlite_path" not in data
     assert "firestore_project" not in data
@@ -438,6 +446,28 @@ def test_get_settings(settings_client):
     assert "gmail_token_path" not in data
     assert "max_retries" not in data
     assert "dry_run" not in data
+
+
+def test_get_settings_reports_gmail_connected_only_when_token_available(
+    settings_client,
+):
+    client, _ = settings_client
+    import smokescreen.api as api_module
+
+    new_settings = Settings(
+        sender_email="test@example.com",
+        sender_name="Test User",
+        gmail_token_json="token-secret-value",
+    )
+    api_module._settings = new_settings
+
+    resp = client.get("/api/settings")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["identity_configured"] is True
+    assert data["gmail_token_available"] is True
+    assert data["gmail_connected"] is True
+    assert data["gmail_connected_email"] == "test@example.com"
 
 
 def test_get_advanced_settings(settings_client):
