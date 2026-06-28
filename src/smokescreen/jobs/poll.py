@@ -277,6 +277,7 @@ def _handle_classification(
         validate_transition(record.status, BrokerStatus.NEEDS_MANUAL)
         record.status = BrokerStatus.NEEDS_MANUAL
         record.last_message_id = latest.message_id
+        record.notes = _manual_review_notes(latest)
         record.updated_at = now
         store.upsert(record)
         log.info("poll_needs_manual", broker=record.broker_id)
@@ -310,6 +311,23 @@ def _handle_classification(
         )
 
     return False
+
+
+def _manual_review_notes(message: EmailMessage) -> str:
+    """Build the saved text shown on the manual review page."""
+    subject = message.subject.strip()
+    body = message.body.strip()
+
+    if subject and body:
+        return f"Subject: {subject}\n\n{body}"
+    if body:
+        return body
+    if subject:
+        return f"Subject: {subject}"
+    return (
+        "Broker reply was classified for manual review, "
+        "but the message body was empty."
+    )
 
 
 def _handle_identity_request(

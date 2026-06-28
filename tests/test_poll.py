@@ -254,6 +254,51 @@ def test_process_thread_marks_manual_without_anthropic_key(tmp_path):
     store.close()
 
 
+def test_process_thread_persists_manual_review_reply_details(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    record = _record(status=BrokerStatus.AWAITING_RESPONSE)
+    record.notes = "stale review note"
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Portal action required",
+                    body="Please log in to our privacy portal to finish the opt-out.",
+                )
+            ]
+        }
+    )
+
+    processed = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        anthropic_client=_mock_anthropic("NEEDS_MANUAL"),
+    )
+
+    assert processed is True
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.NEEDS_MANUAL
+    assert updated.last_message_id == "reply-labeled"
+    assert (
+        updated.notes
+        == "Subject: Portal action required\n\n"
+        "Please log in to our privacy portal to finish the opt-out."
+    )
+    store.close()
+
+
 def test_process_thread_sends_identity_reply_with_attachments(tmp_path):
     identity_dir = tmp_path / "identity"
     identity_dir.mkdir()
