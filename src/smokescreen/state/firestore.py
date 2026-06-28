@@ -230,6 +230,17 @@ class FirestoreStore:
     def add_pending_whitelist(
         self, entry: PendingWhitelistEntry
     ) -> PendingWhitelistEntry:
+        existing = (
+            self._collection_ref(self._pending_whitelist_collection)
+            .where("email", "==", entry.email)
+            .where("status", "==", entry.status.value)
+            .limit(1)
+            .stream()
+        )
+        existing_doc = next(iter(existing), None)
+        if existing_doc:
+            return self._doc_to_pending_whitelist_entry(existing_doc)
+
         entry_id = self._next_id("pending_whitelist")
         entry.id = entry_id
         self._collection_ref(self._pending_whitelist_collection).document(

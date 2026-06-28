@@ -405,6 +405,53 @@ def test_process_thread_adds_pending_whitelist_for_unknown_sender(tmp_path):
     store.close()
 
 
+def test_run_poll_deduplicates_pending_whitelist_for_repeated_unknown_reply(
+    tmp_path,
+):
+    settings = _settings(tmp_path, poll_label="")
+    store = SQLiteStore(settings.sqlite_path)
+    store.upsert(
+        OptOutRecord(
+            broker_id="labeled",
+            status=BrokerStatus.INITIAL_SENT,
+            thread_id="thread-labeled",
+            last_message_id="sent-labeled",
+        )
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="sent-labeled",
+                    thread_id="thread-labeled",
+                    sender="me@example.com",
+                    subject="Opt out request",
+                    body="Please remove me.",
+                ),
+                EmailMessage(
+                    message_id="vendor-labeled",
+                    thread_id="thread-labeled",
+                    sender="caseworker@vendor.example",
+                    subject="Verify identity",
+                    body="Please verify your identity.",
+                ),
+            ]
+        }
+    )
+
+    first = run_poll(settings, _registry(), store, gmail=gmail)
+    second = run_poll(settings, _registry(), store, gmail=gmail)
+
+    assert first == []
+    assert second == []
+    pending = store.list_pending_whitelist(PendingWhitelistStatus.PENDING)
+    assert len(pending) == 1
+    assert pending[0].email == "caseworker@vendor.example"
+    assert pending[0].message_subject == "Verify identity"
+    assert store.get("labeled").last_message_id == "sent-labeled"
+    store.close()
+
+
 def test_process_thread_accepts_display_name_from_header(tmp_path):
     settings = _settings(tmp_path)
     store = SQLiteStore(settings.sqlite_path)

@@ -114,6 +114,29 @@ def test_add_and_list_pending(store):
     assert entries[0].status == PendingWhitelistStatus.PENDING
 
 
+def test_add_pending_whitelist_returns_existing_pending_email(store):
+    first = store.add_pending_whitelist(
+        PendingWhitelistEntry(
+            broker_id="spokeo",
+            email="noreply@spokeo.com",
+            message_subject="Verify identity",
+        )
+    )
+
+    second = store.add_pending_whitelist(
+        PendingWhitelistEntry(
+            broker_id="spokeo",
+            email="noreply@spokeo.com",
+            message_subject="Verify identity again",
+        )
+    )
+
+    entries = store.list_pending_whitelist(PendingWhitelistStatus.PENDING)
+    assert second.id == first.id
+    assert len(entries) == 1
+    assert entries[0].message_subject == "Verify identity"
+
+
 def test_list_pending_by_status(store):
     store.add_pending_whitelist(
         PendingWhitelistEntry(email="a@test.com", status=PendingWhitelistStatus.PENDING)

@@ -17,6 +17,7 @@ from smokescreen.models import (
     BrokerStatus,
     EmailMessage,
     OptOutRecord,
+    PendingWhitelistEntry,
     PendingWhitelistStatus,
     WhitelistEntry,
     WhitelistSource,
@@ -214,8 +215,6 @@ def test_firestore_add_whitelist_upserts_by_email():
 
 
 def test_firestore_pending_approve_and_reject():
-    from smokescreen.models import PendingWhitelistEntry
-
     store = _store()
     pending = store.add_pending_whitelist(
         PendingWhitelistEntry(
@@ -236,6 +235,30 @@ def test_firestore_pending_approve_and_reject():
     rejected_entries = store.list_pending_whitelist(PendingWhitelistStatus.REJECTED)
     assert [entry.email for entry in approved_entries] == ["noreply@spokeo.com"]
     assert [entry.email for entry in rejected_entries] == ["spam@test.com"]
+
+
+def test_firestore_add_pending_whitelist_returns_existing_pending_email():
+    store = _store()
+    first = store.add_pending_whitelist(
+        PendingWhitelistEntry(
+            broker_id="spokeo",
+            email="noreply@spokeo.com",
+            message_subject="Verify identity",
+        )
+    )
+
+    second = store.add_pending_whitelist(
+        PendingWhitelistEntry(
+            broker_id="spokeo",
+            email="noreply@spokeo.com",
+            message_subject="Verify identity again",
+        )
+    )
+
+    entries = store.list_pending_whitelist(PendingWhitelistStatus.PENDING)
+    assert second.id == first.id
+    assert len(entries) == 1
+    assert entries[0].message_subject == "Verify identity"
 
 
 def test_dashboard_whitelist_endpoints_with_firestore_store():

@@ -213,22 +213,23 @@ class SQLiteStore:
             rows = self._conn.execute(
                 "SELECT * FROM pending_whitelist ORDER BY detected_at"
             ).fetchall()
-        return [
-            PendingWhitelistEntry(
-                id=r["id"],
-                broker_id=r["broker_id"],
-                email=r["email"],
-                message_subject=r["message_subject"],
-                message_snippet=r["message_snippet"],
-                detected_at=datetime.fromisoformat(r["detected_at"]),
-                status=PendingWhitelistStatus(r["status"]),
-            )
-            for r in rows
-        ]
+        return [self._row_to_pending_whitelist_entry(r) for r in rows]
 
     def add_pending_whitelist(
         self, entry: PendingWhitelistEntry
     ) -> PendingWhitelistEntry:
+        existing = self._conn.execute(
+            """
+            SELECT * FROM pending_whitelist
+            WHERE email = ? AND status = ?
+            ORDER BY detected_at
+            LIMIT 1
+            """,
+            (entry.email, entry.status.value),
+        ).fetchone()
+        if existing is not None:
+            return self._row_to_pending_whitelist_entry(existing)
+
         cur = self._conn.execute(
             """
             INSERT INTO pending_whitelist
@@ -248,6 +249,19 @@ class SQLiteStore:
         self._conn.commit()
         entry.id = cur.lastrowid
         return entry
+
+    def _row_to_pending_whitelist_entry(
+        self, row: sqlite3.Row
+    ) -> PendingWhitelistEntry:
+        return PendingWhitelistEntry(
+            id=row["id"],
+            broker_id=row["broker_id"],
+            email=row["email"],
+            message_subject=row["message_subject"],
+            message_snippet=row["message_snippet"],
+            detected_at=datetime.fromisoformat(row["detected_at"]),
+            status=PendingWhitelistStatus(row["status"]),
+        )
 
     def approve_pending(self, entry_id: int) -> WhitelistEntry | None:
         row = self._conn.execute(
