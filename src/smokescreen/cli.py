@@ -43,7 +43,9 @@ def _get_gmail(settings):
 
 
 @click.group()
-@click.option("--dry-run", is_flag=True, help="Don't send emails or update state")
+@click.option(
+    "--dry-run", is_flag=True, help="Don't send emails; simulate state updates"
+)
 @click.pass_context
 def cli(ctx, dry_run: bool) -> None:
     """Smokescreen: data broker opt-out automation."""

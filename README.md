@@ -23,7 +23,7 @@ export SMOKESCREEN_ANTHROPIC_API_KEY="sk-ant-..."
 # Place your Google Cloud OAuth client credentials at ./credentials.json
 # See "Gmail setup" below
 
-# Dry run — preview what would be sent
+# Dry run — simulate outreach without sending email
 smokescreen --dry-run outreach
 
 # Send opt-out emails

@@ -77,29 +77,34 @@ def run_outreach(
 
         if settings.dry_run:
             log.info("dry_run_skip", broker=broker.id, subject=subject)
-            processed.append(broker.id)
-            continue
+            thread_id = f"dry-run-thread-{broker.id}"
+            message_id = f"dry-run-message-{broker.id}"
+        else:
+            if gmail is None:
+                log.error("no_gmail_client", broker=broker.id)
+                continue
 
-        if gmail is None:
-            log.error("no_gmail_client", broker=broker.id)
-            continue
-
-        sent = gmail.send(
-            to=broker.privacy_email,
-            subject=subject,
-            body=body,
-            sender=settings.sender_email,
-            sender_name=settings.sender_name,
-        )
+            sent = gmail.send(
+                to=broker.privacy_email,
+                subject=subject,
+                body=body,
+                sender=settings.sender_email,
+                sender_name=settings.sender_name,
+            )
+            thread_id = sent.thread_id
+            message_id = sent.message_id
 
         validate_transition(record.status, BrokerStatus.INITIAL_SENT)
         record.status = BrokerStatus.INITIAL_SENT
-        record.thread_id = sent.thread_id
-        record.last_message_id = sent.message_id
+        record.thread_id = thread_id
+        record.last_message_id = message_id
         record.updated_at = datetime.utcnow()
         store.upsert(record)
 
         processed.append(broker.id)
-        log.info("outreach_sent", broker=broker.id, thread_id=sent.thread_id)
+        if settings.dry_run:
+            log.info("dry_run_outreach_recorded", broker=broker.id, thread_id=thread_id)
+        else:
+            log.info("outreach_sent", broker=broker.id, thread_id=thread_id)
 
     return processed

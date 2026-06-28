@@ -86,8 +86,9 @@ def test_outreach_rerequests_completed_broker(tmp_path):
 
     assert "test-broker" in processed
     updated = store.get("test-broker")
-    # After re-request in dry-run, status stays PENDING (dry run doesn't send email)
-    assert updated.status == BrokerStatus.PENDING
+    assert updated.status == BrokerStatus.INITIAL_SENT
+    assert updated.thread_id == "dry-run-thread-test-broker"
+    assert updated.last_message_id == "dry-run-message-test-broker"
     store.close()
 
 

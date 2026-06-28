@@ -28,6 +28,10 @@ def test_outreach_dry_run(tmp_path):
 
     assert len(processed) > 0
     assert "spokeo" in processed
+    record = store.get("spokeo")
+    assert record.status == BrokerStatus.INITIAL_SENT
+    assert record.thread_id == "dry-run-thread-spokeo"
+    assert record.last_message_id == "dry-run-message-spokeo"
     store.close()
 
 

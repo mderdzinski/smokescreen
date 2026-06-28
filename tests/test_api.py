@@ -255,6 +255,14 @@ def test_run_outreach_omitted_broker_ids_processes_all_dry_run(settings_client):
     assert data["processed"] == ["spokeo", "beenverified"]
     assert data["processed_count"] == 2
     assert data["dry_run"] is True
+    optouts_resp = client.get("/api/optouts")
+    assert optouts_resp.status_code == 200
+    records = {record["broker_id"]: record for record in optouts_resp.json()}
+    assert set(records) == {"spokeo", "beenverified"}
+    for broker_id, record in records.items():
+        assert record["status"] == "INITIAL_SENT"
+        assert record["thread_id"] == f"dry-run-thread-{broker_id}"
+        assert record["last_message_id"] == f"dry-run-message-{broker_id}"
 
 
 def test_run_outreach_empty_broker_ids_is_noop_dry_run(settings_client):
@@ -269,6 +277,7 @@ def test_run_outreach_empty_broker_ids_is_noop_dry_run(settings_client):
     assert data["processed"] == []
     assert data["processed_count"] == 0
     assert data["dry_run"] is True
+    assert client.get("/api/optouts").json() == []
 
 
 def test_run_outreach_selected_brokers_dry_run(settings_client):
@@ -283,6 +292,13 @@ def test_run_outreach_selected_brokers_dry_run(settings_client):
     assert data["processed"] == ["spokeo"]
     assert data["processed_count"] == 1
     assert data["dry_run"] is True
+    optouts_resp = client.get("/api/optouts")
+    assert optouts_resp.status_code == 200
+    records = {record["broker_id"]: record for record in optouts_resp.json()}
+    assert set(records) == {"spokeo"}
+    assert records["spokeo"]["status"] == "INITIAL_SENT"
+    assert records["spokeo"]["thread_id"] == "dry-run-thread-spokeo"
+    assert records["spokeo"]["last_message_id"] == "dry-run-message-spokeo"
 
 
 def test_run_outreach_rejects_unknown_broker(settings_client):
