@@ -443,10 +443,10 @@ describe("SettingsPage", () => {
 });
 
 describe("NeedsAttentionPage", () => {
-  it("resets an item that needs manual review", async () => {
+  it("marks an item handled after manual review", async () => {
     const user = userEvent.setup();
-    const resetIds: string[] = [];
-    let resolveReset: (() => void) | undefined;
+    const handledIds: string[] = [];
+    let resolveHandled: (() => void) | undefined;
     vi.stubGlobal("confirm", vi.fn(() => true));
     mockApi([
       {
@@ -459,14 +459,14 @@ describe("NeedsAttentionPage", () => {
         path: "/api/optouts?status=needs_attention",
       },
       {
-        assert: () => resetIds.push("acme"),
+        assert: () => handledIds.push("acme"),
         method: "POST",
-        path: "/api/optouts/acme/reset",
+        path: "/api/optouts/acme/handled",
         respond: () =>
           new Promise<Response>((resolve) => {
-            resolveReset = () =>
+            resolveHandled = () =>
               resolve(
-                new Response(JSON.stringify({ broker_id: "acme", status: "reset" }), {
+                new Response(JSON.stringify({ broker_id: "acme", status: "handled" }), {
                   headers: { "Content-Type": "application/json" },
                   status: 200,
                 }),
@@ -478,10 +478,10 @@ describe("NeedsAttentionPage", () => {
     renderWithProviders(<NeedsAttentionPage />);
 
     expect(await screen.findByText("Broker wants a signed form before continuing.")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Reset to pending" }));
+    await user.click(screen.getByRole("button", { name: "Mark handled" }));
 
-    expect(await screen.findByRole("button", { name: "Resetting" })).toBeDisabled();
-    resolveReset?.();
-    await waitFor(() => expect(resetIds).toEqual(["acme"]));
+    expect(await screen.findByRole("button", { name: "Marking handled" })).toBeDisabled();
+    resolveHandled?.();
+    await waitFor(() => expect(handledIds).toEqual(["acme"]));
   });
 });
