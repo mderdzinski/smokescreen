@@ -92,6 +92,24 @@ def test_react_app_redirect(client):
     assert deep_link_resp.headers["location"] == "/needs-attention"
 
 
+def test_old_dashboard_does_not_fall_through_to_react(client, monkeypatch, tmp_path):
+    web_dist = tmp_path / "web_dist"
+    web_dist.mkdir()
+    (web_dist / "index.html").write_text(
+        "<!doctype html><title>Smokescreen React</title><div id='root'></div>",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(api_module, "_web_dist_dir", web_dist)
+
+    resp = client.get("/old-dashboard")
+    assert resp.status_code == 404
+    assert "Smokescreen React" not in resp.text
+
+    nested_resp = client.get("/old-dashboard/settings")
+    assert nested_resp.status_code == 404
+    assert "Smokescreen React" not in nested_resp.text
+
+
 def test_unknown_api_path_does_not_fall_through_to_react(client, monkeypatch, tmp_path):
     web_dist = tmp_path / "web_dist"
     web_dist.mkdir()
