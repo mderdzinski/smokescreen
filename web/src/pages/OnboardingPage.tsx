@@ -97,9 +97,9 @@ export function OnboardingPage() {
 
   const identityComplete = Boolean(settings?.identity_configured);
   const gmailReady = Boolean(settings?.gmail_connected);
-  const claudeComplete = Boolean(settings?.anthropic_api_key);
+  const claudeConfigured = Boolean(settings?.anthropic_api_key);
   const brokersComplete = selectedBrokerIds.length > 0;
-  const canSend = identityComplete && gmailReady && claudeComplete && brokersComplete;
+  const canSend = identityComplete && gmailReady && claudeConfigured && brokersComplete;
   const activeError =
     settingsQuery.error?.message ??
     advancedSettingsQuery.error?.message ??
@@ -251,7 +251,7 @@ export function OnboardingPage() {
           const Icon = step.icon;
           const complete =
             (step.id === 0 && identityComplete) ||
-            (step.id === 1 && claudeComplete) ||
+            (step.id === 1 && claudeConfigured) ||
             (step.id === 2 && brokersComplete) ||
             false;
           return (
@@ -366,10 +366,10 @@ export function OnboardingPage() {
                 <KeyRound className="h-4 w-4" />
                 Save Claude key
               </Button>
-              {claudeComplete ? (
+              {claudeConfigured ? (
                 <Badge variant="secondary">
                   <Check className="mr-1 h-3 w-3" />
-                  Key saved
+                  Key configured
                 </Badge>
               ) : null}
             </div>
@@ -500,7 +500,11 @@ export function OnboardingPage() {
               label="Gmail token"
               value={gmailReady ? settings?.gmail_connected_email || "Available" : "Not connected"}
             />
-            <SetupCheck complete={claudeComplete} label="Claude ready" value={claudeComplete ? "Key saved" : "Missing key"} />
+            <SetupCheck
+              complete={claudeConfigured}
+              label="Claude key"
+              value={claudeConfigured ? "Configured" : "Missing key"}
+            />
             <SetupCheck
               complete={brokersComplete}
               label="Brokers picked"
