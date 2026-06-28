@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock3,
+  ExternalLink,
   Inbox,
   KeyRound,
   Mail,
@@ -45,6 +46,13 @@ import {
   useSettings,
   useWhitelist,
 } from "./lib/queries";
+import {
+  getAttentionActionLabels,
+  getAttentionGuidance,
+  getAttentionViewState,
+  getBrokerReplyText,
+  getSourceEmailHref,
+} from "./lib/needs-attention";
 import { cn } from "./lib/utils";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
@@ -97,7 +105,7 @@ const brokerStatusCopy: Record<BrokerStatus, BrokerStatusCopy> = {
   },
   NEEDS_MANUAL: {
     group: "needs-attention",
-    label: "Needs review",
+    label: "Pending review",
     description: "Smokescreen needs you to review the broker's reply.",
   },
   FAILED: {
@@ -1266,23 +1274,44 @@ export function NeedsAttentionPage() {
   const queryClient = useQueryClient();
   const attentionQuery = useOptOuts("needs_attention");
   const records = attentionQuery.data ?? [];
-  const resetMutation = useMutation({
+  const refreshAttentionData = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["opt-outs"] }),
+      queryClient.invalidateQueries({ queryKey: ["extended-stats"] }),
+    ]);
+  };
+  const retryMutation = useMutation({
     mutationFn: api.resetOptOut,
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["opt-outs"] }),
-        queryClient.invalidateQueries({ queryKey: ["extended-stats"] }),
-      ]);
-    },
+    onSuccess: refreshAttentionData,
+  });
+  const markHandledMutation = useMutation({
+    mutationFn: api.markOptOutHandled,
+    onSuccess: refreshAttentionData,
+  });
+  const viewState = getAttentionViewState({
+    hasError: Boolean(attentionQuery.error),
+    isLoading: attentionQuery.isLoading,
+    recordCount: records.length,
   });
   const retryAttention = () => {
     void attentionQuery.refetch();
   };
 
-  function resetRecord(record: OptOutRecord) {
-    const confirmed = window.confirm(`Reset ${record.broker_name} to pending so Smokescreen can try again?`);
+  function retryRecord(record: OptOutRecord) {
+    const confirmed = window.confirm(
+      `Retry ${record.broker_name}? Smokescreen will move it back to the request queue and clear the saved reply from this item.`,
+    );
     if (confirmed) {
-      resetMutation.mutate(record.broker_id);
+      retryMutation.mutate(record.broker_id);
+    }
+  }
+
+  function markRecordHandled(record: OptOutRecord) {
+    const confirmed = window.confirm(
+      `Mark ${record.broker_name} handled? Smokescreen will remove it from Needs Attention and keep the saved reply on the completed record.`,
+    );
+    if (confirmed) {
+      markHandledMutation.mutate(record.broker_id);
     }
   }
 
@@ -1295,11 +1324,24 @@ export function NeedsAttentionPage() {
           title="Needs-attention items are unavailable"
         />
       ) : null}
-      {resetMutation.error ? (
+      {retryMutation.error ? (
         <ErrorState
-          description="Smokescreen could not reset that broker. Refresh the page before trying again."
-          onAction={retryAttention}
-          title="Broker was not reset"
+          description="Smokescreen could not retry that broker. Refresh the queue before trying again."
+          onAction={() => {
+            retryMutation.reset();
+            retryAttention();
+          }}
+          title="Request was not retried"
+        />
+      ) : null}
+      {markHandledMutation.error ? (
+        <ErrorState
+          description="Smokescreen could not mark that broker handled. Refresh the queue before trying again."
+          onAction={() => {
+            markHandledMutation.reset();
+            retryAttention();
+          }}
+          title="Request was not marked handled"
         />
       ) : null}
 
@@ -1322,18 +1364,20 @@ export function NeedsAttentionPage() {
         </Button>
       </div>
 
-      {attentionQuery.isLoading ? (
+      {viewState === "loading" ? (
         <LoadingState description="Checking for broker items that need your review." title="Loading review queue" />
       ) : null}
-      {!attentionQuery.isLoading && records.length === 0 ? <EmptyAttentionState /> : null}
+      {viewState === "empty" ? <EmptyAttentionState /> : null}
 
       <div className="grid gap-4">
         {records.map((record) => (
           <AttentionItem
             key={record.broker_id}
             record={record}
-            isResetting={resetMutation.isPending && resetMutation.variables === record.broker_id}
-            onReset={() => resetRecord(record)}
+            isMarkingHandled={markHandledMutation.isPending && markHandledMutation.variables === record.broker_id}
+            isRetrying={retryMutation.isPending && retryMutation.variables === record.broker_id}
+            onMarkHandled={() => markRecordHandled(record)}
+            onRetry={() => retryRecord(record)}
           />
         ))}
       </div>
@@ -1343,13 +1387,23 @@ export function NeedsAttentionPage() {
 
 function AttentionItem({
   record,
-  isResetting,
-  onReset,
+  isMarkingHandled,
+  isRetrying,
+  onMarkHandled,
+  onRetry,
 }: {
   record: OptOutRecord;
-  isResetting: boolean;
-  onReset: () => void;
+  isMarkingHandled: boolean;
+  isRetrying: boolean;
+  onMarkHandled: () => void;
+  onRetry: () => void;
 }) {
+  const guidance = getAttentionGuidance(record);
+  const replyText = getBrokerReplyText(record);
+  const sourceEmailHref = getSourceEmailHref(record.thread_id);
+  const actionLabels = getAttentionActionLabels({ isMarkingHandled, isRetrying });
+  const actionPending = isMarkingHandled || isRetrying;
+
   return (
     <Card>
       <CardHeader className="items-start pb-4">
@@ -1362,25 +1416,76 @@ function AttentionItem({
             {record.broker_domain || "Unknown domain"} - {record.broker_privacy_email || "No opt-out email listed"}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={onReset} disabled={isResetting}>
-          <RotateCcw className="h-4 w-4" />
-          {isResetting ? "Resetting" : "Reset to pending"}
-        </Button>
       </CardHeader>
       <CardContent className="grid gap-4">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <AttentionFact icon={<Clock3 className="h-4 w-4" />} label="Last updated" value={formatUpdatedAt(record.updated_at)} />
-          <AttentionFact icon={<Inbox className="h-4 w-4" />} label="Thread" value={record.thread_id ?? "Not linked"} />
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="rounded-md border bg-muted/40 p-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+              <MessageSquareWarning className="h-4 w-4 text-destructive" />
+              What happened
+            </div>
+            <h3 className="text-base font-semibold tracking-normal">{guidance.title}</h3>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{guidance.plainLanguage}</p>
+          </div>
+          <div className="rounded-md border bg-muted/40 p-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+              <ArrowRight className="h-4 w-4 text-primary" />
+              Recommended next step
+            </div>
+            <p className="text-sm leading-6 text-muted-foreground">{guidance.recommendedStep}</p>
+          </div>
         </div>
 
         <div className="rounded-md border bg-muted/40 p-4">
           <div className="mb-2 flex items-center gap-2 text-sm font-medium">
             <MessageSquareWarning className="h-4 w-4 text-destructive" />
-            Broker reply
+            Broker reply from source email
           </div>
           <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6 text-foreground">
-            {record.notes.trim() || "Smokescreen marked this broker for manual review, but no reply details were saved."}
+            {replyText}
           </pre>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-3">
+          <AttentionFact
+            icon={<Clock3 className="h-4 w-4" />}
+            label="Last updated"
+            value={formatUpdatedAt(record.updated_at)}
+          />
+          <AttentionFact
+            icon={<Inbox className="h-4 w-4" />}
+            label="Source thread"
+            value={record.thread_id ?? "No source email linked"}
+          />
+          <AttentionFact
+            icon={<Mail className="h-4 w-4" />}
+            label="Last message"
+            value={record.last_message_id ?? "No message ID saved"}
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {sourceEmailHref ? (
+            <Button asChild variant="outline" size="sm">
+              <a href={sourceEmailHref} target="_blank" rel="noreferrer">
+                <ExternalLink className="h-4 w-4" />
+                {actionLabels.sourceEmail}
+              </a>
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" disabled>
+              <ExternalLink className="h-4 w-4" />
+              {actionLabels.sourceEmail}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={onRetry} disabled={actionPending}>
+            <RotateCcw className="h-4 w-4" />
+            {actionLabels.retry}
+          </Button>
+          <Button size="sm" onClick={onMarkHandled} disabled={actionPending}>
+            <CheckCircle2 className="h-4 w-4" />
+            {actionLabels.markHandled}
+          </Button>
         </div>
       </CardContent>
     </Card>

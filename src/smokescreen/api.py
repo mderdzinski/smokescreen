@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from contextlib import suppress
 from datetime import datetime
 from json import JSONDecodeError
 from pathlib import Path
@@ -418,6 +419,24 @@ async def reset_optout(broker_id: str):
     record.updated_at = datetime.utcnow()
     store.upsert(record)
     return {"status": "reset", "broker_id": broker_id}
+
+
+@app.post("/api/optouts/{broker_id}/handled")
+async def mark_optout_handled(broker_id: str):
+    store = get_store()
+    record = store.get(broker_id)
+    if record is None:
+        raise HTTPException(404, f"No record for broker {broker_id}")
+    if record.status not in ATTENTION_STATUSES:
+        raise HTTPException(400, f"Broker {broker_id} does not need attention")
+    with suppress(InvalidTransition):
+        validate_transition(record.status, BrokerStatus.COMPLETED)
+    now = datetime.utcnow()
+    record.status = BrokerStatus.COMPLETED
+    record.last_completed_at = now
+    record.updated_at = now
+    store.upsert(record)
+    return {"status": "handled", "broker_id": broker_id}
 
 
 # --- Outreach ---

@@ -249,6 +249,13 @@ export const api = {
     requestJson<{ status: "reset"; broker_id: string }>(`/api/optouts/${encodeURIComponent(brokerId)}/reset`, {
       method: "POST",
     }),
+  markOptOutHandled: (brokerId: string) =>
+    requestJson<{ status: "handled"; broker_id: string }>(
+      `/api/optouts/${encodeURIComponent(brokerId)}/handled`,
+      {
+        method: "POST",
+      },
+    ),
   listWhitelist: () => requestJson<WhitelistEntry[]>("/api/whitelist"),
   addWhitelist: (data: { broker_id: string; email: string }) =>
     requestJson<WhitelistEntry>("/api/whitelist", {

@@ -282,6 +282,54 @@ def test_reset_optout_not_found(client):
     assert resp.status_code == 404
 
 
+@pytest.mark.parametrize(
+    "status",
+    [BrokerStatus.NEEDS_MANUAL, BrokerStatus.REJECTED, BrokerStatus.FAILED],
+)
+def test_mark_optout_handled_from_attention_states(client, status):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    broker_id = f"attention-{status.value.lower()}"
+    store.upsert(
+        OptOutRecord(
+            broker_id=broker_id,
+            status=status,
+            notes="Broker asked for manual review.",
+            thread_id="thread-123",
+            last_message_id="message-123",
+        )
+    )
+
+    resp = client.post(f"/api/optouts/{broker_id}/handled")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "handled", "broker_id": broker_id}
+    saved = store.get(broker_id)
+    assert saved is not None
+    assert saved.status == BrokerStatus.COMPLETED
+    assert saved.notes == "Broker asked for manual review."
+    assert saved.thread_id == "thread-123"
+    assert saved.last_message_id == "message-123"
+    assert saved.last_completed_at is not None
+    needs_attention = client.get("/api/optouts?status=needs_attention")
+    assert needs_attention.status_code == 200
+    assert needs_attention.json() == []
+
+
+def test_mark_optout_handled_rejects_non_attention_state(seeded_client):
+    resp = seeded_client.post("/api/optouts/beenverified/handled")
+
+    assert resp.status_code == 400
+    assert "does not need attention" in resp.json()["detail"]
+
+
+def test_mark_optout_handled_not_found(client):
+    resp = client.post("/api/optouts/nonexistent/handled")
+
+    assert resp.status_code == 404
+
+
 # --- Outreach ---
 
 
