@@ -221,7 +221,8 @@ export function BrokerRegistryPage() {
   }
 
   function updateImportFile(event: ChangeEvent<HTMLInputElement>) {
-    setImportForm((current) => ({ ...current, file: event.currentTarget.files?.[0] ?? null }));
+    const file = event.currentTarget.files?.[0] ?? null;
+    setImportForm((current) => ({ ...current, file }));
     setImportResult(null);
   }
 
