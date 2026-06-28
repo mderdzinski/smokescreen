@@ -93,6 +93,16 @@ def test_extended_stats_with_records(client):
     assert len(data["recent_activity"]) == 3
 
 
+def test_extended_stats_counts_rejected_as_needs_attention(client):
+    c, store = client
+    store.upsert(OptOutRecord(broker_id="spokeo", status=BrokerStatus.REJECTED))
+
+    resp = c.get("/api/stats/extended")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["needs_attention"] == 1
+
+
 def test_extended_stats_by_status(client):
     c, store = client
     store.upsert(OptOutRecord(broker_id="spokeo", status=BrokerStatus.COMPLETED))

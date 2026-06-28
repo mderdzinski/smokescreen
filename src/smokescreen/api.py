@@ -46,6 +46,11 @@ if _web_assets_dir.is_dir():
 _store: StateStore | None = None
 _registry: BrokerRegistry | None = None
 _settings: Settings | None = None
+ATTENTION_STATUSES = {
+    BrokerStatus.NEEDS_MANUAL,
+    BrokerStatus.FAILED,
+    BrokerStatus.REJECTED,
+}
 
 
 def get_store() -> StateStore:
@@ -364,11 +369,19 @@ async def import_brokers_csv(
 async def list_optouts(status: str | None = None):
     store = get_store()
     if status:
-        try:
-            bs = BrokerStatus(status)
-        except ValueError as err:
-            raise HTTPException(400, f"Invalid status: {status}") from err
-        records = store.list_by_status(bs)
+        normalized_status = status.strip().upper().replace("-", "_")
+        if normalized_status == "NEEDS_ATTENTION":
+            records = [
+                record
+                for record in store.list_all()
+                if record.status in ATTENTION_STATUSES
+            ]
+        else:
+            try:
+                bs = BrokerStatus(normalized_status)
+            except ValueError as err:
+                raise HTTPException(400, f"Invalid status: {status}") from err
+            records = store.list_by_status(bs)
     else:
         records = store.list_all()
     registry = get_registry()
@@ -395,7 +408,7 @@ async def reset_optout(broker_id: str):
         if record.status != BrokerStatus.PENDING:
             validate_transition(record.status, BrokerStatus.PENDING)
     except InvalidTransition:
-        # Force reset for NEEDS_MANUAL
+        # Force reset so human-reviewed attention states can be retried.
         pass
     record.status = BrokerStatus.PENDING
     record.retries = 0
@@ -493,7 +506,7 @@ async def get_extended_stats():
         by_status[r.status.value] = by_status.get(r.status.value, 0) + 1
         if r.status == BrokerStatus.COMPLETED:
             completed_records.append(r)
-        if r.status in (BrokerStatus.NEEDS_MANUAL, BrokerStatus.FAILED):
+        if r.status in ATTENTION_STATUSES:
             needs_attention += 1
 
     completed_count = len(completed_records)

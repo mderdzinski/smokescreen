@@ -1264,8 +1264,8 @@ function PendingApprovalItem({
 
 export function NeedsAttentionPage() {
   const queryClient = useQueryClient();
-  const manualQuery = useOptOuts("NEEDS_MANUAL");
-  const records = manualQuery.data ?? [];
+  const attentionQuery = useOptOuts("needs_attention");
+  const records = attentionQuery.data ?? [];
   const resetMutation = useMutation({
     mutationFn: api.resetOptOut,
     onSuccess: async () => {
@@ -1275,8 +1275,8 @@ export function NeedsAttentionPage() {
       ]);
     },
   });
-  const retryManual = () => {
-    void manualQuery.refetch();
+  const retryAttention = () => {
+    void attentionQuery.refetch();
   };
 
   function resetRecord(record: OptOutRecord) {
@@ -1288,17 +1288,17 @@ export function NeedsAttentionPage() {
 
   return (
     <section className="mx-auto grid max-w-6xl gap-5 px-5 py-6 sm:px-6 lg:px-8">
-      {manualQuery.error ? (
+      {attentionQuery.error ? (
         <ErrorState
-          description="Smokescreen could not load broker replies that need review. Refresh after checking the local API."
-          onAction={retryManual}
+          description="Smokescreen could not load broker items that need review. Refresh after checking the local API."
+          onAction={retryAttention}
           title="Needs-attention items are unavailable"
         />
       ) : null}
       {resetMutation.error ? (
         <ErrorState
           description="Smokescreen could not reset that broker. Refresh the page before trying again."
-          onAction={retryManual}
+          onAction={retryAttention}
           title="Broker was not reset"
         />
       ) : null}
@@ -1307,14 +1307,14 @@ export function NeedsAttentionPage() {
         <div>
           <h2 className="text-2xl font-semibold tracking-normal">Needs Attention</h2>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Broker replies appear here only when Smokescreen needs you to review the message or take the next step.
+            Broker items appear here when Smokescreen needs you to review the message, retry a failure, or unblock a rejected request.
           </p>
         </div>
         <Button
           variant="outline"
           size="sm"
           onClick={() => {
-            retryManual();
+            retryAttention();
           }}
         >
           <RefreshCcw className="h-4 w-4" />
@@ -1322,10 +1322,10 @@ export function NeedsAttentionPage() {
         </Button>
       </div>
 
-      {manualQuery.isLoading ? (
-        <LoadingState description="Checking for broker replies that need your review." title="Loading review queue" />
+      {attentionQuery.isLoading ? (
+        <LoadingState description="Checking for broker items that need your review." title="Loading review queue" />
       ) : null}
-      {!manualQuery.isLoading && records.length === 0 ? <EmptyAttentionState /> : null}
+      {!attentionQuery.isLoading && records.length === 0 ? <EmptyAttentionState /> : null}
 
       <div className="grid gap-4">
         {records.map((record) => (
