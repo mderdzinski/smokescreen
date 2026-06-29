@@ -43,8 +43,11 @@ test("pending-review guidance explains the broker reply and next step", () => {
 
   const guidance = helpers.getAttentionGuidance(record);
 
-  assert.match(guidance.plainLanguage, /could not safely decide/i);
-  assert.match(guidance.recommendedStep, /Open the source email/i);
+  assert.equal(guidance.title, "Review the broker reply");
+  assert.equal(
+    guidance.recommendedStep,
+    "Open the source email. Resolve it yourself and mark handled, or retry the request.",
+  );
   assert.equal(helpers.getBrokerReplyText(record), "Please send a signed form before we can continue.");
 });
 
@@ -56,8 +59,8 @@ test("attention actions use user-intent labels while pending", () => {
     }),
     {
       markHandled: "Marking handled",
-      retry: "Retry request",
-      sourceEmail: "Open source email",
+      retry: "Retry",
+      sourceEmail: "Source email",
     },
   );
 });

@@ -6,7 +6,6 @@ type AttentionRecord = Pick<OptOutRecord, "broker_name" | "notes" | "status" | "
 
 export interface AttentionGuidance {
   title: string;
-  plainLanguage: string;
   recommendedStep: string;
 }
 
@@ -35,26 +34,20 @@ export function getAttentionGuidance(record: AttentionRecord): AttentionGuidance
   if (record.status === "REJECTED") {
     return {
       title: "Broker rejected the request",
-      plainLanguage: `${record.broker_name} declined the opt-out request. The saved reply below should explain what stopped the request.`,
-      recommendedStep:
-        "Read the reply before retrying. Retry only after changing the request details, or mark it handled if there is no follow-up left.",
+      recommendedStep: "Read the reply, change the request details, then retry — or mark handled.",
     };
   }
 
   if (record.status === "FAILED") {
     return {
       title: "Retry after checking details",
-      plainLanguage: `Smokescreen could not finish ${record.broker_name} automatically. This usually means the broker reply or contact details need a quick check.`,
-      recommendedStep:
-        "Check the broker reply and contact information. Retry when the issue is fixed, or mark it handled if you completed the request elsewhere.",
+      recommendedStep: "Check the broker contact and reply. Retry when fixed, or mark handled.",
     };
   }
 
   return {
     title: "Review the broker reply",
-    plainLanguage: `Smokescreen saved ${record.broker_name}'s reply because it could not safely decide the next step on its own.`,
-    recommendedStep:
-      "Open the source email and look for a request, confirmation, or rejection. If you resolve it yourself, mark it handled. If Smokescreen should try again, retry the request.",
+    recommendedStep: "Open the source email. Resolve it yourself and mark handled, or retry the request.",
   };
 }
 
@@ -82,7 +75,7 @@ export function getAttentionActionLabels({
 }) {
   return {
     markHandled: isMarkingHandled ? "Marking handled" : "Mark handled",
-    retry: isRetrying ? "Retrying" : "Retry request",
-    sourceEmail: "Open source email",
+    retry: isRetrying ? "Retrying" : "Retry",
+    sourceEmail: "Source email",
   };
 }

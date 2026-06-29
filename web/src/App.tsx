@@ -12,7 +12,6 @@ import {
   Inbox,
   KeyRound,
   Mail,
-  MessageSquareWarning,
   RefreshCcw,
   RotateCcw,
   Save,
@@ -58,6 +57,8 @@ import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { Logo } from "./components/ui/logo";
+import { Poof } from "./components/ui/motion";
+import { StatusPill } from "./components/ui/status-pill";
 import { EmptyState, ErrorState, LoadingState } from "./components/status-state";
 
 type BrokerStatusGroup = "working" | "done" | "needs-attention";
@@ -1311,6 +1312,12 @@ export function NeedsAttentionPage() {
   const queryClient = useQueryClient();
   const attentionQuery = useOptOuts("needs_attention");
   const records = attentionQuery.data ?? [];
+  const [resolvingBrokerId, setResolvingBrokerId] = useState<string | null>(null);
+  const [resolvedBrokerIds, setResolvedBrokerIds] = useState<Set<string>>(() => new Set());
+  const visibleRecords = useMemo(
+    () => records.filter((record) => !resolvedBrokerIds.has(record.broker_id)),
+    [records, resolvedBrokerIds],
+  );
   const refreshAttentionData = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["opt-outs"] }),
@@ -1328,28 +1335,28 @@ export function NeedsAttentionPage() {
   const viewState = getAttentionViewState({
     hasError: Boolean(attentionQuery.error),
     isLoading: attentionQuery.isLoading,
-    recordCount: records.length,
+    recordCount: visibleRecords.length,
   });
   const retryAttention = () => {
     void attentionQuery.refetch();
   };
 
   function retryRecord(record: OptOutRecord) {
-    const confirmed = window.confirm(
-      `Retry ${record.broker_name}? Smokescreen will move it back to the request queue and clear the saved reply from this item.`,
-    );
-    if (confirmed) {
-      retryMutation.mutate(record.broker_id);
-    }
+    retryMutation.mutate(record.broker_id);
   }
 
   function markRecordHandled(record: OptOutRecord) {
-    const confirmed = window.confirm(
-      `Mark ${record.broker_name} handled? Smokescreen will remove it from Needs Attention and keep the saved reply on the completed record.`,
-    );
-    if (confirmed) {
-      markHandledMutation.mutate(record.broker_id);
-    }
+    setResolvingBrokerId(record.broker_id);
+  }
+
+  function finishMarkHandled(record: OptOutRecord) {
+    setResolvingBrokerId((currentId) => (currentId === record.broker_id ? null : currentId));
+    setResolvedBrokerIds((currentIds) => {
+      const nextIds = new Set(currentIds);
+      nextIds.add(record.broker_id);
+      return nextIds;
+    });
+    markHandledMutation.mutate(record.broker_id);
   }
 
   return (
@@ -1384,9 +1391,9 @@ export function NeedsAttentionPage() {
 
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
-          <h2 className="text-2xl font-semibold tracking-normal">Needs Attention</h2>
+          <h1 className="text-2xl font-semibold tracking-normal">Needs Attention</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Broker items appear here when Smokescreen needs you to review the message, retry a failure, or unblock a rejected request.
+            Smokescreen handles most of the workflow automatically. These replies need a quick human decision before it can continue.
           </p>
         </div>
         <Button
@@ -1407,13 +1414,15 @@ export function NeedsAttentionPage() {
       {viewState === "empty" ? <EmptyAttentionState /> : null}
 
       <div className="grid gap-4">
-        {records.map((record) => (
+        {visibleRecords.map((record) => (
           <AttentionItem
             key={record.broker_id}
             record={record}
             isMarkingHandled={markHandledMutation.isPending && markHandledMutation.variables === record.broker_id}
+            isResolving={resolvingBrokerId === record.broker_id}
             isRetrying={retryMutation.isPending && retryMutation.variables === record.broker_id}
             onMarkHandled={() => markRecordHandled(record)}
+            onResolveDone={() => finishMarkHandled(record)}
             onRetry={() => retryRecord(record)}
           />
         ))}
@@ -1425,82 +1434,46 @@ export function NeedsAttentionPage() {
 function AttentionItem({
   record,
   isMarkingHandled,
+  isResolving,
   isRetrying,
   onMarkHandled,
+  onResolveDone,
   onRetry,
 }: {
   record: OptOutRecord;
   isMarkingHandled: boolean;
+  isResolving: boolean;
   isRetrying: boolean;
   onMarkHandled: () => void;
+  onResolveDone: () => void;
   onRetry: () => void;
 }) {
   const guidance = getAttentionGuidance(record);
   const replyText = getBrokerReplyText(record);
   const sourceEmailHref = getSourceEmailHref(record.thread_id);
-  const actionLabels = getAttentionActionLabels({ isMarkingHandled, isRetrying });
-  const actionPending = isMarkingHandled || isRetrying;
+  const actionLabels = getAttentionActionLabels({ isMarkingHandled: isMarkingHandled || isResolving, isRetrying });
+  const actionPending = isMarkingHandled || isRetrying || isResolving;
 
   return (
-    <Card>
-      <CardHeader className="items-start pb-4">
+    <Card
+      variant="accent"
+      pad
+      className={cn(
+        "ss-rowin border-t-rust-500 transition-opacity duration-base ease-standard",
+        isResolving ? "overflow-visible opacity-50" : "overflow-hidden opacity-100",
+      )}
+    >
+      {isResolving ? <Poof count={9} onDone={onResolveDone} /> : null}
+      <div className="flex flex-wrap items-start justify-between gap-[14px]">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <CardTitle className="text-base font-semibold text-foreground">{record.broker_name}</CardTitle>
-            <Badge variant="destructive">{brokerStatusCopy[record.status].label}</Badge>
+          <div className="flex flex-wrap items-center gap-[10px]">
+            <h2 className="break-words text-lg font-semibold tracking-normal">{record.broker_name}</h2>
+            <StatusPill status={record.status} />
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {record.broker_domain || "Unknown domain"} - {record.broker_privacy_email || "No opt-out email listed"}
+          <p className="mt-[3px] break-words font-mono text-xs text-content-muted">
+            {record.broker_privacy_email || "No opt-out email listed"}
           </p>
         </div>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        <div className="grid gap-3 lg:grid-cols-2">
-          <div className="rounded-md border bg-muted/40 p-4">
-            <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-              <MessageSquareWarning className="h-4 w-4 text-destructive" />
-              What happened
-            </div>
-            <h3 className="text-base font-semibold tracking-normal">{guidance.title}</h3>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">{guidance.plainLanguage}</p>
-          </div>
-          <div className="rounded-md border bg-muted/40 p-4">
-            <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-              <ArrowRight className="h-4 w-4 text-primary" />
-              Recommended next step
-            </div>
-            <p className="text-sm leading-6 text-muted-foreground">{guidance.recommendedStep}</p>
-          </div>
-        </div>
-
-        <div className="rounded-md border bg-muted/40 p-4">
-          <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-            <MessageSquareWarning className="h-4 w-4 text-destructive" />
-            Broker reply from source email
-          </div>
-          <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6 text-foreground">
-            {replyText}
-          </pre>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-3">
-          <AttentionFact
-            icon={<Clock3 className="h-4 w-4" />}
-            label="Last updated"
-            value={formatUpdatedAt(record.updated_at)}
-          />
-          <AttentionFact
-            icon={<Inbox className="h-4 w-4" />}
-            label="Source thread"
-            value={record.thread_id ?? "No source email linked"}
-          />
-          <AttentionFact
-            icon={<Mail className="h-4 w-4" />}
-            label="Last message"
-            value={record.last_message_id ?? "No message ID saved"}
-          />
-        </div>
-
         <div className="flex flex-wrap gap-2">
           {sourceEmailHref ? (
             <Button asChild variant="outline" size="sm">
@@ -1515,39 +1488,40 @@ function AttentionItem({
               {actionLabels.sourceEmail}
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={onRetry} disabled={actionPending}>
+          <Button variant="secondary" size="sm" onClick={onRetry} disabled={actionPending}>
             <RotateCcw className="h-4 w-4" />
             {actionLabels.retry}
           </Button>
           <Button size="sm" onClick={onMarkHandled} disabled={actionPending}>
-            <CheckCircle2 className="h-4 w-4" />
+            <Check className="h-4 w-4" />
             {actionLabels.markHandled}
           </Button>
         </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function AttentionFact({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
-  return (
-    <div className="rounded-md border bg-background p-3">
-      <div className="flex items-center gap-2 text-xs font-medium uppercase text-muted-foreground">
-        {icon}
-        {label}
       </div>
-      <p className="mt-2 break-words text-sm font-medium">{value}</p>
-    </div>
+
+      <div className="mt-[14px] grid gap-3 lg:grid-cols-2">
+        <div>
+          <div className="ss-label mb-[5px]">{guidance.title}</div>
+          <p className="text-sm leading-relaxed text-content-body">{guidance.recommendedStep}</p>
+        </div>
+        <div className="rounded-sm border border-border bg-surface-sunken px-[13px] py-[11px]">
+          <div className="ss-label mb-[5px]">Saved broker reply</div>
+          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-content-body">{replyText}</p>
+        </div>
+      </div>
+    </Card>
   );
 }
 
 function EmptyAttentionState() {
   return (
-    <EmptyState
-      description="Smokescreen is handling replies on its own. If a broker sends something confusing or asks you to step in, it will show up here."
-      icon={<CheckCircle2 className="h-5 w-5" />}
-      title="Nothing needs your attention"
-    />
+    <Card className="mx-auto w-full max-w-xl px-5 py-11 text-center">
+      <div className="mx-auto mb-3 inline-grid h-11 w-11 place-items-center rounded-sm bg-fill-green text-soft-green">
+        <CheckCircle2 className="h-5 w-5" />
+      </div>
+      <h2 className="text-lg font-semibold tracking-normal">Queue clear</h2>
+      <p className="mt-[6px] text-sm text-content-muted">Nothing needs your attention right now.</p>
+    </Card>
   );
 }
 

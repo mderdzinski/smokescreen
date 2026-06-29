@@ -473,11 +473,49 @@ describe("SettingsPage", () => {
 });
 
 describe("NeedsAttentionPage", () => {
+  it("renders status-specific guidance for attention records", async () => {
+    mockApi([
+      {
+        body: [
+          optOut({
+            broker_id: "rejected",
+            broker_name: "Rejected Broker",
+            notes: "The broker declined the request.",
+            status: "REJECTED",
+          }),
+          optOut({
+            broker_id: "manual",
+            broker_name: "Manual Broker",
+            notes: "The broker asked for a signed form.",
+            status: "NEEDS_MANUAL",
+          }),
+          optOut({
+            broker_id: "failed",
+            broker_name: "Failed Broker",
+            notes: "The broker contact bounced.",
+            status: "FAILED",
+          }),
+        ],
+        path: "/api/optouts?status=needs_attention",
+      },
+    ]);
+
+    renderWithProviders(<NeedsAttentionPage />);
+
+    expect(await screen.findByText("Rejected Broker")).toBeInTheDocument();
+    expect(screen.getByText("Broker rejected the request")).toBeInTheDocument();
+    expect(screen.getByText("Read the reply, change the request details, then retry — or mark handled.")).toBeInTheDocument();
+    expect(screen.getByText("Review the broker reply")).toBeInTheDocument();
+    expect(
+      screen.getByText("Open the source email. Resolve it yourself and mark handled, or retry the request."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Retry after checking details")).toBeInTheDocument();
+    expect(screen.getByText("Check the broker contact and reply. Retry when fixed, or mark handled.")).toBeInTheDocument();
+  });
+
   it("marks an item handled after manual review", async () => {
     const user = userEvent.setup();
     const handledIds: string[] = [];
-    let resolveHandled: (() => void) | undefined;
-    vi.stubGlobal("confirm", vi.fn(() => true));
     mockApi([
       {
         body: [
@@ -492,16 +530,7 @@ describe("NeedsAttentionPage", () => {
         assert: () => handledIds.push("acme"),
         method: "POST",
         path: "/api/optouts/acme/handled",
-        respond: () =>
-          new Promise<Response>((resolve) => {
-            resolveHandled = () =>
-              resolve(
-                new Response(JSON.stringify({ broker_id: "acme", status: "handled" }), {
-                  headers: { "Content-Type": "application/json" },
-                  status: 200,
-                }),
-              );
-          }),
+        body: { broker_id: "acme", status: "handled" },
       },
     ]);
 
@@ -511,7 +540,7 @@ describe("NeedsAttentionPage", () => {
     await user.click(screen.getByRole("button", { name: "Mark handled" }));
 
     expect(await screen.findByRole("button", { name: "Marking handled" })).toBeDisabled();
-    resolveHandled?.();
     await waitFor(() => expect(handledIds).toEqual(["acme"]));
+    expect(await screen.findByText("Queue clear")).toBeInTheDocument();
   });
 });
