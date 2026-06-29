@@ -1,0 +1,341 @@
+import * as React from "react";
+
+import { cn } from "../../lib/utils";
+
+const DEFAULT_COUNT_UP_DURATION = 900;
+const COUNT_UP_TICK_MS = 33;
+
+const SMOKE_SHEETS = [
+  "/assets/throw-key-a.png",
+  "/assets/throw-key-b.png",
+  "/assets/throw-key-c.png",
+] as const;
+
+const SMOKE_COLS = 8;
+const SMOKE_FRAMES_PER_SHEET = 40;
+const SMOKE_TOTAL_FRAMES = 120;
+const SMOKE_FRAME_WIDTH = 384;
+const SMOKE_FRAME_HEIGHT = 216;
+const SMOKE_REDUCED_FRAME = 80;
+
+const SMOKE_SEQUENCE = [
+  ...Array.from({ length: 9 }, () => 37),
+  ...Array.from({ length: SMOKE_TOTAL_FRAMES - 38 }, (_, index) => index + 38),
+];
+const LAST_SMOKE_SEQUENCE_FRAME = SMOKE_SEQUENCE[SMOKE_SEQUENCE.length - 1] ?? SMOKE_REDUCED_FRAME;
+
+type CssVars = React.CSSProperties & Record<`--${string}`, string | number>;
+
+function easeOutCubic(progress: number) {
+  return 1 - Math.pow(1 - progress, 3);
+}
+
+function getPrefersReducedMotion() {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+function useLatest<T>(value: T) {
+  const ref = React.useRef(value);
+
+  React.useEffect(() => {
+    ref.current = value;
+  }, [value]);
+
+  return ref;
+}
+
+export function usePrefersReducedMotion() {
+  const [prefersReducedMotion, setPrefersReducedMotion] = React.useState(getPrefersReducedMotion);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return undefined;
+    }
+
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const handleChange = () => setPrefersReducedMotion(mediaQuery.matches);
+    handleChange();
+
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", handleChange);
+      return () => mediaQuery.removeEventListener("change", handleChange);
+    }
+
+    mediaQuery.addListener(handleChange);
+    return () => mediaQuery.removeListener(handleChange);
+  }, []);
+
+  return prefersReducedMotion;
+}
+
+export function useCountUp(target: number, { duration = DEFAULT_COUNT_UP_DURATION } = {}) {
+  const [value, setValue] = React.useState(target);
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  React.useEffect(() => {
+    if (prefersReducedMotion || target <= 0 || duration <= 0) {
+      setValue(target);
+      return undefined;
+    }
+
+    setValue(0);
+    const startTime = Date.now();
+    const timer = window.setInterval(() => {
+      const progress = Math.min(1, (Date.now() - startTime) / duration);
+      const nextValue = Math.round(target * easeOutCubic(progress));
+
+      setValue(nextValue);
+
+      if (progress >= 1) {
+        setValue(target);
+        window.clearInterval(timer);
+      }
+    }, COUNT_UP_TICK_MS);
+
+    return () => window.clearInterval(timer);
+  }, [duration, prefersReducedMotion, target]);
+
+  return value;
+}
+
+export interface ScanSweepProps extends React.HTMLAttributes<HTMLSpanElement> {
+  active?: boolean;
+  color?: string;
+}
+
+export function ScanSweep({
+  active = true,
+  className,
+  color = "rgba(238,159,67,0.18)",
+  style,
+  ...props
+}: ScanSweepProps) {
+  if (!active) {
+    return null;
+  }
+
+  return (
+    <span
+      aria-hidden="true"
+      className={cn("ss-scan-layer absolute inset-x-0 top-0 h-[34%] rounded-[inherit]", className)}
+      style={
+        {
+          background: `linear-gradient(180deg, transparent, ${color} 70%, ${color})`,
+          ...style,
+        } as React.CSSProperties
+      }
+      {...props}
+    />
+  );
+}
+
+interface PoofChip {
+  delay: string;
+  dx: string;
+  dy: string;
+  size: number;
+  tone: "strong" | "soft";
+}
+
+export interface PoofProps extends React.HTMLAttributes<HTMLSpanElement> {
+  count?: number;
+  duration?: number;
+  onDone?: () => void;
+}
+
+export function Poof({ className, count = 7, duration = 620, onDone, ...props }: PoofProps) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const onDoneRef = useLatest(onDone);
+  const chips = React.useMemo<PoofChip[]>(
+    () =>
+      Array.from({ length: count }, (_, index) => ({
+        delay: `${Math.round(Math.random() * 90)}ms`,
+        dx: `${Math.round(Math.random() * 60 - 30)}px`,
+        dy: `${Math.round(-110 - Math.random() * 90)}%`,
+        size: 7 + Math.round(Math.random() * 6),
+        tone: index % 3 === 0 ? "strong" : "soft",
+      })),
+    [count],
+  );
+
+  React.useEffect(() => {
+    const doneDelay = prefersReducedMotion ? 0 : duration + 60;
+    const timer = window.setTimeout(() => onDoneRef.current?.(), doneDelay);
+
+    return () => window.clearTimeout(timer);
+  }, [duration, onDoneRef, prefersReducedMotion]);
+
+  if (prefersReducedMotion) {
+    return null;
+  }
+
+  return (
+    <span
+      aria-hidden="true"
+      className={cn("pointer-events-none absolute inset-0 z-[5] overflow-visible", className)}
+      {...props}
+    >
+      {chips.map((chip, index) => (
+        <span
+          key={`${chip.dx}-${chip.dy}-${index}`}
+          data-ss-motion="poof-chip"
+          style={
+            {
+              "--dx": chip.dx,
+              "--dy": chip.dy,
+              animation: `ss-poof ${duration}ms var(--ease-out) ${chip.delay} both`,
+              background: chip.tone === "strong" ? "var(--smoke-400)" : "var(--smoke-300)",
+              borderRadius: "var(--radius-sm)",
+              height: chip.size,
+              left: "50%",
+              marginLeft: -chip.size / 2,
+              marginTop: -chip.size / 2,
+              pointerEvents: "none",
+              position: "absolute",
+              top: "50%",
+              width: chip.size,
+            } as CssVars
+          }
+        />
+      ))}
+    </span>
+  );
+}
+
+export interface SmokePlayerProps extends React.CanvasHTMLAttributes<HTMLCanvasElement> {
+  fps?: number;
+  loop?: boolean;
+  onDone?: () => void;
+  sheetSources?: readonly string[];
+  width?: number | string;
+}
+
+export function SmokePlayer({
+  className,
+  fps = 30,
+  loop = false,
+  onDone,
+  sheetSources = SMOKE_SHEETS,
+  style,
+  width = 360,
+  ...props
+}: SmokePlayerProps) {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const onDoneRef = useLatest(onDone);
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+
+    if (!canvas || !context) {
+      return undefined;
+    }
+
+    let loaded = 0;
+    let dead = false;
+    let timer: number | undefined;
+    const images: HTMLImageElement[] = [];
+
+    const drawFrame = (frameIndex: number) => {
+      const sheetIndex = Math.floor(frameIndex / SMOKE_FRAMES_PER_SHEET);
+      const sheetFrame = frameIndex % SMOKE_FRAMES_PER_SHEET;
+      const image = images[sheetIndex];
+
+      if (!image) {
+        return;
+      }
+
+      context.clearRect(0, 0, SMOKE_FRAME_WIDTH, SMOKE_FRAME_HEIGHT);
+      context.drawImage(
+        image,
+        (sheetFrame % SMOKE_COLS) * SMOKE_FRAME_WIDTH,
+        Math.floor(sheetFrame / SMOKE_COLS) * SMOKE_FRAME_HEIGHT,
+        SMOKE_FRAME_WIDTH,
+        SMOKE_FRAME_HEIGHT,
+        0,
+        0,
+        SMOKE_FRAME_WIDTH,
+        SMOKE_FRAME_HEIGHT,
+      );
+    };
+
+    const finish = () => {
+      if (timer !== undefined) {
+        window.clearInterval(timer);
+      }
+      onDoneRef.current?.();
+    };
+
+    const start = () => {
+      if (prefersReducedMotion) {
+        drawFrame(SMOKE_REDUCED_FRAME);
+        finish();
+        return;
+      }
+
+      const startTime = Date.now();
+      timer = window.setInterval(() => {
+        if (dead) {
+          return;
+        }
+
+        const elapsedSeconds = (Date.now() - startTime) / 1000;
+        let sequenceIndex = Math.floor(elapsedSeconds * fps);
+
+        if (sequenceIndex >= SMOKE_SEQUENCE.length) {
+          if (loop) {
+            sequenceIndex %= SMOKE_SEQUENCE.length;
+          } else {
+            drawFrame(LAST_SMOKE_SEQUENCE_FRAME);
+            finish();
+            return;
+          }
+        }
+
+        drawFrame(SMOKE_SEQUENCE[sequenceIndex] ?? LAST_SMOKE_SEQUENCE_FRAME);
+      }, 1000 / fps);
+    };
+
+    sheetSources.forEach((source) => {
+      const image = new Image();
+      image.onload = () => {
+        loaded += 1;
+        if (loaded === sheetSources.length && !dead) {
+          start();
+        }
+      };
+      image.src = source;
+      images.push(image);
+    });
+
+    return () => {
+      dead = true;
+      if (timer !== undefined) {
+        window.clearInterval(timer);
+      }
+    };
+  }, [fps, loop, onDoneRef, prefersReducedMotion, sheetSources]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className={cn("block max-w-full", className)}
+      height={SMOKE_FRAME_HEIGHT}
+      style={
+        {
+          aspectRatio: "16 / 9",
+          imageRendering: "auto",
+          width,
+          ...style,
+        } as React.CSSProperties
+      }
+      width={SMOKE_FRAME_WIDTH}
+      {...props}
+    />
+  );
+}
