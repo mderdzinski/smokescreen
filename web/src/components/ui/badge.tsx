@@ -4,26 +4,39 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium transition-colors",
+  "inline-flex items-center gap-[.4em] whitespace-nowrap rounded-sm border px-[.6em] py-[.34em] font-mono text-2xs font-semibold uppercase leading-none tracking-label transition-colors",
   {
     variants: {
       variant: {
-        default: "border-transparent bg-primary text-primary-foreground",
-        secondary: "border-transparent bg-secondary text-secondary-foreground",
-        destructive: "border-transparent bg-destructive text-destructive-foreground",
-        outline: "text-foreground",
+        neutral: "border-border bg-fill-neutral text-soft-neutral",
+        olive: "border-bd-olive bg-fill-olive text-soft-olive",
+        amber: "border-bd-amber bg-fill-amber text-soft-amber",
+        success: "border-bd-green bg-fill-green text-soft-green",
+        danger: "border-bd-rust bg-fill-rust text-soft-rust",
+        solid: "border-transparent bg-brand text-content-on-olive",
+        outline: "border-[color:var(--border-strong)] bg-transparent text-content-muted",
+        default: "border-transparent bg-brand text-content-on-olive",
+        secondary: "border-border bg-fill-neutral text-soft-neutral",
+        destructive: "border-bd-rust bg-fill-rust text-soft-rust",
       },
     },
     defaultVariants: {
-      variant: "default",
+      variant: "neutral",
     },
   },
 );
 
-export interface BadgeProps extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof badgeVariants> {}
+export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement>, VariantProps<typeof badgeVariants> {
+  dot?: boolean;
+}
 
-function Badge({ className, variant, ...props }: BadgeProps) {
-  return <div className={cn(badgeVariants({ variant }), className)} {...props} />;
+function Badge({ children, className, dot = false, variant, ...props }: BadgeProps) {
+  return (
+    <span className={cn(badgeVariants({ variant }), className)} {...props}>
+      {dot ? <span className="h-[6px] w-[6px] rounded-pill bg-current" /> : null}
+      {children}
+    </span>
+  );
 }
 
 export { Badge, badgeVariants };

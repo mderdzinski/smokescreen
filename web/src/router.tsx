@@ -2,6 +2,7 @@ import { createBrowserRouter } from "react-router-dom";
 
 import { App, NeedsAttentionPage, OverviewPage, SettingsPage, TrustedSendersPage } from "./App";
 import { BrokerRegistryPage } from "./pages/BrokerRegistryPage";
+import { DesignSystemPage } from "./pages/DesignSystemPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 
 export const router = createBrowserRouter(
@@ -33,6 +34,10 @@ export const router = createBrowserRouter(
         {
           path: "settings",
           element: <SettingsPage />,
+        },
+        {
+          path: "design-system",
+          element: <DesignSystemPage />,
         },
       ],
     },
