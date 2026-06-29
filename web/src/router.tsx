@@ -28,6 +28,10 @@ export const router = createBrowserRouter(
           element: <TrustedSendersPage />,
         },
         {
+          path: "setup",
+          element: <OnboardingPage />,
+        },
+        {
           path: "onboarding",
           element: <OnboardingPage />,
         },

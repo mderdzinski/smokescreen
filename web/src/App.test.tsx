@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  App,
   NeedsAttentionPage,
   OverviewPage,
   SettingsPage,
@@ -83,6 +84,35 @@ function parseJsonBody(request: MockApiRequest): unknown {
 
 beforeEach(() => {
   window.localStorage.clear();
+});
+
+describe("App", () => {
+  it("renders the command-bar tabs with the live attention count", async () => {
+    mockApi([
+      {
+        body: [
+          optOut({
+            broker_id: "manual",
+            status: "NEEDS_MANUAL",
+          }),
+          optOut({
+            broker_id: "failed",
+            status: "FAILED",
+          }),
+        ],
+        path: "/api/optouts?status=needs_attention",
+      },
+    ]);
+
+    renderWithProviders(<App />);
+
+    expect(screen.getByRole("link", { name: "Status" })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: "Setup" })).toHaveAttribute("href", "/setup");
+    expect(screen.getByRole("link", { name: "Brokers" })).toHaveAttribute("href", "/brokers");
+    expect(screen.getByRole("link", { name: /Needs Attention/ })).toHaveAttribute("href", "/needs-attention");
+    expect(screen.getByRole("link", { name: "Status" })).toHaveAttribute("aria-current", "page");
+    expect(await screen.findByText("2")).toHaveClass("ss-badge-live");
+  });
 });
 
 describe("OverviewPage", () => {

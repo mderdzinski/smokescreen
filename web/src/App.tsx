@@ -57,6 +57,7 @@ import { cn } from "./lib/utils";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
+import { Logo } from "./components/ui/logo";
 import { EmptyState, ErrorState, LoadingState } from "./components/status-state";
 
 type BrokerStatusGroup = "working" | "done" | "needs-attention";
@@ -137,49 +138,85 @@ function formatUpdatedAt(value: string): string {
   });
 }
 
-function AppNavLink({ to, children }: { to: string; children: ReactNode }) {
+const appTabs = [
+  { label: "Status", to: "/" },
+  { label: "Setup", to: "/setup" },
+  { label: "Brokers", to: "/brokers" },
+  { label: "Needs Attention", to: "/needs-attention", showAttentionCount: true },
+] as const;
+
+function AppNavLink({
+  attentionCount = 0,
+  children,
+  showAttentionCount = false,
+  to,
+}: {
+  attentionCount?: number;
+  children: ReactNode;
+  showAttentionCount?: boolean;
+  to: string;
+}) {
+  const hasAttention = showAttentionCount && attentionCount > 0;
+
   return (
     <NavLink
       to={to}
       end={to === "/"}
       className={({ isActive }) =>
         cn(
-          "inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-          isActive && "bg-muted text-foreground",
+          "group relative inline-flex h-9 items-center gap-[6px] rounded-sm px-[13px] font-mono text-2xs font-semibold uppercase tracking-label text-steel-300 transition-colors duration-fast hover:text-smoke-50",
+          isActive && "bg-ink-700 text-smoke-50",
         )
       }
     >
       {children}
+      {hasAttention ? (
+        <span
+          className="ss-badge-live inline-grid h-4 min-w-4 place-items-center rounded-pill bg-rust-500 px-1 text-[10px] font-semibold leading-none text-paper"
+          title={`${attentionCount} item${attentionCount === 1 ? "" : "s"} need attention`}
+        >
+          {attentionCount}
+        </span>
+      ) : null}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 bottom-[-1px] hidden h-[2px] bg-accent group-aria-[current=page]:block"
+      />
     </NavLink>
   );
 }
 
 export function App() {
+  const attentionQuery = useOptOuts("needs_attention");
+  const attentionCount = attentionQuery.data?.length ?? 0;
+
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <section className="border-b bg-card">
-        <div className="mx-auto flex max-w-6xl flex-col gap-5 px-5 py-8 sm:px-6 lg:px-8">
-          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">Smokescreen</p>
-              <h1 className="mt-1 text-3xl font-semibold tracking-normal">Smokescreen</h1>
-              <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-                Track privacy opt-out requests without managing the underlying workflow.
-              </p>
-            </div>
-            <nav className="flex flex-wrap items-center gap-1 rounded-md border bg-background p-1">
-              <AppNavLink to="/">Status</AppNavLink>
-              <AppNavLink to="/onboarding">Setup</AppNavLink>
-              <AppNavLink to="/needs-attention">Needs Attention</AppNavLink>
-              <AppNavLink to="/brokers">Brokers</AppNavLink>
-              <AppNavLink to="/trusted-senders">Trusted Senders</AppNavLink>
-              <AppNavLink to="/settings">Settings</AppNavLink>
-            </nav>
-          </div>
+    <div className="min-h-screen bg-background text-foreground">
+      <header
+        className="border-b border-ink-600 bg-surface-inverse"
+        style={{
+          backgroundImage:
+            "radial-gradient(120% 140% at 88% -40%, rgb(var(--olive-500-rgb) / 0.28), transparent 55%)",
+        }}
+      >
+        <div className="mx-auto flex min-h-header max-w-container flex-col justify-center gap-4 px-gutter py-4 sm:flex-row sm:items-center sm:justify-between sm:py-0">
+          <Logo inverse size="md" tagline="data broker opt-out" />
+          <nav aria-label="Primary" className="flex flex-wrap items-center gap-[2px]">
+            {appTabs.map((tab) => (
+              <AppNavLink
+                key={tab.to}
+                attentionCount={attentionCount}
+                showAttentionCount={"showAttentionCount" in tab && tab.showAttentionCount}
+                to={tab.to}
+              >
+                {tab.label}
+              </AppNavLink>
+            ))}
+          </nav>
         </div>
-      </section>
+      </header>
       <Outlet />
-    </main>
+    </div>
   );
 }
 
