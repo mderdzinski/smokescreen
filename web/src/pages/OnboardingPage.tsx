@@ -1,42 +1,40 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
   ArrowRight,
   Brain,
-  Check,
   CheckCircle2,
   Circle,
   KeyRound,
   Mail,
   Rocket,
-  Search,
   Send,
-  Settings,
   ShieldCheck,
+  type LucideIcon,
 } from "lucide-react";
 
 import { api, type Broker } from "../lib/api";
 import { useAdvancedSettings, useBrokers, useSettings } from "../lib/queries";
 import { cn } from "../lib/utils";
+import { Avatar } from "../components/ui/avatar";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { Card } from "../components/ui/card";
 import { ThrowOverlay } from "../components/ui/motion";
+import { TextField } from "../components/ui/text-field";
 import { EmptyState, ErrorState, LoadingState } from "../components/status-state";
 
 const ONBOARDING_STEP_KEY = "smokescreen:onboarding-step";
 const ONBOARDING_COMPLETE_KEY = "smokescreen:onboarding-complete";
 const ONBOARDING_BROKERS_KEY = "smokescreen:onboarding-brokers";
 
-const inputClass =
-  "h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring";
-
 const steps = [
-  { id: 0, label: "Gmail", icon: Mail },
+  { id: 0, label: "Identity", icon: Mail },
   { id: 1, label: "Claude", icon: Brain },
   { id: 2, label: "Brokers", icon: ShieldCheck },
-  { id: 3, label: "First batch", icon: Rocket },
-];
+  { id: 3, label: "Launch", icon: Rocket },
+] as const;
 
 type GmailForm = {
   senderName: string;
@@ -46,6 +44,10 @@ type GmailForm = {
 function loadStep(): number {
   const value = Number(window.localStorage.getItem(ONBOARDING_STEP_KEY) ?? "0");
   return Number.isInteger(value) && value >= 0 && value < steps.length ? value : 0;
+}
+
+function loadComplete(): boolean {
+  return window.localStorage.getItem(ONBOARDING_COMPLETE_KEY) === "true";
 }
 
 function loadSelectedBrokerIds(): string[] {
@@ -61,15 +63,8 @@ function loadSelectedBrokerIds(): string[] {
   }
 }
 
-function brokerMatchesSearch(broker: Broker, search: string): boolean {
-  const query = search.trim().toLowerCase();
-  if (!query) {
-    return true;
-  }
-  return [broker.name, broker.domain, broker.privacy_email, broker.notes, ...broker.aliases]
-    .join(" ")
-    .toLowerCase()
-    .includes(query);
+function brokerDomain(broker: Broker): string {
+  return broker.domain || broker.privacy_email;
 }
 
 export function OnboardingPage() {
@@ -85,24 +80,23 @@ export function OnboardingPage() {
   const [gmailForm, setGmailForm] = useState<GmailForm>({ senderName: "", senderEmail: "" });
   const [anthropicApiKey, setAnthropicApiKey] = useState("");
   const [selectedBrokerIds, setSelectedBrokerIds] = useState<string[]>(loadSelectedBrokerIds);
-  const [brokerSearch, setBrokerSearch] = useState("");
+  const [identitySavedThisSession, setIdentitySavedThisSession] = useState(false);
+  const [claudeSavedThisSession, setClaudeSavedThisSession] = useState(false);
+  const [firstBatchSent, setFirstBatchSent] = useState(loadComplete);
+  const [sentBrokerCount, setSentBrokerCount] = useState(0);
   const [throwOverlayOpen, setThrowOverlayOpen] = useState(false);
   const [throwOverlayCount, setThrowOverlayCount] = useState(0);
 
-  const filteredBrokers = useMemo(
-    () => brokers.filter((broker) => brokerMatchesSearch(broker, brokerSearch)),
-    [brokers, brokerSearch],
-  );
   const selectedBrokers = useMemo(
     () => brokers.filter((broker) => selectedBrokerIds.includes(broker.id)),
     [brokers, selectedBrokerIds],
   );
 
-  const identityComplete = Boolean(settings?.identity_configured);
+  const identityComplete = identitySavedThisSession || Boolean(settings?.identity_configured);
   const gmailReady = Boolean(settings?.gmail_connected);
-  const claudeConfigured = Boolean(settings?.anthropic_api_key);
+  const claudeConfigured = claudeSavedThisSession || Boolean(settings?.anthropic_api_key);
   const brokersComplete = selectedBrokerIds.length > 0;
-  const canSend = identityComplete && gmailReady && claudeConfigured && brokersComplete;
+  const canSend = identityComplete && claudeConfigured && brokersComplete;
   const activeError =
     settingsQuery.error?.message ??
     advancedSettingsQuery.error?.message ??
@@ -125,8 +119,10 @@ export function OnboardingPage() {
 
   const outreachMutation = useMutation({
     mutationFn: api.runOutreach,
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       window.localStorage.setItem(ONBOARDING_COMPLETE_KEY, "true");
+      setFirstBatchSent(true);
+      setSentBrokerCount(result.processed_count || selectedBrokerIds.length);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["opt-outs"] }),
         queryClient.invalidateQueries({ queryKey: ["extended-stats"] }),
@@ -158,7 +154,7 @@ export function OnboardingPage() {
     setActiveStep(step);
   }
 
-  function saveGmail(event: FormEvent<HTMLFormElement>) {
+  function saveIdentity(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     updateSettingsMutation.mutate(
       {
@@ -166,7 +162,10 @@ export function OnboardingPage() {
         sender_email: gmailForm.senderEmail.trim(),
       },
       {
-        onSuccess: () => goToStep(1),
+        onSuccess: () => {
+          setIdentitySavedThisSession(true);
+          goToStep(1);
+        },
       },
     );
   }
@@ -181,6 +180,7 @@ export function OnboardingPage() {
       { anthropic_api_key: key },
       {
         onSuccess: () => {
+          setClaudeSavedThisSession(true);
           setAnthropicApiKey("");
           goToStep(2);
         },
@@ -192,14 +192,14 @@ export function OnboardingPage() {
     setSelectedBrokerIds((current) =>
       current.includes(brokerId) ? current.filter((id) => id !== brokerId) : [...current, brokerId],
     );
-  }
-
-  function selectAllFiltered() {
-    setSelectedBrokerIds((current) => Array.from(new Set([...current, ...filteredBrokers.map((broker) => broker.id)])));
+    window.localStorage.removeItem(ONBOARDING_COMPLETE_KEY);
+    setFirstBatchSent(false);
   }
 
   function clearSelection() {
     setSelectedBrokerIds([]);
+    window.localStorage.removeItem(ONBOARDING_COMPLETE_KEY);
+    setFirstBatchSent(false);
   }
 
   function sendFirstBatch() {
@@ -213,7 +213,7 @@ export function OnboardingPage() {
   }
 
   return (
-    <section className="mx-auto grid max-w-6xl gap-5 px-5 py-6 sm:px-6 lg:px-8">
+    <section className="mx-auto grid max-w-container gap-[18px] px-gutter py-6">
       {throwOverlayOpen ? (
         <ThrowOverlay
           count={throwOverlayCount}
@@ -250,338 +250,337 @@ export function OnboardingPage() {
         />
       ) : null}
 
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-normal">Set up Smokescreen</h2>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Configure your identity, connect Gmail, add Claude, choose brokers, and start the first opt-out batch.
-          </p>
-        </div>
-        <Button asChild variant="outline" size="sm">
-          <Link to="/settings">
-            <Settings className="h-4 w-4" />
-            Settings
-          </Link>
-        </Button>
+      <div>
+        <h1 className="font-display text-2xl font-semibold leading-tight text-content-strong">
+          Set up Smokescreen
+        </h1>
+        <p className="mt-1 max-w-[58ch] text-sm text-content-muted">
+          Configure your identity, connect Claude, pick brokers, and throw the first smoke.
+        </p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {steps.map((step) => {
-          const Icon = step.icon;
           const complete =
             (step.id === 0 && identityComplete) ||
             (step.id === 1 && claudeConfigured) ||
             (step.id === 2 && brokersComplete) ||
-            false;
+            (step.id === 3 && firstBatchSent);
+
           return (
-            <button
+            <StepTile
               key={step.id}
-              className={cn(
-                "flex h-20 items-center justify-between rounded-md border bg-card px-4 text-left transition-colors hover:bg-muted",
-                activeStep === step.id && "border-primary ring-2 ring-primary/20",
-              )}
-              type="button"
+              idx={step.id}
+              label={step.label}
+              Icon={step.icon}
+              active={activeStep === step.id}
+              complete={complete}
               onClick={() => goToStep(step.id)}
-            >
-              <span className="flex min-w-0 items-center gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
-                  <Icon className="h-5 w-5" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold text-foreground">{step.label}</span>
-                  <span className="block text-xs text-muted-foreground">Step {step.id + 1}</span>
-                </span>
-              </span>
-              {complete ? <CheckCircle2 className="h-5 w-5 text-primary" /> : <Circle className="h-5 w-5 text-muted-foreground" />}
-            </button>
+            />
           );
         })}
       </div>
 
       {activeStep === 0 ? (
-        <div className="rounded-md border bg-card p-5">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
-              <Mail className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <h3 className="text-lg font-semibold tracking-normal">Configure identity</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Smokescreen uses these details in broker requests. Gmail connection status is checked separately.
-              </p>
-            </div>
-          </div>
-          <form className="mt-5 grid gap-4 sm:max-w-xl" onSubmit={saveGmail}>
-            <label className="grid gap-2 text-sm font-medium">
-              Full name
-              <input
-                className={inputClass}
-                value={gmailForm.senderName}
-                onChange={(event) => setGmailForm((current) => ({ ...current, senderName: event.currentTarget.value }))}
-                placeholder="Jane Doe"
-              />
-            </label>
-            <label className="grid gap-2 text-sm font-medium">
-              Gmail address
-              <input
-                className={inputClass}
-                type="email"
-                value={gmailForm.senderEmail}
-                onChange={(event) => setGmailForm((current) => ({ ...current, senderEmail: event.currentTarget.value }))}
-                placeholder="jane@gmail.com"
-              />
-            </label>
-            <div className="flex flex-wrap items-center gap-3">
+        <Card label="Step 1" title={<StepCardTitle>Configure identity</StepCardTitle>} pad={false}>
+          <form className="grid max-w-[460px] gap-[14px]" onSubmit={saveIdentity}>
+            <p className="text-sm text-content-muted">Smokescreen uses these details in every broker request.</p>
+            <TextField
+              label="Full name"
+              value={gmailForm.senderName}
+              onChange={(event) => setGmailForm((current) => ({ ...current, senderName: event.currentTarget.value }))}
+              placeholder="Jane Doe"
+            />
+            <TextField
+              label="Gmail address"
+              type="email"
+              icon={<Mail />}
+              value={gmailForm.senderEmail}
+              onChange={(event) => setGmailForm((current) => ({ ...current, senderEmail: event.currentTarget.value }))}
+              placeholder="jane@gmail.com"
+            />
+            <div className="flex flex-wrap items-center gap-[10px]">
               <Button
                 type="submit"
                 disabled={!gmailForm.senderName.trim() || !gmailForm.senderEmail.trim() || updateSettingsMutation.isPending}
               >
-                <Mail className="h-4 w-4" />
+                <Mail className="h-[15px] w-[15px]" />
                 Save identity
               </Button>
               {identityComplete ? (
-                <Badge variant="secondary">
-                  <Check className="mr-1 h-3 w-3" />
-                  Identity saved
-                </Badge>
-              ) : null}
-              {gmailReady ? (
-                <Badge variant="outline">
-                  <Mail className="mr-1 h-3 w-3" />
-                  Gmail token available
+                <Badge variant="success" dot>
+                  Saved
                 </Badge>
               ) : null}
             </div>
           </form>
-        </div>
+        </Card>
       ) : null}
 
       {activeStep === 1 ? (
-        <div className="rounded-md border bg-card p-5">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
-              <Brain className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <h3 className="text-lg font-semibold tracking-normal">Add Claude</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Claude reads broker replies and drafts the next response when the process needs a follow-up.
-              </p>
-            </div>
-          </div>
-          <form className="mt-5 grid gap-4 sm:max-w-xl" onSubmit={saveClaude}>
-            <label className="grid gap-2 text-sm font-medium">
-              Anthropic API key
-              <input
-                className={inputClass}
-                type="password"
-                value={anthropicApiKey}
-                onChange={(event) => setAnthropicApiKey(event.currentTarget.value)}
-                placeholder={settings?.anthropic_api_key || "sk-ant-..."}
-              />
-            </label>
-            <div className="flex flex-wrap items-center gap-3">
+        <Card label="Step 2" title={<StepCardTitle>Add Claude</StepCardTitle>}>
+          <form className="grid max-w-[460px] gap-[14px]" onSubmit={saveClaude}>
+            <p className="text-sm text-content-muted">
+              Claude reads broker replies and drafts the next response when a follow-up is needed.
+            </p>
+            <TextField
+              label="Anthropic API key"
+              type="password"
+              icon={<KeyRound />}
+              value={anthropicApiKey}
+              onChange={(event) => setAnthropicApiKey(event.currentTarget.value)}
+              placeholder={settings?.anthropic_api_key ? "sk-ant-... saved" : "sk-ant-..."}
+              hint="Stored locally. Never shared with brokers."
+            />
+            <div className="flex flex-wrap items-center gap-[10px]">
               <Button type="submit" disabled={!anthropicApiKey.trim() || updateSettingsMutation.isPending}>
-                <KeyRound className="h-4 w-4" />
+                <KeyRound className="h-[15px] w-[15px]" />
                 Save Claude key
               </Button>
               {claudeConfigured ? (
-                <Badge variant="secondary">
-                  <Check className="mr-1 h-3 w-3" />
-                  Key configured
+                <Badge variant="success" dot>
+                  Configured
                 </Badge>
               ) : null}
             </div>
           </form>
-        </div>
+        </Card>
       ) : null}
 
       {activeStep === 2 ? (
-        <div className="rounded-md border bg-card p-5">
-          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
-                <ShieldCheck className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-lg font-semibold tracking-normal">Pick brokers</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Start with the companies you want Smokescreen to contact first.
-                </p>
-              </div>
-            </div>
-            <Badge variant="outline">{selectedBrokerIds.length} selected</Badge>
-          </div>
-
-          <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-            <div className="flex h-10 flex-1 items-center gap-2 rounded-md border bg-background px-3">
-              <Search className="h-4 w-4 text-muted-foreground" />
-              <input
-                className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                type="search"
-                value={brokerSearch}
-                onChange={(event) => setBrokerSearch(event.currentTarget.value)}
-                placeholder="Search brokers"
-                aria-label="Search brokers"
-              />
-            </div>
-            <Button
-              variant="outline"
-              type="button"
-              onClick={selectAllFiltered}
-              disabled={brokersQuery.isLoading || filteredBrokers.length === 0}
-            >
-              <Check className="h-4 w-4" />
-              Select visible
-            </Button>
-            <Button variant="ghost" type="button" onClick={clearSelection} disabled={selectedBrokerIds.length === 0}>
-              Clear
-            </Button>
-          </div>
-
-          <div className="mt-4 max-h-[420px] overflow-y-auto rounded-md border">
-            {brokersQuery.isLoading ? (
-              <LoadingState
-                className="border-0 bg-transparent py-12 shadow-none"
-                description="Loading the broker registry for your first batch."
-                title="Loading brokers"
-              />
-            ) : null}
-            {filteredBrokers.map((broker) => {
-              const selected = selectedBrokerIds.includes(broker.id);
-              return (
-                <label
-                  key={broker.id}
-                  className="flex min-h-20 cursor-pointer items-center gap-3 border-b px-4 py-3 last:border-b-0 hover:bg-muted/60"
-                >
-                  <input
-                    className="h-5 w-5 rounded border-input accent-primary"
-                    type="checkbox"
-                    checked={selected}
-                    onChange={() => toggleBroker(broker.id)}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold text-foreground">{broker.name}</span>
-                    <span className="mt-1 block break-words text-xs text-muted-foreground">
-                      {broker.domain || broker.privacy_email}
+        <Card
+          label="Step 3"
+          title={<StepCardTitle>Pick brokers</StepCardTitle>}
+          action={<Badge variant="olive">{selectedBrokerIds.length} selected</Badge>}
+        >
+          <div className="grid gap-[10px]">
+            <p className="text-sm text-content-muted">
+              Choose the companies you want Smokescreen to contact first.
+            </p>
+            <div className="max-h-[300px] overflow-y-auto rounded-sm border border-border">
+              {brokersQuery.isLoading ? (
+                <LoadingState
+                  className="border-0 bg-transparent py-12 shadow-none"
+                  description="Loading the broker registry for your first batch."
+                  title="Loading brokers"
+                />
+              ) : null}
+              {!brokersQuery.isLoading && brokers.length === 0 ? (
+                <EmptyState
+                  className="border-0 bg-transparent py-12 shadow-none"
+                  description="Add brokers before starting the first batch."
+                  icon={<ShieldCheck className="h-5 w-5" />}
+                  title="No brokers found"
+                />
+              ) : null}
+              {brokers.map((broker, index) => {
+                const selected = selectedBrokerIds.includes(broker.id);
+                return (
+                  <label
+                    key={broker.id}
+                    className={cn(
+                      "flex min-h-[62px] cursor-pointer items-center gap-[11px] px-[13px] py-[11px] transition-colors hover:bg-fill-neutral",
+                      index > 0 && "border-t border-border",
+                      selected && "bg-fill-olive hover:bg-fill-olive",
+                    )}
+                  >
+                    <input
+                      className="h-[17px] w-[17px] rounded-sm border-[color:var(--border-field)] accent-brand"
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => toggleBroker(broker.id)}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-content-strong">
+                        {broker.name}
+                      </span>
+                      <span className="mt-1 block truncate font-mono text-xs text-content-muted">
+                        {brokerDomain(broker)}
+                      </span>
                     </span>
-                  </span>
-                  {selected ? <CheckCircle2 className="h-5 w-5 shrink-0 text-primary" /> : null}
-                </label>
-              );
-            })}
-            {!brokersQuery.isLoading && filteredBrokers.length === 0 ? (
-              <EmptyState
-                className="border-0 bg-transparent py-12 shadow-none"
-                description="Add brokers or clear the search before starting the first batch."
-                icon={<Search className="h-5 w-5" />}
-                title="No brokers found"
-              >
-                <Button asChild variant="outline">
-                  <Link to="/brokers">Open brokers</Link>
-                </Button>
-              </EmptyState>
-            ) : null}
+                    {selected ? <CheckCircle2 className="h-[17px] w-[17px] shrink-0 text-brand" /> : null}
+                  </label>
+                );
+              })}
+            </div>
+            <div className="flex justify-end gap-[10px]">
+              <Button variant="ghost" type="button" onClick={clearSelection} disabled={!selectedBrokerIds.length}>
+                Clear
+              </Button>
+              <Button type="button" onClick={() => goToStep(3)} disabled={!brokersComplete}>
+                Continue
+                <ArrowRight className="h-[15px] w-[15px]" />
+              </Button>
+            </div>
           </div>
-
-          <div className="mt-5 flex justify-end">
-            <Button type="button" disabled={!brokersComplete} onClick={() => goToStep(3)}>
-              Continue
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
+        </Card>
       ) : null}
 
       {activeStep === 3 ? (
-        <div className="rounded-md border bg-card p-5">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
-              <Rocket className="h-5 w-5" />
+        <Card label="Step 4" title={<StepCardTitle>Send first batch</StepCardTitle>}>
+          <div className="grid gap-4">
+            <div className="grid gap-[10px] sm:grid-cols-2 lg:grid-cols-4">
+              <SetupCheck
+                complete={identityComplete}
+                label="Identity"
+                value={identityComplete ? settings?.sender_email || gmailForm.senderEmail || "Saved" : "Missing identity"}
+              />
+              <SetupCheck
+                complete={claudeConfigured}
+                label="Claude key"
+                value={claudeConfigured ? "Configured" : "Missing key"}
+              />
+              <SetupCheck
+                complete={brokersComplete}
+                label="Brokers"
+                value={brokersComplete ? `${selectedBrokerIds.length} selected` : "None selected"}
+              />
+              <SetupCheck
+                complete={gmailReady}
+                label="Gmail"
+                value={gmailReady ? settings?.gmail_connected_email || "Token ready" : "Not connected"}
+              />
             </div>
-            <div className="min-w-0">
-              <h3 className="text-lg font-semibold tracking-normal">Send first batch</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Smokescreen will create opt-out records for the selected brokers and send the initial requests when dry
-                run is off.
-              </p>
-            </div>
-          </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-4">
-            <SetupCheck
-              complete={identityComplete}
-              label="Identity configured"
-              value={identityComplete ? settings?.sender_email || "Saved" : "Missing identity"}
-            />
-            <SetupCheck
-              complete={gmailReady}
-              label="Gmail token"
-              value={gmailReady ? settings?.gmail_connected_email || "Available" : "Not connected"}
-            />
-            <SetupCheck
-              complete={claudeConfigured}
-              label="Claude key"
-              value={claudeConfigured ? "Configured" : "Missing key"}
-            />
-            <SetupCheck
-              complete={brokersComplete}
-              label="Brokers picked"
-              value={brokersComplete ? `${selectedBrokerIds.length} selected` : "None selected"}
-            />
-          </div>
-
-          {advancedSettings?.dry_run ? (
-            <div className="mt-5 rounded-md border border-accent/40 bg-accent/10 px-4 py-3 text-sm text-accent-foreground">
-              Dry run is on. The first batch will be prepared without sending email.
-            </div>
-          ) : null}
-
-          <div className="mt-5 rounded-md border bg-background">
-            {selectedBrokers.length > 0 ? (
-              <div className="divide-y">
-                {selectedBrokers.slice(0, 6).map((broker) => (
-                  <div key={broker.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-                    <span className="font-medium">{broker.name}</span>
-                    <span className="min-w-0 truncate text-muted-foreground">{broker.privacy_email}</span>
-                  </div>
-                ))}
-                {selectedBrokers.length > 6 ? (
-                  <div className="px-4 py-3 text-sm text-muted-foreground">
-                    {selectedBrokers.length - 6} more brokers in this batch
-                  </div>
-                ) : null}
+            {advancedSettings?.dry_run ? (
+              <div className="rounded-sm border border-bd-amber bg-fill-amber px-4 py-3 text-sm text-soft-amber">
+                Dry run is on. The first batch will be prepared without sending email.
               </div>
+            ) : null}
+
+            {selectedBrokers.length > 0 ? (
+              <div className="rounded-sm border border-border bg-surface-sunken">
+                <div className="divide-y divide-border">
+                  {selectedBrokers.slice(0, 6).map((broker) => (
+                    <div key={broker.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                      <span className="min-w-0 truncate font-semibold text-content-strong">{broker.name}</span>
+                      <span className="min-w-0 truncate font-mono text-xs text-content-muted">
+                        {broker.privacy_email}
+                      </span>
+                    </div>
+                  ))}
+                  {selectedBrokers.length > 6 ? (
+                    <div className="px-4 py-3 text-sm text-content-muted">
+                      {selectedBrokers.length - 6} more brokers in this batch
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {firstBatchSent ? (
+              <LaunchConfirmation
+                count={sentBrokerCount || selectedBrokerIds.length}
+                onViewStatus={() => navigate("/")}
+              />
             ) : (
-              <div className="px-5 py-8 text-center text-sm text-muted-foreground">
-                Pick at least one broker before sending the first batch.
+              <div className="flex flex-wrap items-center justify-end gap-[10px]">
+                <Button variant="outline" type="button" onClick={() => goToStep(2)}>
+                  Edit brokers
+                </Button>
+                <Button
+                  variant="accent"
+                  type="button"
+                  disabled={!canSend || outreachMutation.isPending}
+                  onClick={sendFirstBatch}
+                >
+                  <Send className="h-[15px] w-[15px]" />
+                  {outreachMutation.isPending ? "Sending" : "Send first batch"}
+                </Button>
               </div>
             )}
           </div>
-
-          <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
-            <Button variant="outline" type="button" onClick={() => goToStep(2)}>
-              Edit brokers
-            </Button>
-            <Button type="button" disabled={!canSend || outreachMutation.isPending} onClick={sendFirstBatch}>
-              <Send className="h-4 w-4" />
-              {outreachMutation.isPending ? "Sending" : "Send first batch"}
-            </Button>
-          </div>
-        </div>
+        </Card>
       ) : null}
     </section>
   );
 }
 
+function StepCardTitle({ children }: { children: string }) {
+  return <h2 className="font-display text-lg font-semibold leading-snug text-content-strong">{children}</h2>;
+}
+
+function StepTile({
+  Icon,
+  active,
+  complete,
+  idx,
+  label,
+  onClick,
+}: {
+  Icon: LucideIcon;
+  active: boolean;
+  complete: boolean;
+  idx: number;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={cn(
+        "flex min-h-[72px] items-center justify-between gap-[10px] rounded-md border bg-surface-card px-4 py-3 text-left shadow-sm transition-[border-color,box-shadow] duration-fast ease-standard hover:border-[color:var(--border-strong)]",
+        active && "border-brand shadow-focus",
+      )}
+      type="button"
+      onClick={onClick}
+    >
+      <span className="flex min-w-0 items-center gap-[11px]">
+        <span
+          className={cn(
+            "inline-grid h-[38px] w-[38px] shrink-0 place-items-center rounded-sm bg-surface-sunken text-content-muted",
+            complete && "bg-fill-olive text-olive-300",
+          )}
+        >
+          <Icon className="h-[18px] w-[18px]" />
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate whitespace-nowrap font-display text-sm font-semibold leading-tight text-content-strong">
+            {label}
+          </span>
+          <span className="ss-label mt-0.5 block whitespace-nowrap">Step {idx + 1}</span>
+        </span>
+      </span>
+      {complete ? (
+        <CheckCircle2 className="h-[18px] w-[18px] shrink-0 text-clear-500" />
+      ) : (
+        <Circle className="h-[18px] w-[18px] shrink-0 text-content-faint" />
+      )}
+    </button>
+  );
+}
+
 function SetupCheck({ complete, label, value }: { complete: boolean; label: string; value: string }) {
   return (
-    <div className="rounded-md border bg-background p-4">
-      <div className="flex items-center gap-2 text-sm font-semibold">
-        {complete ? <CheckCircle2 className="h-4 w-4 text-primary" /> : <Circle className="h-4 w-4 text-muted-foreground" />}
-        {label}
+    <div className="rounded-sm border border-border bg-surface-card px-[13px] py-3">
+      <div className="flex items-center gap-1.5 text-sm font-semibold text-content-strong">
+        {complete ? (
+          <CheckCircle2 className="h-[15px] w-[15px] shrink-0 text-clear-500" />
+        ) : (
+          <Circle className="h-[15px] w-[15px] shrink-0 text-content-faint" />
+        )}
+        <span className="truncate">{label}</span>
       </div>
-      <p className="mt-2 truncate text-sm text-muted-foreground">{value}</p>
+      <div className="mt-[5px] truncate font-mono text-xs text-content-muted">{value}</div>
+    </div>
+  );
+}
+
+function LaunchConfirmation({ count, onViewStatus }: { count: number; onViewStatus: () => void }) {
+  const requestCopy = count === 1 ? "1 opt-out request is" : `${count} opt-out requests are`;
+
+  return (
+    <div className="relative flex items-center gap-3 overflow-hidden rounded-md border border-bd-green bg-fill-green px-[18px] py-4">
+      <Avatar src="/assets/operator-head.png" size="md" />
+      <div className="min-w-0 flex-1">
+        <div className="font-display text-base font-semibold text-soft-green">Smoke's out.</div>
+        <div className="mt-1 text-sm text-content-body">
+          {requestCopy} on the way. Track them on the Status board.
+        </div>
+      </div>
+      <Button variant="outline" size="sm" type="button" onClick={onViewStatus}>
+        View status
+        <ArrowRight className="h-3.5 w-3.5" />
+      </Button>
     </div>
   );
 }

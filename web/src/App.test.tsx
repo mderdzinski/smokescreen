@@ -228,7 +228,7 @@ describe("OverviewPage", () => {
 });
 
 describe("OnboardingPage", () => {
-  it("blocks the first batch until identity, Gmail, Claude, and brokers are ready", async () => {
+  it("blocks the first batch until required setup is ready", async () => {
     window.localStorage.setItem("smokescreen:onboarding-step", "3");
     window.localStorage.setItem("smokescreen:onboarding-brokers", JSON.stringify(["acme"]));
     const { calls } = mockApi([
@@ -283,6 +283,9 @@ describe("OnboardingPage", () => {
     await waitFor(() => expect(outreachBodies).toEqual([{ broker_ids: ["acme"] }]));
     expect(await screen.findByText("Deployment complete")).toBeInTheDocument();
     expect(screen.getByText(/1 opt-out request is on their way/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(await screen.findByText("Smoke's out.")).toBeInTheDocument();
+    expect(screen.getByText("1 opt-out request is on the way. Track them on the Status board.")).toBeInTheDocument();
     expect(window.localStorage.getItem("smokescreen:onboarding-complete")).toBe("true");
   });
 });
