@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -29,6 +29,15 @@ const broker: Broker = {
   name: "Acme Data",
   notes: "Requires email confirmation.",
   privacy_email: "privacy@acme.example",
+};
+
+const secondBroker: Broker = {
+  aliases: [],
+  domain: "second.example",
+  id: "second",
+  name: "Second Broker",
+  notes: "",
+  privacy_email: "privacy@second.example",
 };
 
 const settings: FriendlySettings = {
@@ -244,29 +253,28 @@ describe("OnboardingPage", () => {
 });
 
 describe("BrokerRegistryPage", () => {
-  it("validates broker details, adds a broker, and edits an existing broker", async () => {
+  it("searches brokers, adds a broker to the top, and deletes rows", async () => {
     const user = userEvent.setup();
     const createdBodies: unknown[] = [];
-    const updatedBodies: unknown[] = [];
+    const deletedIds: string[] = [];
     mockApi([
-      { body: [broker], path: "/api/brokers" },
+      { body: [broker, secondBroker], path: "/api/brokers" },
       {
         assert: (request) => createdBodies.push(parseJsonBody(request)),
         body: {
-          aliases: ["new.example"],
+          aliases: [],
           domain: "new.example",
           id: "new-broker",
           name: "New Broker",
-          notes: "New notes",
+          notes: "",
           privacy_email: "privacy@new.example",
         },
         method: "POST",
         path: "/api/brokers",
       },
       {
-        assert: (request) => updatedBodies.push(parseJsonBody(request)),
-        body: { ...broker, name: "Acme Search" },
-        method: "PUT",
+        assert: (request) => deletedIds.push(request.path.split("/").pop() ?? ""),
+        method: "DELETE",
         path: "/api/brokers/acme",
       },
     ]);
@@ -274,91 +282,39 @@ describe("BrokerRegistryPage", () => {
     renderWithProviders(<BrokerRegistryPage />);
 
     expect(await screen.findByText("Acme Data")).toBeInTheDocument();
-    fireEvent.submit(screen.getByRole("button", { name: "Add broker" }).closest("form") as HTMLFormElement);
-    expect(await screen.findByText("Company name, website, and opt-out email are required.")).toBeInTheDocument();
+    expect(screen.getByText("2 brokers")).toBeInTheDocument();
 
-    await user.type(screen.getByLabelText("Company"), " New Broker ");
-    await user.type(screen.getByLabelText("Website"), " new.example ");
-    await user.type(screen.getByLabelText("Opt-out email"), " privacy@new.example ");
-    await user.type(screen.getByLabelText("Additional websites"), "new.example, optout.new.example");
-    await user.type(screen.getByLabelText("Notes"), " New notes ");
+    await user.type(screen.getByLabelText("Search brokers"), "privacy@second.example");
+    expect(screen.getByText("Second Broker")).toBeInTheDocument();
+    expect(screen.queryByText("Acme Data")).not.toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("Search brokers"));
+    await user.type(screen.getByLabelText("Broker name"), " New Broker ");
+    await user.type(screen.getByLabelText("Domain"), " new.example ");
     await user.click(screen.getByRole("button", { name: "Add broker" }));
 
     await waitFor(() =>
       expect(createdBodies).toEqual([
         {
-          aliases: ["new.example", "optout.new.example"],
+          aliases: [],
           domain: "new.example",
           name: "New Broker",
-          notes: "New notes",
+          notes: "",
           privacy_email: "privacy@new.example",
         },
       ]),
     );
 
-    await user.click(screen.getByRole("button", { name: "Edit Acme Data" }));
-    await user.clear(screen.getByLabelText("Company"));
-    await user.type(screen.getByLabelText("Company"), "Acme Search");
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    const tableRows = within(screen.getByRole("table", { name: "Broker registry" })).getAllByRole("row");
+    expect(tableRows[1]).toHaveTextContent("New Broker");
+    expect(screen.getByText("New Broker").closest("tr")).toHaveClass("ss-rowin");
+    expect(screen.getByText("3 brokers")).toBeInTheDocument();
 
-    await waitFor(() => expect(updatedBodies).toHaveLength(1));
-    expect(updatedBodies[0]).toMatchObject({ name: "Acme Search" });
-  });
+    await user.click(screen.getByRole("button", { name: "Delete Acme Data" }));
 
-  it("validates CSV imports and posts the selected mapping", async () => {
-    const user = userEvent.setup();
-    const uploadedFiles: string[] = [];
-    const mappingBodies: Array<Record<string, FormDataEntryValue | null>> = [];
-    mockApi([
-      { body: [broker], path: "/api/brokers" },
-      {
-        assert: (request) => {
-          const formData = request.init?.body as FormData;
-          const file = formData.get("file");
-          uploadedFiles.push(file instanceof File ? file.name : "");
-          mappingBodies.push({
-            domain_col: formData.get("domain_col"),
-            email_col: formData.get("email_col"),
-            id_col: formData.get("id_col"),
-            name_col: formData.get("name_col"),
-            notes_col: formData.get("notes_col"),
-          });
-        },
-        body: { errors: ["Row 3 missing email"], imported: 2, skipped: 1 },
-        method: "POST",
-        path: "/api/brokers/import",
-      },
-    ]);
-
-    renderWithProviders(<BrokerRegistryPage />);
-    expect(await screen.findByText("Acme Data")).toBeInTheDocument();
-
-    fireEvent.submit(screen.getByRole("button", { name: "Import brokers" }).closest("form") as HTMLFormElement);
-    expect(await screen.findByText("Choose a CSV file before importing.")).toBeInTheDocument();
-
-    await user.upload(
-      screen.getByLabelText("CSV file"),
-      new File(["Company,Email\nAcme,privacy@acme.example"], "brokers.csv", { type: "text/csv" }),
-    );
-    await user.click(screen.getByText("Advanced mapping"));
-    await user.type(screen.getByLabelText("Company column"), "Company");
-    await user.type(screen.getByLabelText("Contact email column"), "Email");
-    await user.type(screen.getByLabelText("Website column"), "Website");
-    await user.type(screen.getByLabelText("Internal ID column"), "ID");
-    await user.type(screen.getByLabelText("Notes column"), "Notes");
-    await user.click(screen.getByRole("button", { name: "Import brokers" }));
-
-    expect(await screen.findByText("Imported 2; skipped 1")).toBeInTheDocument();
-    expect(uploadedFiles).toEqual(["brokers.csv"]);
-    expect(mappingBodies).toEqual([
-      {
-        domain_col: "Website",
-        email_col: "Email",
-        id_col: "ID",
-        name_col: "Company",
-        notes_col: "Notes",
-      },
-    ]);
+    await waitFor(() => expect(deletedIds).toEqual(["acme"]));
+    expect(screen.queryByText("Acme Data")).not.toBeInTheDocument();
+    expect(screen.getByText("2 brokers")).toBeInTheDocument();
   });
 });
 
