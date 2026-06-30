@@ -20,6 +20,12 @@ variable "sender_name" {
 }
 
 variable "image" {
-  description = "Container image for Cloud Run Jobs"
+  description = "Container image for Cloud Run Jobs and the dashboard service"
   type        = string
+}
+
+variable "dashboard_allowed_user" {
+  description = "Google account email granted IAP access to the dashboard Cloud Run service"
+  type        = string
+  default     = "mark.derdzinski@gmail.com"
 }

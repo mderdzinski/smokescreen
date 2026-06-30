@@ -201,9 +201,10 @@ NEEDS_MANUAL → PENDING (manual reset)
 The `infra/` directory contains Terraform for deploying to GCP:
 
 - **Cloud Run Jobs**: `smokescreen-poll` (every 10 min) and `smokescreen-outreach` (daily 9am)
+- **Cloud Run Dashboard**: `smokescreen-dashboard`, running `serve --host 0.0.0.0 --port 8080` behind IAP with scale-to-zero and a single maximum instance
 - **Firestore**: Serverless state storage
 - **Secret Manager**: Gmail OAuth credentials/token and Anthropic API key
-- **IAM**: A Smokescreen service account with Firestore, Secret Manager, and per-job Cloud Run invoker access
+- **IAM**: A Smokescreen jobs service account with Firestore, Secret Manager, and per-job Cloud Run invoker access; a dashboard service account with Firestore write access and access only to the Smokescreen secrets; and IAP dashboard access for `dashboard_allowed_user`
 
 Enable the required project APIs before applying:
 
@@ -216,6 +217,16 @@ gcloud services enable \
   iam.googleapis.com
 ```
 
+Use a named gcloud configuration for this project so Smokescreen project and
+account settings stay isolated from other local Google Cloud work:
+
+```bash
+gcloud config configurations create smokescreen
+gcloud config configurations activate smokescreen
+gcloud config set project smokescreen-app
+gcloud config set run/region us-central1
+```
+
 Required Terraform variables:
 
 | Variable | Description |
@@ -224,7 +235,12 @@ Required Terraform variables:
 | `region` | Region for Cloud Run Jobs, Firestore, and Cloud Scheduler; defaults to `us-central1` |
 | `sender_email` | Gmail address used in opt-out email headers and replies |
 | `sender_name` | Full legal name used in opt-out requests |
-| `image` | Published container image URI for the Cloud Run Jobs |
+| `image` | Published container image URI for the Cloud Run Jobs and dashboard service |
+| `dashboard_allowed_user` | Google account email granted IAP access to the dashboard; defaults to `mark.derdzinski@gmail.com` |
+
+The dashboard uses the default Cloud Run `run.app` URL after deployment. IAP is
+enabled on the service, and Terraform grants `roles/iap.httpsResourceAccessor`
+to `user:${dashboard_allowed_user}`.
 
 ```bash
 cd infra
@@ -251,9 +267,10 @@ terraform plan -refresh=false -input=false \
   -var="image=us-central1-docker.pkg.dev/smokescreen-dev-123456/smokescreen/smokescreen:latest"
 ```
 
-Terraform creates the Gmail and Anthropic Secret Manager secret containers, but
-the secret payloads are added with `gcloud` so they do not land in Terraform
-state. Add secret versions before running the scheduled jobs:
+Terraform creates the Gmail and Anthropic Secret Manager secret containers. The
+secret payload values are populated by hand after the first successful apply so
+they do not land in Terraform state. Add secret versions before running the
+scheduled jobs or opening the dashboard:
 
 ```bash
 gcloud secrets versions add smokescreen-gmail-credentials \

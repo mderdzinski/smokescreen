@@ -3,7 +3,8 @@ terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = "~> 5.0"
+      # Cloud Run service IAP (`iap_enabled`) requires google provider >= 6.30.
+      version = "~> 6.30"
     }
   }
 }
@@ -29,10 +30,21 @@ resource "google_service_account" "smokescreen" {
   display_name = "Smokescreen Cloud Run SA"
 }
 
+resource "google_service_account" "dashboard" {
+  account_id   = "smokescreen-dashboard"
+  display_name = "Smokescreen Dashboard Cloud Run SA"
+}
+
 resource "google_project_iam_member" "firestore" {
   project = var.project_id
   role    = "roles/datastore.user"
   member  = "serviceAccount:${google_service_account.smokescreen.email}"
+}
+
+resource "google_project_iam_member" "dashboard_firestore" {
+  project = var.project_id
+  role    = "roles/datastore.user"
+  member  = "serviceAccount:${google_service_account.dashboard.email}"
 }
 
 resource "google_project_iam_member" "secret_accessor" {
@@ -62,6 +74,118 @@ resource "google_secret_manager_secret" "gmail_credentials" {
   replication {
     auto {}
   }
+}
+
+resource "google_secret_manager_secret_iam_member" "dashboard_gmail_token_accessor" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.gmail_token.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.dashboard.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "dashboard_anthropic_key_accessor" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.anthropic_key.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.dashboard.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "dashboard_gmail_credentials_accessor" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.gmail_credentials.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.dashboard.email}"
+}
+
+# --- Cloud Run Services ---
+
+resource "google_cloud_run_v2_service" "dashboard" {
+  name        = "smokescreen-dashboard"
+  location    = var.region
+  ingress     = "INGRESS_TRAFFIC_ALL"
+  iap_enabled = true
+
+  template {
+    service_account = google_service_account.dashboard.email
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 1
+    }
+
+    containers {
+      image = var.image
+      args  = ["serve", "--host", "0.0.0.0", "--port", "8080"]
+
+      ports {
+        name           = "http1"
+        container_port = 8080
+      }
+
+      env {
+        name  = "SMOKESCREEN_STATE_BACKEND"
+        value = "firestore"
+      }
+      env {
+        name  = "SMOKESCREEN_FIRESTORE_PROJECT"
+        value = var.project_id
+      }
+      env {
+        name  = "SMOKESCREEN_SENDER_EMAIL"
+        value = var.sender_email
+      }
+      env {
+        name  = "SMOKESCREEN_SENDER_NAME"
+        value = var.sender_name
+      }
+      env {
+        name  = "SMOKESCREEN_GMAIL_OAUTH_INTERACTIVE"
+        value = "false"
+      }
+      env {
+        name = "SMOKESCREEN_GMAIL_CREDENTIALS_JSON"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.gmail_credentials.secret_id
+            version = "latest"
+          }
+        }
+      }
+      env {
+        name = "SMOKESCREEN_GMAIL_TOKEN_JSON"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.gmail_token.secret_id
+            version = "latest"
+          }
+        }
+      }
+      env {
+        name = "SMOKESCREEN_ANTHROPIC_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.anthropic_key.secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "512Mi"
+        }
+      }
+    }
+  }
+}
+
+resource "google_iap_web_cloud_run_service_iam_member" "dashboard_accessor" {
+  project                = google_cloud_run_v2_service.dashboard.project
+  location               = google_cloud_run_v2_service.dashboard.location
+  cloud_run_service_name = google_cloud_run_v2_service.dashboard.name
+  role                   = "roles/iap.httpsResourceAccessor"
+  member                 = "user:${var.dashboard_allowed_user}"
 }
 
 # --- Cloud Run Jobs ---
