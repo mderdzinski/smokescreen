@@ -57,7 +57,8 @@ import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { Logo } from "./components/ui/logo";
-import { Poof } from "./components/ui/motion";
+import { Metric } from "./components/ui/metric";
+import { Poof, ScanSweep, useCountUp } from "./components/ui/motion";
 import { StatusPill } from "./components/ui/status-pill";
 import { EmptyState, ErrorState, LoadingState } from "./components/status-state";
 
@@ -120,15 +121,15 @@ const brokerStatusCopy: Record<BrokerStatus, BrokerStatusCopy> = {
 const statusGroupLabels: Record<BrokerStatusGroup, { title: string; description: string }> = {
   working: {
     title: "Working",
-    description: "Requests Smokescreen is sending, tracking, or following up on.",
+    description: "Requests Smokescreen is sending or tracking.",
   },
   done: {
     title: "Done",
-    description: "Brokers that have confirmed removal or completion.",
+    description: "Brokers that confirmed removal.",
   },
   "needs-attention": {
     title: "Needs attention",
-    description: "Items that need a human review before Smokescreen can continue.",
+    description: "Replies that need a human review.",
   },
 };
 
@@ -137,6 +138,25 @@ function formatUpdatedAt(value: string): string {
     dateStyle: "medium",
     timeStyle: "short",
   });
+}
+
+function formatUpdatedAgo(value: string): string {
+  const timestamp = new Date(value).getTime();
+
+  if (!Number.isFinite(timestamp)) {
+    return "recently";
+  }
+
+  const hours = Math.round((Date.now() - timestamp) / 3_600_000);
+
+  if (hours < 1) {
+    return "just now";
+  }
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+
+  return `${Math.round(hours / 24)}d ago`;
 }
 
 const appTabs = [
@@ -233,14 +253,16 @@ export function OverviewPage() {
   const workingCount = groupedOptOuts.working.length;
   const doneCount = groupedOptOuts.done.length;
   const attentionCount = groupedOptOuts["needs-attention"].length;
-  const cta = primaryStatusCta({ attentionCount, totalCount, workingCount });
+  const animatedWorkingCount = useCountUp(loading ? 0 : workingCount);
+  const animatedDoneCount = useCountUp(loading ? 0 : doneCount);
+  const animatedAttentionCount = useCountUp(loading ? 0 : attentionCount);
   const retryOverview = () => {
     void statsQuery.refetch();
     void optOutsQuery.refetch();
   };
 
   return (
-    <section className="mx-auto grid max-w-6xl gap-6 px-5 py-6 sm:px-6 lg:px-8">
+    <section className="mx-auto grid max-w-container gap-5 px-gutter py-6">
       {error ? (
         <ErrorState
           description="Smokescreen could not refresh broker status from the local API. Check that the service is running, then try again."
@@ -249,64 +271,57 @@ export function OverviewPage() {
         />
       ) : null}
 
-      <div className="rounded-md border bg-card p-5 shadow-sm sm:p-6">
-        <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center">
-          <div className="max-w-3xl">
-            <p className="text-sm font-medium text-primary">Privacy removal status</p>
-            <h2 className="mt-2 text-3xl font-semibold tracking-normal sm:text-4xl">
-              {statusHeadline({ attentionCount, loading, totalCount, workingCount })}
-            </h2>
-            <p className="mt-3 max-w-2xl text-base leading-7 text-muted-foreground">
-              {statusSummary({ attentionCount, doneCount, loading, totalCount, workingCount })}
+      <div className="ss-haze relative overflow-hidden rounded-md border border-border border-t-bold border-t-brand bg-surface-card px-[26px] py-[26px] shadow-sm">
+        <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
+          <div className="max-w-[44ch]">
+            <span className="ss-label text-brand-strong">Privacy removal status</span>
+            <h1 className="mt-2 font-display text-3xl font-semibold leading-tight text-content-strong">
+              {statusHeadline({ loading, workingCount })}
+            </h1>
+            <p className="mt-3 text-base leading-relaxed text-content-muted">
+              {statusSummary({ doneCount, loading, totalCount })}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button asChild>
-              {cta.kind === "link" ? (
-                <Link to={cta.to}>
-                  {cta.label}
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              ) : (
-                <a href={cta.href}>
-                  {cta.label}
-                  <ArrowRight className="h-4 w-4" />
-                </a>
-              )}
+          <div className="flex flex-wrap gap-[10px]">
+            <Button asChild variant="accent">
+              <Link to="/needs-attention">
+                Review requests
+                <ArrowRight />
+              </Link>
             </Button>
-            <Button
-              variant="outline"
-              onClick={retryOverview}
-            >
-              <RefreshCcw className="h-4 w-4" />
+            <Button variant="outline" onClick={retryOverview} type="button">
+              <RefreshCcw />
               Refresh
             </Button>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <StatusMetric
-          icon={<Mail className="h-4 w-4" />}
+      <div className="grid gap-[14px] md:grid-cols-3">
+        <Metric
+          icon={<Mail />}
           label="Working"
-          value={loading ? "--" : workingCount}
+          sub="requests in flight"
           tone="working"
+          value={loading ? "--" : animatedWorkingCount}
         />
-        <StatusMetric
-          icon={<CheckCircle2 className="h-4 w-4" />}
-          label="Done"
-          value={loading ? "--" : stats?.completed_count ?? doneCount}
+        <Metric
+          icon={<Check />}
+          label="Removed"
+          sub="confirmed by broker"
           tone="done"
+          value={loading ? "--" : animatedDoneCount}
         />
-        <StatusMetric
-          icon={<AlertTriangle className="h-4 w-4" />}
+        <Metric
+          icon={<AlertTriangle />}
           label="Needs attention"
-          value={loading ? "--" : attentionCount}
-          tone="needs-attention"
+          sub="awaiting your review"
+          tone="attention"
+          value={loading ? "--" : animatedAttentionCount}
         />
       </div>
 
-      <div id="broker-status" className="grid scroll-mt-6 gap-6 lg:grid-cols-3">
+      <div id="broker-status" className="grid scroll-mt-6 gap-[18px] lg:grid-cols-3">
         <StatusGroup group="working" records={groupedOptOuts.working} loading={loading} />
         <StatusGroup group="done" records={groupedOptOuts.done} loading={loading} />
         <StatusGroup group="needs-attention" records={groupedOptOuts["needs-attention"]} loading={loading} />
@@ -330,115 +345,40 @@ function groupOptOuts(records: OptOutRecord[]): Record<BrokerStatusGroup, OptOut
 }
 
 function statusHeadline({
-  attentionCount,
   loading,
-  totalCount,
   workingCount,
 }: {
-  attentionCount: number;
   loading: boolean;
-  totalCount: number;
   workingCount: number;
 }): string {
   if (loading) {
     return "Checking broker removals";
   }
-  if (totalCount === 0) {
-    return "Smokescreen is ready for broker requests";
-  }
-  if (workingCount > 0) {
-    return `${workingCount} ${pluralize("broker", workingCount)} requesting removal of your data`;
-  }
-  if (attentionCount > 0) {
-    return `${attentionCount} ${pluralize("broker", attentionCount)} ${attentionCount === 1 ? "needs" : "need"} your review`;
-  }
-  return "All tracked brokers are clear";
+
+  return `${workingCount} ${pluralize("broker", workingCount)} requesting removal of your data`;
 }
 
 function statusSummary({
-  attentionCount,
   doneCount,
   loading,
   totalCount,
-  workingCount,
 }: {
-  attentionCount: number;
   doneCount: number;
   loading: boolean;
   totalCount: number;
-  workingCount: number;
 }): string {
   if (loading) {
     return "Smokescreen is loading the latest broker status from your local API.";
   }
   if (totalCount === 0) {
-    return "Add brokers when you are ready, then Smokescreen will send requests and watch for replies.";
+    return "0 removed so far. Smokescreen will send requests and watch broker replies when you add brokers.";
   }
-  if (attentionCount > 0) {
-    return "Most of the workflow stays automatic, but these broker replies need a quick review before the next step.";
-  }
-  if (workingCount > 0) {
-    if (doneCount === 0) {
-      return "Smokescreen is sending requests and watching broker replies until each removal is confirmed.";
-    }
-    return `${doneCount} ${pluralize("broker", doneCount)} already finished. Smokescreen is still watching the rest for replies and completion notices.`;
-  }
-  return "No broker needs a follow-up right now. Smokescreen will keep the completed records here for reference.";
-}
 
-function primaryStatusCta({
-  attentionCount,
-  totalCount,
-  workingCount,
-}: {
-  attentionCount: number;
-  totalCount: number;
-  workingCount: number;
-}): { kind: "anchor"; href: string; label: string } | { kind: "link"; to: string; label: string } {
-  if (attentionCount > 0) {
-    return { kind: "link", to: "/needs-attention", label: "Review requests" };
-  }
-  if (workingCount > 0) {
-    return { kind: "anchor", href: "#broker-status", label: "See status" };
-  }
-  if (totalCount === 0) {
-    return { kind: "link", to: "/brokers", label: "Add brokers" };
-  }
-  return { kind: "link", to: "/brokers", label: "View brokers" };
+  return `${doneCount} removed so far. Smokescreen is sending requests and watching broker replies until every record is gone.`;
 }
 
 function pluralize(word: string, count: number): string {
   return count === 1 ? word : `${word}s`;
-}
-
-function StatusMetric({
-  icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: number | string;
-  tone: BrokerStatusGroup;
-}) {
-  const toneClass = {
-    working: "bg-accent/20 text-accent-foreground",
-    done: "bg-primary/10 text-primary",
-    "needs-attention": "bg-destructive/10 text-destructive",
-  }[tone];
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{label}</CardTitle>
-        <div className={cn("flex h-8 w-8 items-center justify-center rounded-md", toneClass)}>{icon}</div>
-      </CardHeader>
-      <CardContent>
-        <p className="text-2xl font-semibold">{value}</p>
-      </CardContent>
-    </Card>
-  );
 }
 
 function StatusGroup({
@@ -456,22 +396,18 @@ function StatusGroup({
     <section className="grid content-start gap-3">
       <div>
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xl font-semibold tracking-normal">{copy.title}</h2>
-          <Badge variant={group === "needs-attention" && records.length > 0 ? "destructive" : "secondary"}>
+          <h2 className="font-display text-lg font-semibold leading-tight text-content-strong">{copy.title}</h2>
+          <Badge variant={group === "needs-attention" && records.length > 0 ? "danger" : "neutral"}>
             {loading ? "--" : records.length}
           </Badge>
         </div>
-        <p className="mt-1 text-sm leading-6 text-muted-foreground">{copy.description}</p>
+        <p className="mt-[3px] text-xs leading-normal text-content-muted">{copy.description}</p>
       </div>
 
       {loading ? (
-        <LoadingState
-          className="bg-muted/30 py-8 shadow-none"
-          description={`Loading ${copy.title.toLowerCase()} broker requests.`}
-          title="Loading requests"
-        />
+        <StatusColumnPlaceholder>Loading requests</StatusColumnPlaceholder>
       ) : null}
-      {!loading && records.length === 0 ? <EmptyStatusGroup group={group} /> : null}
+      {!loading && records.length === 0 ? <StatusColumnPlaceholder>Nothing here</StatusColumnPlaceholder> : null}
       {records.map((record) => (
         <BrokerStatusCard key={record.broker_id} record={record} />
       ))}
@@ -481,50 +417,41 @@ function StatusGroup({
 
 function BrokerStatusCard({ record }: { record: OptOutRecord }) {
   const copy = brokerStatusCopy[record.status];
-  const badgeVariant =
-    copy.group === "needs-attention" ? "destructive" : copy.group === "done" ? "default" : "secondary";
+  const isWorking = copy.group === "working";
+  const isAttention = copy.group === "needs-attention";
+  const brokerReply = record.notes.trim() || "No broker reply saved.";
 
   return (
-    <Card>
-      <CardHeader className="items-start pb-3">
-        <div className="min-w-0">
-          <CardTitle className="break-words text-base font-semibold text-foreground">{record.broker_name}</CardTitle>
-          <p className="mt-1 break-words text-sm text-muted-foreground">
+    <Card className="grid gap-[10px] overflow-hidden" pad>
+      {isWorking ? <ScanSweep /> : null}
+      <div className="relative z-[1] flex items-start justify-between gap-[10px]">
+        <div className="min-w-0 break-words">
+          <div className="font-display text-base font-semibold leading-snug text-content-strong">{record.broker_name}</div>
+          <div className="mt-0.5 break-all font-mono text-xs text-content-muted">
             {record.broker_domain || "Domain not listed"}
-          </p>
-        </div>
-        <Badge variant={badgeVariant}>{copy.label}</Badge>
-      </CardHeader>
-      <CardContent className="grid gap-3">
-        <p className="text-sm leading-6 text-muted-foreground">{copy.description}</p>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Clock3 className="h-4 w-4" />
-          Updated {formatUpdatedAt(record.updated_at)}
-        </div>
-        {copy.group === "needs-attention" && record.notes.trim() ? (
-          <div className="rounded-md border bg-muted/40 p-3">
-            <p className="text-xs font-medium uppercase text-muted-foreground">Broker note</p>
-            <p className="mt-1 break-words text-sm leading-6">{record.notes}</p>
           </div>
-        ) : null}
-      </CardContent>
+        </div>
+        <StatusPill status={record.status} />
+      </div>
+      <div className="relative z-[1] flex items-center gap-[6px] font-mono text-xs text-content-faint">
+        <Clock3 className="h-[13px] w-[13px]" />
+        Updated {formatUpdatedAgo(record.updated_at)}
+      </div>
+      {isAttention ? (
+        <div className="relative z-[1] rounded-sm border border-border bg-surface-sunken px-[11px] py-[9px]">
+          <div className="ss-label mb-1">Broker reply</div>
+          <div className="break-words text-sm leading-relaxed text-content-body">{brokerReply}</div>
+        </div>
+      ) : null}
     </Card>
   );
 }
 
-function EmptyStatusGroup({ group }: { group: BrokerStatusGroup }) {
-  const emptyCopy = {
-    working: "No brokers are in progress.",
-    done: "Completed requests will appear here.",
-    "needs-attention": "Nothing needs your attention.",
-  }[group];
-
+function StatusColumnPlaceholder({ children }: { children: ReactNode }) {
   return (
-    <EmptyState
-      className="border-dashed bg-muted/30 px-4 py-8 shadow-none"
-      description={emptyCopy}
-      title="No items here"
-    />
+    <div className="rounded-md border border-dashed border-[color:var(--border-strong)] px-3 py-[22px] text-center font-mono text-xs text-content-faint">
+      {children}
+    </div>
   );
 }
 

@@ -143,13 +143,13 @@ describe("OverviewPage", () => {
     renderWithProviders(<OverviewPage />);
 
     expect(
-      await screen.findByRole("heading", { name: "Smokescreen is ready for broker requests" }),
+      await screen.findByRole("heading", { name: "0 brokers requesting removal of your data" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Add brokers/ })).toHaveAttribute("href", "/brokers");
-    expect(screen.getAllByText("No items here")).toHaveLength(3);
+    expect(screen.getByRole("link", { name: /Review requests/ })).toHaveAttribute("href", "/needs-attention");
+    expect(screen.getAllByText("Nothing here")).toHaveLength(3);
   });
 
-  it("prioritizes broker replies that need review", async () => {
+  it("groups broker replies that need review in the attention column", async () => {
     mockApi([
       {
         body: {
@@ -180,8 +180,9 @@ describe("OverviewPage", () => {
 
     renderWithProviders(<OverviewPage />);
 
-    expect(await screen.findByRole("heading", { name: "1 broker needs your review" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "0 brokers requesting removal of your data" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Review requests/ })).toHaveAttribute("href", "/needs-attention");
+    expect(screen.getByText("Review")).toBeInTheDocument();
     expect(screen.getByText("Broker requested a signed identity form.")).toBeInTheDocument();
   });
 });
