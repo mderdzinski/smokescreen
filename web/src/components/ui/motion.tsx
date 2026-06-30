@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { cn } from "../../lib/utils";
+import { Button } from "./button";
 
 const DEFAULT_COUNT_UP_DURATION = 900;
 const COUNT_UP_TICK_MS = 33;
@@ -337,5 +338,96 @@ export function SmokePlayer({
       width={SMOKE_FRAME_WIDTH}
       {...props}
     />
+  );
+}
+
+export interface ThrowOverlayProps {
+  count?: number;
+  onClose?: () => void;
+  onViewStatus?: () => void;
+}
+
+export function ThrowOverlay({ count = 0, onClose, onViewStatus }: ThrowOverlayProps) {
+  const [done, setDone] = React.useState(false);
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && done) {
+        onClose?.();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [done, onClose]);
+
+  return (
+    <div
+      aria-label="Sending opt-out requests"
+      aria-modal="true"
+      className="fixed inset-0 z-[100] flex flex-col items-center justify-center px-4 [animation:ss-ov-in_240ms_var(--ease-standard)_both]"
+      onClick={() => {
+        if (done) {
+          onClose?.();
+        }
+      }}
+      role="dialog"
+      style={{
+        WebkitBackdropFilter: "blur(3px)",
+        backdropFilter: "blur(3px)",
+        background: "rgba(9,11,12,0.62)",
+      }}
+    >
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute h-[90vmin] w-[90vmin] rounded-full"
+        style={{
+          animation: prefersReducedMotion ? "none" : "ss-haze-bloom 2400ms var(--ease-out) 700ms both",
+          background:
+            "radial-gradient(circle, rgba(205,210,200,0.34), rgba(180,186,176,0.14) 45%, transparent 68%)",
+          opacity: prefersReducedMotion ? 0.5 : 0,
+        }}
+      />
+
+      <div className="ss-label absolute left-1/2 top-[26px] -translate-x-1/2 whitespace-nowrap text-center text-steel-300">
+        {done ? "Deployment complete" : "Deploying smokescreen · going dark"}
+      </div>
+
+      <div className="relative z-[1] [filter:drop-shadow(0_14px_26px_rgba(0,0,0,0.5))]">
+        <SmokePlayer fps={30} width="min(62vw, 720px)" onDone={() => setDone(true)} />
+      </div>
+
+      {done ? (
+        <div
+          className="relative z-[2] mt-2 flex w-full max-w-[520px] flex-col gap-4 rounded-md border border-border bg-card px-5 py-4 shadow-lg [animation:ss-panel-rise_360ms_var(--ease-out)_both] sm:flex-row sm:items-center"
+          onClick={(event) => event.stopPropagation()}
+          style={{ borderTopColor: "var(--clear-500)", borderTopWidth: 2 }}
+        >
+          <img
+            alt=""
+            className="h-12 w-12 flex-none rounded-sm border border-[color:var(--border-strong)] [image-rendering:pixelated]"
+            height="48"
+            src="/assets/operator-head.png"
+            width="48"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="ss-pixel text-xl text-clear-400">smoke's out.</div>
+            <div className="mt-1 text-sm text-content-body">
+              {count} opt-out {count === 1 ? "request is" : "requests are"} on their way. Smokescreen will track
+              every reply.
+            </div>
+          </div>
+          <div className="flex flex-none flex-wrap gap-2 sm:ml-auto">
+            <Button size="sm" type="button" variant="outline" onClick={onClose}>
+              Close
+            </Button>
+            <Button size="sm" type="button" variant="accent" onClick={onViewStatus}>
+              View status
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }

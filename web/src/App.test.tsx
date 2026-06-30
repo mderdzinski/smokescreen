@@ -91,6 +91,37 @@ function parseJsonBody(request: MockApiRequest): unknown {
   return JSON.parse(String(request.init?.body));
 }
 
+function mockReducedSmokeOverlay() {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockImplementation((query: string) => ({
+      addEventListener: vi.fn(),
+      addListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+      matches: query === "(prefers-reduced-motion: reduce)",
+      media: query,
+      onchange: null,
+      removeEventListener: vi.fn(),
+      removeListener: vi.fn(),
+    })),
+  );
+
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    clearRect: vi.fn(),
+    drawImage: vi.fn(),
+  } as unknown as CanvasRenderingContext2D);
+
+  class MockImage {
+    onload: (() => void) | null = null;
+
+    set src(_value: string) {
+      window.setTimeout(() => this.onload?.(), 0);
+    }
+  }
+
+  vi.stubGlobal("Image", MockImage);
+}
+
 beforeEach(() => {
   window.localStorage.clear();
 });
@@ -216,9 +247,10 @@ describe("OnboardingPage", () => {
     expect(calls.some((call) => call.path === "/api/outreach")).toBe(false);
   });
 
-  it("starts the first batch with selected brokers when setup is complete", async () => {
+  it("starts the first batch with selected brokers and shows the throw overlay when setup is complete", async () => {
     const user = userEvent.setup();
     const outreachBodies: unknown[] = [];
+    mockReducedSmokeOverlay();
     window.localStorage.setItem("smokescreen:onboarding-step", "3");
     window.localStorage.setItem("smokescreen:onboarding-brokers", JSON.stringify(["acme"]));
     mockApi([
@@ -247,7 +279,10 @@ describe("OnboardingPage", () => {
     expect(await screen.findByText("Dry run is on. The first batch will be prepared without sending email.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Send first batch" }));
 
+    expect(screen.getByRole("dialog", { name: "Sending opt-out requests" })).toBeInTheDocument();
     await waitFor(() => expect(outreachBodies).toEqual([{ broker_ids: ["acme"] }]));
+    expect(await screen.findByText("Deployment complete")).toBeInTheDocument();
+    expect(screen.getByText(/1 opt-out request is on their way/)).toBeInTheDocument();
     expect(window.localStorage.getItem("smokescreen:onboarding-complete")).toBe("true");
   });
 });

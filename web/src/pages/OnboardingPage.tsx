@@ -21,6 +21,7 @@ import { useAdvancedSettings, useBrokers, useSettings } from "../lib/queries";
 import { cn } from "../lib/utils";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { ThrowOverlay } from "../components/ui/motion";
 import { EmptyState, ErrorState, LoadingState } from "../components/status-state";
 
 const ONBOARDING_STEP_KEY = "smokescreen:onboarding-step";
@@ -85,6 +86,8 @@ export function OnboardingPage() {
   const [anthropicApiKey, setAnthropicApiKey] = useState("");
   const [selectedBrokerIds, setSelectedBrokerIds] = useState<string[]>(loadSelectedBrokerIds);
   const [brokerSearch, setBrokerSearch] = useState("");
+  const [throwOverlayOpen, setThrowOverlayOpen] = useState(false);
+  const [throwOverlayCount, setThrowOverlayCount] = useState(0);
 
   const filteredBrokers = useMemo(
     () => brokers.filter((broker) => brokerMatchesSearch(broker, brokerSearch)),
@@ -128,7 +131,9 @@ export function OnboardingPage() {
         queryClient.invalidateQueries({ queryKey: ["opt-outs"] }),
         queryClient.invalidateQueries({ queryKey: ["extended-stats"] }),
       ]);
-      navigate("/");
+    },
+    onError: () => {
+      setThrowOverlayOpen(false);
     },
   });
 
@@ -201,11 +206,25 @@ export function OnboardingPage() {
     if (!canSend) {
       return;
     }
-    outreachMutation.mutate(selectedBrokerIds);
+    const brokerIds = [...selectedBrokerIds];
+    setThrowOverlayCount(brokerIds.length);
+    setThrowOverlayOpen(true);
+    outreachMutation.mutate(brokerIds);
   }
 
   return (
     <section className="mx-auto grid max-w-6xl gap-5 px-5 py-6 sm:px-6 lg:px-8">
+      {throwOverlayOpen ? (
+        <ThrowOverlay
+          count={throwOverlayCount}
+          onClose={() => setThrowOverlayOpen(false)}
+          onViewStatus={() => {
+            setThrowOverlayOpen(false);
+            navigate("/");
+          }}
+        />
+      ) : null}
+
       {activeError ? (
         <ErrorState
           description="Smokescreen could not load setup details from the local API. Refresh setup after checking that the service is running."

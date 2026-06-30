@@ -1,8 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Poof, ScanSweep, SmokePlayer, useCountUp } from "./motion";
+import { Poof, ScanSweep, SmokePlayer, ThrowOverlay, useCountUp } from "./motion";
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -28,6 +28,29 @@ function CountUpProbe({ duration = 900, target }: { duration?: number; target: n
   const value = useCountUp(target, { duration });
 
   return <div data-testid="count-up-value">{value}</div>;
+}
+
+function mockSmokeCanvas() {
+  const loadedSources: string[] = [];
+  const drawImage = vi.fn();
+
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    clearRect: vi.fn(),
+    drawImage,
+  } as unknown as CanvasRenderingContext2D);
+
+  class MockImage {
+    onload: (() => void) | null = null;
+
+    set src(value: string) {
+      loadedSources.push(value);
+      window.setTimeout(() => this.onload?.(), 0);
+    }
+  }
+
+  vi.stubGlobal("Image", MockImage);
+
+  return { drawImage, loadedSources };
 }
 
 afterEach(() => {
@@ -110,24 +133,7 @@ describe("SmokePlayer", () => {
     vi.useFakeTimers();
     mockReducedMotion(true);
     const onDone = vi.fn();
-    const loadedSources: string[] = [];
-    const drawImage = vi.fn();
-
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
-      clearRect: vi.fn(),
-      drawImage,
-    } as unknown as CanvasRenderingContext2D);
-
-    class MockImage {
-      onload: (() => void) | null = null;
-
-      set src(value: string) {
-        loadedSources.push(value);
-        window.setTimeout(() => this.onload?.(), 0);
-      }
-    }
-
-    vi.stubGlobal("Image", MockImage);
+    const { drawImage, loadedSources } = mockSmokeCanvas();
 
     render(<SmokePlayer onDone={onDone} />);
 
@@ -142,5 +148,42 @@ describe("SmokePlayer", () => {
     ]);
     expect(drawImage).toHaveBeenCalledTimes(1);
     expect(onDone).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ThrowOverlay", () => {
+  it("resolves to the panel under reduced motion and honors dismiss actions", () => {
+    vi.useFakeTimers();
+    mockReducedMotion(true);
+    mockSmokeCanvas();
+    const onClose = vi.fn();
+    const onViewStatus = vi.fn();
+
+    render(<ThrowOverlay count={2} onClose={onClose} onViewStatus={onViewStatus} />);
+
+    const dialog = screen.getByRole("dialog", { name: "Sending opt-out requests" });
+    expect(screen.getByText("Deploying smokescreen · going dark")).toBeInTheDocument();
+
+    fireEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+
+    expect(screen.getByText("Deployment complete")).toBeInTheDocument();
+    expect(screen.getByText(/2 opt-out requests are on their way/)).toBeInTheDocument();
+
+    fireEvent.click(dialog);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalledTimes(3);
+
+    fireEvent.click(screen.getByRole("button", { name: "View status" }));
+    expect(onViewStatus).toHaveBeenCalledTimes(1);
   });
 });
