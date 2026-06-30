@@ -3,8 +3,12 @@ terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
-      # Cloud Run service IAP (`iap_enabled`) requires google provider >= 6.30.
-      version = "~> 6.30"
+      version = "~> 6.50"
+    }
+    google-beta = {
+      source = "hashicorp/google-beta"
+      # Direct Cloud Run service IAP is exposed through the beta provider.
+      version = "~> 6.50"
     }
   }
 }
@@ -12,6 +16,15 @@ terraform {
 provider "google" {
   project = var.project_id
   region  = var.region
+}
+
+provider "google-beta" {
+  project = var.project_id
+  region  = var.region
+}
+
+data "google_project" "current" {
+  project_id = var.project_id
 }
 
 # --- Firestore ---
@@ -100,6 +113,8 @@ resource "google_secret_manager_secret_iam_member" "dashboard_gmail_credentials_
 # --- Cloud Run Services ---
 
 resource "google_cloud_run_v2_service" "dashboard" {
+  provider = google-beta
+
   name        = "smokescreen-dashboard"
   location    = var.region
   ingress     = "INGRESS_TRAFFIC_ALL"
@@ -180,7 +195,17 @@ resource "google_cloud_run_v2_service" "dashboard" {
   }
 }
 
+resource "google_cloud_run_v2_service_iam_member" "dashboard_iap_invoker" {
+  project  = google_cloud_run_v2_service.dashboard.project
+  location = google_cloud_run_v2_service.dashboard.location
+  name     = google_cloud_run_v2_service.dashboard.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-iap.iam.gserviceaccount.com"
+}
+
 resource "google_iap_web_cloud_run_service_iam_member" "dashboard_accessor" {
+  provider = google-beta
+
   project                = google_cloud_run_v2_service.dashboard.project
   location               = google_cloud_run_v2_service.dashboard.location
   cloud_run_service_name = google_cloud_run_v2_service.dashboard.name
