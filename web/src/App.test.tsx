@@ -41,7 +41,11 @@ const secondBroker: Broker = {
 };
 
 const settings: FriendlySettings = {
+  ai_provider: "anthropic",
   anthropic_api_key: "",
+  anthropic_key_from_secret: false,
+  gemini_model: "gemini-3.1-flash-lite",
+  gmail_configured: false,
   gmail_connected: false,
   gmail_connected_email: "",
   gmail_credentials_available: false,
@@ -49,7 +53,9 @@ const settings: FriendlySettings = {
   identity_configured: false,
   identity_docs_dir: "identity/",
   sender_email: "jane@example.com",
+  sender_email_from_env: false,
   sender_name: "Jane Doe",
+  sender_name_from_env: false,
 };
 
 const advancedSettings: AdvancedSettings = {
@@ -420,9 +426,9 @@ describe("OnboardingPage", () => {
     await user.type(screen.getByLabelText("Gmail address"), "jane@gmail.com");
     await user.click(screen.getByRole("button", { name: "Save identity" }));
 
-    expect(await screen.findByRole("heading", { name: "Add Claude" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "AI provider" })).toBeInTheDocument();
     await user.type(screen.getByLabelText("Anthropic API key"), "sk-ant-test");
-    await user.click(screen.getByRole("button", { name: "Save Claude key" }));
+    await user.click(screen.getByRole("button", { name: "Save API key" }));
 
     expect(await screen.findByRole("heading", { name: "Pick brokers" })).toBeInTheDocument();
     const acmeCheckbox = screen.getByRole("checkbox", { name: /Acme Data/ });
@@ -433,7 +439,7 @@ describe("OnboardingPage", () => {
     await user.click(screen.getByRole("button", { name: /Continue/ }));
 
     expect(await screen.findByRole("heading", { name: "Send first batch" })).toBeInTheDocument();
-    expect(screen.getByText("Configured")).toBeInTheDocument();
+    expect(screen.getByText("Anthropic (Claude)")).toBeInTheDocument();
     expect(screen.getByText("1 selected")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send first batch" })).toBeEnabled();
     expect(savedBodies).toEqual([
@@ -594,6 +600,116 @@ describe("OnboardingPage", () => {
 
     expect(await screen.findByText("Deployment complete")).toBeInTheDocument();
     expect(screen.getByText(/1 opt-out request is on their way/)).toBeInTheDocument();
+  });
+
+  it("renders identity read-only when sender is configured via deployment", async () => {
+    mockApi([
+      {
+        body: {
+          ...settings,
+          sender_email: "deploy@example.com",
+          sender_email_from_env: true,
+          sender_name: "Deploy User",
+          sender_name_from_env: true,
+        },
+        path: "/api/settings",
+      },
+      { body: advancedSettings, path: "/api/settings/advanced" },
+      { body: [broker], path: "/api/brokers" },
+    ]);
+
+    renderWithProviders(<OnboardingPage />);
+
+    expect(await screen.findByRole("heading", { name: "Configure identity" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("identity-sender-email")).toHaveTextContent("deploy@example.com"),
+    );
+    expect(screen.getByText(/Configured via deployment/)).toBeInTheDocument();
+    expect(screen.getByTestId("identity-sender-name")).toHaveTextContent("Deploy User");
+    expect(screen.getByText(/update your Terraform variables/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Full name")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Gmail address")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save identity" })).not.toBeInTheDocument();
+  });
+
+  it("shows Gemini AI provider as configured with no API key input", async () => {
+    window.localStorage.setItem("smokescreen:onboarding-step", "1");
+    mockApi([
+      {
+        body: {
+          ...settings,
+          ai_provider: "gemini",
+          gemini_model: "gemini-3.1-flash-lite",
+          sender_email_from_env: true,
+          sender_name_from_env: true,
+        },
+        path: "/api/settings",
+      },
+      { body: advancedSettings, path: "/api/settings/advanced" },
+      { body: [broker], path: "/api/brokers" },
+    ]);
+
+    renderWithProviders(<OnboardingPage />);
+
+    expect(await screen.findByText(/Gemini \(gemini-3\.1-flash-lite\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Vertex AI/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Anthropic API key")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Claude reads/i)).not.toBeInTheDocument();
+  });
+
+  it("shows Anthropic secret-manager mode as configured with no API key input", async () => {
+    window.localStorage.setItem("smokescreen:onboarding-step", "1");
+    mockApi([
+      {
+        body: {
+          ...settings,
+          ai_provider: "anthropic",
+          anthropic_key_from_secret: true,
+        },
+        path: "/api/settings",
+      },
+      { body: advancedSettings, path: "/api/settings/advanced" },
+      { body: [broker], path: "/api/brokers" },
+    ]);
+
+    renderWithProviders(<OnboardingPage />);
+
+    expect(await screen.findByText(/Secret Manager/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Anthropic API key")).not.toBeInTheDocument();
+  });
+
+  it("keeps launch checklist honest for a fully deployed environment", async () => {
+    window.localStorage.setItem("smokescreen:onboarding-step", "3");
+    window.localStorage.setItem("smokescreen:onboarding-brokers", JSON.stringify(["acme"]));
+    mockApi([
+      {
+        body: {
+          ...settings,
+          ai_provider: "gemini",
+          gemini_model: "gemini-3.1-flash-lite",
+          gmail_configured: true,
+          gmail_connected: true,
+          gmail_connected_email: "deploy@example.com",
+          identity_configured: true,
+          sender_email: "deploy@example.com",
+          sender_email_from_env: true,
+          sender_name: "Deploy User",
+          sender_name_from_env: true,
+        },
+        path: "/api/settings",
+      },
+      { body: advancedSettings, path: "/api/settings/advanced" },
+      { body: [broker], path: "/api/brokers" },
+      { body: { enabled_broker_ids: ["acme"] }, path: "/api/brokers/selections" },
+    ]);
+
+    renderWithProviders(<OnboardingPage />);
+
+    expect(await screen.findByRole("heading", { name: "Send first batch" })).toBeInTheDocument();
+    expect(await screen.findByText("Gemini (gemini-3.1-flash-lite)")).toBeInTheDocument();
+    expect(screen.getAllByText("deploy@example.com").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Missing identity")).not.toBeInTheDocument();
+    expect(screen.queryByText("Missing key")).not.toBeInTheDocument();
   });
 });
 

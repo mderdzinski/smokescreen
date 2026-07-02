@@ -31,7 +31,7 @@ const ONBOARDING_BROKERS_KEY = "smokescreen:onboarding-brokers";
 
 const steps = [
   { id: 0, label: "Identity", icon: Mail },
-  { id: 1, label: "Claude", icon: Brain },
+  { id: 1, label: "AI provider", icon: Brain },
   { id: 2, label: "Brokers", icon: ShieldCheck },
   { id: 3, label: "Launch", icon: Rocket },
 ] as const;
@@ -99,11 +99,21 @@ export function OnboardingPage() {
     [brokers, selectedBrokerIds],
   );
 
-  const identityComplete = identitySavedThisSession || Boolean(settings?.identity_configured);
+  const identityFromEnv = Boolean(
+    settings?.sender_email_from_env || settings?.sender_name_from_env,
+  );
+  const identityComplete =
+    identityFromEnv || identitySavedThisSession || Boolean(settings?.identity_configured);
   const gmailReady = Boolean(settings?.gmail_connected);
-  const claudeConfigured = claudeSavedThisSession || Boolean(settings?.anthropic_api_key);
+  const aiProvider = settings?.ai_provider ?? "anthropic";
+  const anthropicFromSecret = Boolean(settings?.anthropic_key_from_secret);
+  const providerConfigured =
+    aiProvider === "gemini" ||
+    anthropicFromSecret ||
+    claudeSavedThisSession ||
+    Boolean(settings?.anthropic_api_key);
   const brokersComplete = selectedBrokerIds.length > 0;
-  const canSend = identityComplete && claudeConfigured && brokersComplete;
+  const canSend = identityComplete && providerConfigured && brokersComplete;
   const activeError =
     settingsQuery.error?.message ??
     advancedSettingsQuery.error?.message ??
@@ -283,7 +293,9 @@ export function OnboardingPage() {
           Set up Smokescreen
         </h1>
         <p className="mt-1 max-w-[58ch] text-sm text-content-muted">
-          Configure your identity, connect Claude, pick brokers, and throw the first smoke.
+          This dashboard reads your smokescreen configuration. Fields set from
+          your GCP deployment appear as already configured; local dev fields
+          stay editable.
         </p>
       </div>
 
@@ -291,7 +303,7 @@ export function OnboardingPage() {
         {steps.map((step) => {
           const complete =
             (step.id === 0 && identityComplete) ||
-            (step.id === 1 && claudeConfigured) ||
+            (step.id === 1 && providerConfigured) ||
             (step.id === 2 && brokersComplete) ||
             (step.id === 3 && firstBatchSent);
 
@@ -311,76 +323,68 @@ export function OnboardingPage() {
 
       {activeStep === 0 ? (
         <Card label="Step 1" title={<StepCardTitle>Configure identity</StepCardTitle>} pad={false}>
-          <form className="grid max-w-[460px] gap-[14px]" onSubmit={saveIdentity}>
-            <p className="text-sm text-content-muted">Smokescreen uses these details in every broker request.</p>
-            <TextField
-              label="Full name"
-              value={gmailForm.senderName}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setGmailForm((current) => ({ ...current, senderName: value }));
-              }}
-              placeholder="Jane Doe"
+          {identityFromEnv ? (
+            <IdentityFromDeployment
+              senderEmail={settings?.sender_email ?? ""}
+              senderName={settings?.sender_name ?? ""}
+              onContinue={() => goToStep(1)}
             />
-            <TextField
-              label="Gmail address"
-              type="email"
-              icon={<Mail />}
-              value={gmailForm.senderEmail}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setGmailForm((current) => ({ ...current, senderEmail: value }));
-              }}
-              placeholder="jane@gmail.com"
-            />
-            <div className="flex flex-wrap items-center gap-[10px]">
-              <Button
-                type="submit"
-                disabled={!gmailForm.senderName.trim() || !gmailForm.senderEmail.trim() || updateSettingsMutation.isPending}
-              >
-                <Mail className="h-[15px] w-[15px]" />
-                Save identity
-              </Button>
-              {identityComplete ? (
-                <Badge variant="success" dot>
-                  Saved
-                </Badge>
-              ) : null}
-            </div>
-          </form>
+          ) : (
+            <form className="grid max-w-[460px] gap-[14px]" onSubmit={saveIdentity}>
+              <p className="text-sm text-content-muted">Smokescreen uses these details in every broker request.</p>
+              <TextField
+                label="Full name"
+                value={gmailForm.senderName}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setGmailForm((current) => ({ ...current, senderName: value }));
+                }}
+                placeholder="Jane Doe"
+              />
+              <TextField
+                label="Gmail address"
+                type="email"
+                icon={<Mail />}
+                value={gmailForm.senderEmail}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setGmailForm((current) => ({ ...current, senderEmail: value }));
+                }}
+                placeholder="jane@gmail.com"
+              />
+              <div className="flex flex-wrap items-center gap-[10px]">
+                <Button
+                  type="submit"
+                  disabled={!gmailForm.senderName.trim() || !gmailForm.senderEmail.trim() || updateSettingsMutation.isPending}
+                >
+                  <Mail className="h-[15px] w-[15px]" />
+                  Save identity
+                </Button>
+                {identityComplete ? (
+                  <Badge variant="success" dot>
+                    Saved
+                  </Badge>
+                ) : null}
+              </div>
+            </form>
+          )}
         </Card>
       ) : null}
 
       {activeStep === 1 ? (
-        <Card label="Step 2" title={<StepCardTitle>Add Claude</StepCardTitle>}>
-          <form className="grid max-w-[460px] gap-[14px]" onSubmit={saveClaude}>
-            <p className="text-sm text-content-muted">
-              Claude reads broker replies and drafts the next response when a follow-up is needed.
-            </p>
-            <TextField
-              label="Anthropic API key"
-              type="password"
-              icon={<KeyRound />}
-              value={anthropicApiKey}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setAnthropicApiKey(value);
-              }}
-              placeholder={settings?.anthropic_api_key ? "sk-ant-... saved" : "sk-ant-..."}
-              hint="Stored locally. Never shared with brokers."
-            />
-            <div className="flex flex-wrap items-center gap-[10px]">
-              <Button type="submit" disabled={!anthropicApiKey.trim() || updateSettingsMutation.isPending}>
-                <KeyRound className="h-[15px] w-[15px]" />
-                Save Claude key
-              </Button>
-              {claudeConfigured ? (
-                <Badge variant="success" dot>
-                  Configured
-                </Badge>
-              ) : null}
-            </div>
-          </form>
+        <Card label="Step 2" title={<StepCardTitle>AI provider</StepCardTitle>}>
+          <AiProviderStep
+            provider={aiProvider}
+            geminiModel={settings?.gemini_model ?? ""}
+            anthropicFromSecret={anthropicFromSecret}
+            configured={providerConfigured}
+            anthropicApiKey={anthropicApiKey}
+            onAnthropicApiKeyChange={setAnthropicApiKey}
+            onSubmitAnthropicKey={saveClaude}
+            onContinue={() => goToStep(2)}
+            isSaving={updateSettingsMutation.isPending}
+            hasSavedAnthropicKey={Boolean(settings?.anthropic_api_key)}
+          />
         </Card>
       ) : null}
 
@@ -462,12 +466,26 @@ export function OnboardingPage() {
               <SetupCheck
                 complete={identityComplete}
                 label="Identity"
-                value={identityComplete ? settings?.sender_email || gmailForm.senderEmail || "Saved" : "Missing identity"}
+                value={
+                  identityComplete
+                    ? identityFromEnv
+                      ? `${settings?.sender_email || "Configured via deployment"}`
+                      : settings?.sender_email || gmailForm.senderEmail || "Saved"
+                    : "Missing identity"
+                }
               />
               <SetupCheck
-                complete={claudeConfigured}
-                label="Claude key"
-                value={claudeConfigured ? "Configured" : "Missing key"}
+                complete={providerConfigured}
+                label="AI provider"
+                value={
+                  aiProvider === "gemini"
+                    ? `Gemini (${settings?.gemini_model || "gemini"})`
+                    : anthropicFromSecret
+                      ? "Anthropic (Secret Manager)"
+                      : providerConfigured
+                        ? "Anthropic (Claude)"
+                        : "Missing key"
+                }
               />
               <SetupCheck
                 complete={brokersComplete}
@@ -622,5 +640,154 @@ function LaunchConfirmation({ count, onViewStatus }: { count: number; onViewStat
         <ArrowRight className="h-3.5 w-3.5" />
       </Button>
     </div>
+  );
+}
+
+function IdentityFromDeployment({
+  senderEmail,
+  senderName,
+  onContinue,
+}: {
+  senderEmail: string;
+  senderName: string;
+  onContinue: () => void;
+}) {
+  return (
+    <div className="grid max-w-[460px] gap-[14px]">
+      <p className="text-sm text-content-muted">
+        Configured via deployment. Sourced from your GCP configuration.
+      </p>
+      <dl className="grid gap-3 rounded-sm border border-border bg-surface-sunken px-[13px] py-3 text-sm">
+        <div>
+          <dt className="ss-label text-content-muted">Sender name</dt>
+          <dd
+            className="mt-1 font-mono text-content-strong"
+            data-testid="identity-sender-name"
+          >
+            {senderName || "Not set"}
+          </dd>
+        </div>
+        <div>
+          <dt className="ss-label text-content-muted">Sender email</dt>
+          <dd
+            className="mt-1 font-mono text-content-strong"
+            data-testid="identity-sender-email"
+          >
+            {senderEmail || "Not set"}
+          </dd>
+        </div>
+      </dl>
+      <p className="text-xs text-content-muted">
+        To change this, update your Terraform variables and redeploy.
+      </p>
+      <div className="flex flex-wrap items-center gap-[10px]">
+        <Button type="button" onClick={onContinue}>
+          Continue
+          <ArrowRight className="h-[15px] w-[15px]" />
+        </Button>
+        <Badge variant="success" dot>
+          Configured
+        </Badge>
+      </div>
+    </div>
+  );
+}
+
+function AiProviderStep({
+  provider,
+  geminiModel,
+  anthropicFromSecret,
+  configured,
+  anthropicApiKey,
+  onAnthropicApiKeyChange,
+  onSubmitAnthropicKey,
+  onContinue,
+  isSaving,
+  hasSavedAnthropicKey,
+}: {
+  provider: "anthropic" | "gemini";
+  geminiModel: string;
+  anthropicFromSecret: boolean;
+  configured: boolean;
+  anthropicApiKey: string;
+  onAnthropicApiKeyChange: (value: string) => void;
+  onSubmitAnthropicKey: (event: FormEvent<HTMLFormElement>) => void;
+  onContinue: () => void;
+  isSaving: boolean;
+  hasSavedAnthropicKey: boolean;
+}) {
+  if (provider === "gemini") {
+    return (
+      <div className="grid max-w-[460px] gap-[14px]">
+        <p className="text-sm text-content-muted">
+          AI provider: Gemini ({geminiModel || "gemini"}). Uses Vertex AI via
+          your service account. No API key required.
+        </p>
+        <p className="text-xs text-content-muted">
+          Sourced from your GCP configuration.
+        </p>
+        <div className="flex flex-wrap items-center gap-[10px]">
+          <Button type="button" onClick={onContinue}>
+            Continue
+            <ArrowRight className="h-[15px] w-[15px]" />
+          </Button>
+          <Badge variant="success" dot>
+            Configured
+          </Badge>
+        </div>
+      </div>
+    );
+  }
+
+  if (anthropicFromSecret) {
+    return (
+      <div className="grid max-w-[460px] gap-[14px]">
+        <p className="text-sm text-content-muted">
+          AI provider: Anthropic (Claude). API key configured via Secret
+          Manager.
+        </p>
+        <p className="text-xs text-content-muted">
+          Sourced from your GCP configuration.
+        </p>
+        <div className="flex flex-wrap items-center gap-[10px]">
+          <Button type="button" onClick={onContinue}>
+            Continue
+            <ArrowRight className="h-[15px] w-[15px]" />
+          </Button>
+          <Badge variant="success" dot>
+            Configured
+          </Badge>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form className="grid max-w-[460px] gap-[14px]" onSubmit={onSubmitAnthropicKey}>
+      <p className="text-sm text-content-muted">
+        AI provider: Anthropic (Claude). Add an API key so Smokescreen can
+        classify broker replies.
+      </p>
+      <TextField
+        label="Anthropic API key"
+        type="password"
+        icon={<KeyRound />}
+        value={anthropicApiKey}
+        onChange={(event) => onAnthropicApiKeyChange(event.currentTarget.value)}
+        placeholder={hasSavedAnthropicKey ? "sk-ant-... saved" : "sk-ant-..."}
+        hint="Used only for local development."
+      />
+      <div className="flex flex-wrap items-center gap-[10px]">
+        <Button type="submit" disabled={!anthropicApiKey.trim() || isSaving}>
+          <KeyRound className="h-[15px] w-[15px]" />
+          Save API key
+        </Button>
+        {configured ? (
+          <Badge variant="success" dot>
+            Configured
+          </Badge>
+        ) : null}
+      </div>
+    </form>
   );
 }

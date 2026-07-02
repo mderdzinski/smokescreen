@@ -89,6 +89,8 @@ export interface OutreachResult {
   dry_run: boolean;
 }
 
+export type AiProvider = "anthropic" | "gemini";
+
 export interface FriendlySettings {
   sender_email: string;
   sender_name: string;
@@ -99,6 +101,12 @@ export interface FriendlySettings {
   gmail_credentials_available: boolean;
   gmail_connected: boolean;
   gmail_connected_email: string;
+  sender_email_from_env: boolean;
+  sender_name_from_env: boolean;
+  ai_provider: AiProvider;
+  anthropic_key_from_secret: boolean;
+  gmail_configured: boolean;
+  gemini_model: string;
 }
 
 export interface AdvancedSettings {

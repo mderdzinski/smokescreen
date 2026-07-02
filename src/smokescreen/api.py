@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from contextlib import suppress
 from datetime import datetime
@@ -717,6 +718,29 @@ async def reject_pending(entry_id: int):
 # --- Settings endpoints ---
 
 
+# Settings fields the operator can control via env vars in a Cloud Run
+# deployment. When any of these are set in the process environment we surface
+# them as read-only in the dashboard and reject PUT /api/settings writes.
+ENV_CONTROLLED_FIELDS: tuple[str, ...] = (
+    "sender_email",
+    "sender_name",
+    "anthropic_api_key",
+    "ai_provider",
+    "gemini_model",
+    "gemini_project",
+    "gemini_location",
+)
+
+
+def _env_var_for(field: str) -> str:
+    return f"SMOKESCREEN_{field.upper()}"
+
+
+def _field_from_env(field: str) -> bool:
+    """Return True when a settings field is populated from the process env."""
+    return bool(os.environ.get(_env_var_for(field), "").strip())
+
+
 FRIENDLY_SETTINGS_FIELDS: tuple[str, ...] = (
     "sender_email",
     "sender_name",
@@ -786,6 +810,14 @@ def _settings_response(
         data["gmail_connected_email"] = (
             settings.sender_email if gmail_token_available else ""
         )
+        data["sender_email_from_env"] = _field_from_env("sender_email")
+        data["sender_name_from_env"] = _field_from_env("sender_name")
+        data["ai_provider"] = settings.ai_provider
+        data["anthropic_key_from_secret"] = _field_from_env("anthropic_api_key")
+        data["gmail_configured"] = (
+            gmail_token_available and gmail_credentials_available
+        )
+        data["gemini_model"] = settings.gemini_model
     return data
 
 
@@ -810,6 +842,26 @@ async def update_settings(update: SettingsUpdate):
     # Merge in the new values
     update_dict = update.model_dump(exclude_none=True)
     changed_fields = set(update_dict.keys())
+
+    env_locked = sorted(
+        field
+        for field in changed_fields
+        if field in ENV_CONTROLLED_FIELDS and _field_from_env(field)
+    )
+    if env_locked:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "env_controlled_fields",
+                "message": (
+                    "These fields are configured from the deployment "
+                    "environment and cannot be edited from the dashboard. "
+                    "Update your Terraform variables and redeploy."
+                ),
+                "fields": env_locked,
+            },
+        )
+
     file_data.update(update_dict)
 
     # Validate by constructing a new Settings object

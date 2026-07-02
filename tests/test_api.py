@@ -888,3 +888,94 @@ def test_put_settings_merges_with_existing_file(settings_client):
     file_data = json.loads(settings_file.read_text())
     assert file_data["poll_label"] == "first"
     assert file_data["max_retries"] == 3
+
+
+# --- Env-aware / provider-aware settings ---
+
+
+def test_get_settings_reports_env_flags_off_by_default(settings_client):
+    client, _ = settings_client
+    data = client.get("/api/settings").json()
+    assert data["sender_email_from_env"] is False
+    assert data["sender_name_from_env"] is False
+    assert data["anthropic_key_from_secret"] is False
+    assert data["ai_provider"] == "anthropic"
+    assert data["gmail_configured"] is False
+    assert data["gemini_model"] == "gemini-3.1-flash-lite"
+
+
+def test_get_settings_reports_sender_env_when_set(
+    settings_client, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("SMOKESCREEN_SENDER_EMAIL", "deploy@example.com")
+    monkeypatch.setenv("SMOKESCREEN_SENDER_NAME", "Deploy User")
+    client, _ = settings_client
+    data = client.get("/api/settings").json()
+    assert data["sender_email_from_env"] is True
+    assert data["sender_name_from_env"] is True
+
+
+def test_get_settings_reports_gemini_provider_and_anthropic_secret(
+    settings_client, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("SMOKESCREEN_AI_PROVIDER", "gemini")
+    monkeypatch.setenv("SMOKESCREEN_ANTHROPIC_API_KEY", "sk-secret")
+    api_module._settings = Settings(
+        sender_email="test@example.com",
+        sender_name="Test User",
+    )
+    client, _ = settings_client
+    data = client.get("/api/settings").json()
+    assert data["ai_provider"] == "gemini"
+    assert data["anthropic_key_from_secret"] is True
+
+
+def test_get_settings_reports_gmail_configured_when_both_present(
+    settings_client, tmp_path
+):
+    api_module._settings = Settings(
+        sender_email="test@example.com",
+        sender_name="Test User",
+        gmail_token_json="token",
+        gmail_credentials_json="creds",
+    )
+    client, _ = settings_client
+    data = client.get("/api/settings").json()
+    assert data["gmail_configured"] is True
+
+
+def test_put_settings_rejects_env_controlled_sender_email(
+    settings_client, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("SMOKESCREEN_SENDER_EMAIL", "deploy@example.com")
+    client, _ = settings_client
+    resp = client.put(
+        "/api/settings",
+        json={"sender_email": "user-typed@example.com"},
+    )
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["code"] == "env_controlled_fields"
+    assert "sender_email" in detail["fields"]
+
+
+def test_put_settings_rejects_env_controlled_anthropic_key(
+    settings_client, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("SMOKESCREEN_ANTHROPIC_API_KEY", "sk-from-secret")
+    client, _ = settings_client
+    resp = client.put(
+        "/api/settings",
+        json={"anthropic_api_key": "sk-user-typed"},
+    )
+    assert resp.status_code == 409
+    assert "anthropic_api_key" in resp.json()["detail"]["fields"]
+
+
+def test_put_settings_allows_editable_fields_when_env_locks_others(
+    settings_client, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("SMOKESCREEN_SENDER_EMAIL", "deploy@example.com")
+    client, _ = settings_client
+    resp = client.put("/api/settings", json={"poll_label": "custom-label"})
+    assert resp.status_code == 200
