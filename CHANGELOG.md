@@ -1,3 +1,10 @@
+# [0.1.0](https://github.com/mderdzinski/smokescreen/compare/v0.0.7...v0.1.0) (2026-07-02)
+
+
+### Features
+
+* wire brand glyph surfaces ([ad3200f](https://github.com/mderdzinski/smokescreen/commit/ad3200ff5902a353879346a42b3feba75e586141))
+
 ## [0.0.7](https://github.com/mderdzinski/smokescreen/compare/v0.0.6...v0.0.7) (2026-07-02)
 
 
