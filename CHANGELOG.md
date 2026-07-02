@@ -1,3 +1,10 @@
+## [0.4.1](https://github.com/mderdzinski/smokescreen/compare/v0.4.0...v0.4.1) (2026-07-02)
+
+
+### Bug Fixes
+
+* **infra:** use v2 Cloud Run Jobs endpoint in scheduler URIs (sm-3u3) ([2a50fdd](https://github.com/mderdzinski/smokescreen/commit/2a50fdd492107a1efbf56b6af9f0368e165c64c0))
+
 # [0.4.0](https://github.com/mderdzinski/smokescreen/compare/v0.3.0...v0.4.0) (2026-07-02)
 
 
