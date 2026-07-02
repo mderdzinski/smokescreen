@@ -1,3 +1,10 @@
+## [0.0.6](https://github.com/mderdzinski/smokescreen/compare/v0.0.5...v0.0.6) (2026-07-02)
+
+
+### Bug Fixes
+
+* refine broker registry validation ([399047e](https://github.com/mderdzinski/smokescreen/commit/399047e80c36f3dd4d145ad974e3d8e6995dc728))
+
 ## [0.0.5](https://github.com/mderdzinski/smokescreen/compare/v0.0.4...v0.0.5) (2026-07-02)
 
 
