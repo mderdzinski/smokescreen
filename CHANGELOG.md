@@ -1,3 +1,10 @@
+## [0.0.2](https://github.com/mderdzinski/smokescreen/compare/v0.0.1...v0.0.2) (2026-07-02)
+
+
+### Bug Fixes
+
+* **ci:** keep semantic-release github plugin from requiring issue writes ([dee0390](https://github.com/mderdzinski/smokescreen/commit/dee0390f50ca99b7f3e80a472a92cd28073c4286))
+
 ## [0.0.1](https://github.com/mderdzinski/smokescreen/compare/v0.0.0...v0.0.1) (2026-07-02)
 
 
