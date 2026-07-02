@@ -289,7 +289,10 @@ export function OnboardingPage() {
             <TextField
               label="Full name"
               value={gmailForm.senderName}
-              onChange={(event) => setGmailForm((current) => ({ ...current, senderName: event.currentTarget.value }))}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setGmailForm((current) => ({ ...current, senderName: value }));
+              }}
               placeholder="Jane Doe"
             />
             <TextField
@@ -297,7 +300,10 @@ export function OnboardingPage() {
               type="email"
               icon={<Mail />}
               value={gmailForm.senderEmail}
-              onChange={(event) => setGmailForm((current) => ({ ...current, senderEmail: event.currentTarget.value }))}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setGmailForm((current) => ({ ...current, senderEmail: value }));
+              }}
               placeholder="jane@gmail.com"
             />
             <div className="flex flex-wrap items-center gap-[10px]">
@@ -329,7 +335,10 @@ export function OnboardingPage() {
               type="password"
               icon={<KeyRound />}
               value={anthropicApiKey}
-              onChange={(event) => setAnthropicApiKey(event.currentTarget.value)}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setAnthropicApiKey(value);
+              }}
               placeholder={settings?.anthropic_api_key ? "sk-ant-... saved" : "sk-ant-..."}
               hint="Stored locally. Never shared with brokers."
             />
@@ -518,6 +527,7 @@ function StepTile({
 }) {
   return (
     <button
+      aria-label={`${label} Step ${idx + 1}`}
       className={cn(
         "flex min-h-[72px] min-w-0 items-center justify-between gap-[10px] rounded-md border bg-surface-card px-4 py-3 text-left transition-[border-color,box-shadow] duration-fast ease-standard",
         active ? "border-brand shadow-focus" : "border-border shadow-sm hover:border-[color:var(--border-strong)]",
