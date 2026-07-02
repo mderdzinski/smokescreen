@@ -274,7 +274,7 @@ for role in \
   roles/secretmanager.admin \
   roles/cloudscheduler.admin \
   roles/datastore.owner \
-  roles/iap.settingsAdmin
+  roles/iap.admin
 do
   gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
     --member="serviceAccount:${CI_SA}" \
@@ -299,10 +299,21 @@ Why each role, briefly:
 - `secretmanager.admin` — create the Secret Manager secret containers.
 - `cloudscheduler.admin` — create the poll and outreach schedules.
 - `datastore.owner` — create and manage the Firestore database.
-- `iap.settingsAdmin` — apply IAP web IAM bindings on the dashboard
-  service.
+- `iap.admin` — read and write IAP IAM bindings on the dashboard service.
+  Terraform's `google_iap_web_cloud_run_service_iam_member` resource calls
+  `iap.web*.getIamPolicy` and `iap.web*.setIamPolicy`, which
+  `roles/iap.settingsAdmin` does **not** grant (that role manages IAP
+  configuration/settings, not IAM policies). Using the settings role
+  fails on first `terraform apply` with `Error 403: The caller does not
+  have permission` on the dashboard IAP IAM binding.
 - `storage.objectAdmin` on the tfstate bucket — read and write state; do
   not grant this project-wide.
+
+> **Migrating from an earlier version of these docs.** If you previously
+> granted `roles/iap.settingsAdmin`, add `roles/iap.admin` on top —
+> `terraform apply` will start succeeding on the IAP binding. You can
+> also revoke `roles/iap.settingsAdmin` afterwards (it is not required
+> by the current `infra/main.tf`), but leaving it is harmless.
 
 ### Set GitHub Actions repository variables
 
