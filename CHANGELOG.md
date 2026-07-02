@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/mderdzinski/smokescreen/compare/v1.0.0...v1.0.1) (2026-07-02)
+
+
+### Bug Fixes
+
+* **ci:** use workflow variables for public WIF identifiers ([53b494f](https://github.com/mderdzinski/smokescreen/commit/53b494f67651480a1a0e5ca4ebbc19dff1774c69))
+
 # 1.0.0 (2026-07-02)
 
 
