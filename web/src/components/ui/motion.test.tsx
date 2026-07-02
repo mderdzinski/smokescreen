@@ -55,6 +55,8 @@ function mockSmokeCanvas() {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("useCountUp", () => {
@@ -86,11 +88,19 @@ describe("useCountUp", () => {
 
 describe("ScanSweep", () => {
   it("renders an amber sweep layer only when active", () => {
+    mockReducedMotion(false);
     const { container, rerender } = render(<ScanSweep />);
 
     expect(container.querySelector(".ss-scan-layer")).toBeInTheDocument();
 
     rerender(<ScanSweep active={false} />);
+
+    expect(container.querySelector(".ss-scan-layer")).not.toBeInTheDocument();
+  });
+
+  it("does not render the sweep when reduced motion is requested", () => {
+    mockReducedMotion(true);
+    const { container } = render(<ScanSweep />);
 
     expect(container.querySelector(".ss-scan-layer")).not.toBeInTheDocument();
   });
@@ -147,6 +157,43 @@ describe("SmokePlayer", () => {
       "/assets/throw-key-c.png",
     ]);
     expect(drawImage).toHaveBeenCalledTimes(1);
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("advances frames from elapsed wall-clock time and completes once", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    mockReducedMotion(false);
+    const onDone = vi.fn();
+    const { drawImage } = mockSmokeCanvas();
+
+    render(<SmokePlayer fps={10} onDone={onDone} />);
+
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+
+    expect(drawImage).toHaveBeenCalledTimes(1);
+    expect(drawImage.mock.calls[0].slice(1, 3)).toEqual([1920, 864]);
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    const frameAtOneSecond = drawImage.mock.calls[drawImage.mock.calls.length - 1];
+    expect(frameAtOneSecond.slice(1, 3)).toEqual([2688, 864]);
+    expect(onDone).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(9000);
+    });
+
+    expect(onDone).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 });

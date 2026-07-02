@@ -31,6 +31,10 @@ function easeOutCubic(progress: number) {
   return 1 - Math.pow(1 - progress, 3);
 }
 
+function isDocumentHidden() {
+  return typeof document !== "undefined" && document.visibilityState === "hidden";
+}
+
 function getPrefersReducedMotion() {
   return (
     typeof window !== "undefined" &&
@@ -78,7 +82,7 @@ export function useCountUp(target: number, { duration = DEFAULT_COUNT_UP_DURATIO
   const prefersReducedMotion = usePrefersReducedMotion();
 
   React.useEffect(() => {
-    if (prefersReducedMotion || target <= 0 || duration <= 0) {
+    if (prefersReducedMotion || target <= 0 || duration <= 0 || isDocumentHidden()) {
       setValue(target);
       return undefined;
     }
@@ -115,7 +119,9 @@ export function ScanSweep({
   style,
   ...props
 }: ScanSweepProps) {
-  if (!active) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  if (!active || prefersReducedMotion) {
     return null;
   }
 
@@ -239,8 +245,10 @@ export function SmokePlayer({
 
     let loaded = 0;
     let dead = false;
+    let finished = false;
     let timer: number | undefined;
     const images: HTMLImageElement[] = [];
+    const frameRate = fps > 0 ? fps : 30;
 
     const drawFrame = (frameIndex: number) => {
       const sheetIndex = Math.floor(frameIndex / SMOKE_FRAMES_PER_SHEET);
@@ -252,22 +260,32 @@ export function SmokePlayer({
       }
 
       context.clearRect(0, 0, SMOKE_FRAME_WIDTH, SMOKE_FRAME_HEIGHT);
-      context.drawImage(
-        image,
-        (sheetFrame % SMOKE_COLS) * SMOKE_FRAME_WIDTH,
-        Math.floor(sheetFrame / SMOKE_COLS) * SMOKE_FRAME_HEIGHT,
-        SMOKE_FRAME_WIDTH,
-        SMOKE_FRAME_HEIGHT,
-        0,
-        0,
-        SMOKE_FRAME_WIDTH,
-        SMOKE_FRAME_HEIGHT,
-      );
+      try {
+        context.drawImage(
+          image,
+          (sheetFrame % SMOKE_COLS) * SMOKE_FRAME_WIDTH,
+          Math.floor(sheetFrame / SMOKE_COLS) * SMOKE_FRAME_HEIGHT,
+          SMOKE_FRAME_WIDTH,
+          SMOKE_FRAME_HEIGHT,
+          0,
+          0,
+          SMOKE_FRAME_WIDTH,
+          SMOKE_FRAME_HEIGHT,
+        );
+      } catch {
+        // Broken image loads should not leave the launch overlay stuck forever.
+      }
     };
 
     const finish = () => {
+      if (finished) {
+        return;
+      }
+
+      finished = true;
       if (timer !== undefined) {
         window.clearInterval(timer);
+        timer = undefined;
       }
       onDoneRef.current?.();
     };
@@ -279,6 +297,7 @@ export function SmokePlayer({
         return;
       }
 
+      drawFrame(SMOKE_SEQUENCE[0] ?? LAST_SMOKE_SEQUENCE_FRAME);
       const startTime = Date.now();
       timer = window.setInterval(() => {
         if (dead) {
@@ -286,7 +305,7 @@ export function SmokePlayer({
         }
 
         const elapsedSeconds = (Date.now() - startTime) / 1000;
-        let sequenceIndex = Math.floor(elapsedSeconds * fps);
+        let sequenceIndex = Math.floor(elapsedSeconds * frameRate);
 
         if (sequenceIndex >= SMOKE_SEQUENCE.length) {
           if (loop) {
@@ -299,17 +318,25 @@ export function SmokePlayer({
         }
 
         drawFrame(SMOKE_SEQUENCE[sequenceIndex] ?? LAST_SMOKE_SEQUENCE_FRAME);
-      }, 1000 / fps);
+      }, 1000 / frameRate);
+    };
+
+    if (sheetSources.length === 0) {
+      finish();
+      return undefined;
+    }
+
+    const handleAssetReady = () => {
+      loaded += 1;
+      if (loaded === sheetSources.length && !dead) {
+        start();
+      }
     };
 
     sheetSources.forEach((source) => {
       const image = new Image();
-      image.onload = () => {
-        loaded += 1;
-        if (loaded === sheetSources.length && !dead) {
-          start();
-        }
-      };
+      image.onload = handleAssetReady;
+      image.onerror = handleAssetReady;
       image.src = source;
       images.push(image);
     });
