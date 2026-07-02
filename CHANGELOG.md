@@ -1,3 +1,10 @@
+# [0.3.0](https://github.com/mderdzinski/smokescreen/compare/v0.2.0...v0.3.0) (2026-07-02)
+
+
+### Features
+
+* **infra:** make anthropic secret conditional on ai_provider ([be0e02a](https://github.com/mderdzinski/smokescreen/commit/be0e02ac2664fca52ed95441f54f9667ae2b7f54))
+
 # [0.2.0](https://github.com/mderdzinski/smokescreen/compare/v0.1.3...v0.2.0) (2026-07-02)
 
 
