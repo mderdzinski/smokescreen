@@ -1,3 +1,10 @@
+# [0.7.0](https://github.com/mderdzinski/smokescreen/compare/v0.6.0...v0.7.0) (2026-07-02)
+
+
+### Features
+
+* **ci:** automate deployment via terraform apply after release (sm-7e5) ([db1d26d](https://github.com/mderdzinski/smokescreen/commit/db1d26df3c97b1ef6af6031ed2b7313a6f5b1c24))
+
 # [0.6.0](https://github.com/mderdzinski/smokescreen/compare/v0.5.0...v0.6.0) (2026-07-02)
 
 
