@@ -252,6 +252,21 @@ lists it as the latest supported version for Gemini 3.1 Flash-Lite.
 
 ## Verify IAP Dashboard Access
 
+After `terraform apply` completes, verifying dashboard access is a four-step
+sequence:
+
+1. **Configure IAP OAuth branding.** IAP needs its own OAuth client, separate
+   from the Gmail OAuth client, before Google can authenticate anyone at the
+   dashboard URL. Follow
+   [Configure IAP OAuth Branding for the Dashboard](SETUP.md#configure-iap-oauth-branding-for-the-dashboard)
+   in `docs/SETUP.md`. Skipping this step yields errors like `Empty Google
+   Account OAuth client ID(s)/secret(s)` when you open the URL. This is a
+   one-time console step per project; subsequent applies do not repeat it.
+2. **Open the dashboard URL** in a browser.
+3. **Sign in with the allowlisted Google account** — the value passed as
+   `dashboard_allowed_user`.
+4. **Confirm the app loads** behind IAP.
+
 Find the dashboard URL:
 
 ```bash
