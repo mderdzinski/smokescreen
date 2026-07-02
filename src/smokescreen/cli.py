@@ -65,10 +65,17 @@ def cli(ctx, dry_run: bool) -> None:
 @cli.command()
 @click.pass_context
 def outreach(ctx) -> None:
-    """Send initial opt-out emails to all pending brokers."""
+    """Send initial opt-out emails to enabled pending brokers."""
     settings = ctx.obj["settings"]
     registry = BrokerRegistry.from_yaml()
     store = _get_store(settings)
+
+    if not store.list_enabled_brokers():
+        raise click.ClickException(
+            "No brokers are enabled for outreach. Configure the enabled "
+            "broker list from the dashboard onboarding step, or via "
+            "PUT /api/brokers/selections, then re-run."
+        )
 
     gmail = None
     if not settings.dry_run:

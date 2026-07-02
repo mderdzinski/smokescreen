@@ -40,6 +40,7 @@ import {
 import {
   useAdvancedSettings,
   useAppVersion,
+  useBrokerSelections,
   useBrokers,
   useExtendedStats,
   useOptOuts,
@@ -329,10 +330,14 @@ function AppVersionBadge() {
 export function OverviewPage() {
   const statsQuery = useExtendedStats();
   const optOutsQuery = useOptOuts();
+  const selectionsQuery = useBrokerSelections();
   const stats = statsQuery.data;
   const optOuts = optOutsQuery.data ?? [];
   const loading = statsQuery.isLoading || optOutsQuery.isLoading;
   const error = statsQuery.error ?? optOutsQuery.error;
+  const noBrokersEnabled =
+    selectionsQuery.isSuccess &&
+    (selectionsQuery.data?.enabled_broker_ids?.length ?? 0) === 0;
   const groupedOptOuts = useMemo(() => groupOptOuts(optOuts), [optOuts]);
   const totalCount = stats?.total ?? optOuts.length;
   const workingCount = groupedOptOuts.working.length;
@@ -354,6 +359,37 @@ export function OverviewPage() {
           onAction={retryOverview}
           title="Broker status is unavailable"
         />
+      ) : null}
+
+      {noBrokersEnabled ? (
+        <Card
+          className="border-[color:var(--border-strong)] bg-surface-raised px-[22px] py-[16px]"
+          data-testid="no-brokers-enabled-banner"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-content-strong">
+                <AlertTriangle aria-hidden="true" className="h-5 w-5 text-rust-500" />
+                <span className="font-display text-base font-semibold">
+                  No brokers configured — outreach will not run
+                </span>
+              </div>
+              <p className="mt-1 max-w-[62ch] text-sm text-content-muted">
+                Scheduled outreach only contacts brokers you have explicitly
+                enabled. Pick brokers in Setup or toggle them in the Broker
+                registry before Smokescreen can send opt-out requests.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-[10px]">
+              <Button asChild variant="primary">
+                <Link to="/setup">Configure brokers</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link to="/brokers">Open registry</Link>
+              </Button>
+            </div>
+          </div>
+        </Card>
       ) : null}
 
       <Card variant="accent" className="ss-haze overflow-hidden px-[26px] py-[26px]">

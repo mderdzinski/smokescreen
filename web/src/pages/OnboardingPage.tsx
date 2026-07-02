@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 
 import { api, type Broker } from "../lib/api";
-import { useAdvancedSettings, useBrokers, useSettings } from "../lib/queries";
+import { useAdvancedSettings, useBrokerSelections, useBrokers, useSettings } from "../lib/queries";
 import { cn } from "../lib/utils";
 import { Avatar } from "../components/ui/avatar";
 import { Badge } from "../components/ui/badge";
@@ -73,13 +73,20 @@ export function OnboardingPage() {
   const settingsQuery = useSettings();
   const advancedSettingsQuery = useAdvancedSettings();
   const brokersQuery = useBrokers();
+  const selectionsQuery = useBrokerSelections();
   const settings = settingsQuery.data;
   const advancedSettings = advancedSettingsQuery.data;
   const brokers = brokersQuery.data ?? [];
   const [activeStep, setActiveStep] = useState(loadStep);
   const [gmailForm, setGmailForm] = useState<GmailForm>({ senderName: "", senderEmail: "" });
   const [anthropicApiKey, setAnthropicApiKey] = useState("");
-  const [selectedBrokerIds, setSelectedBrokerIds] = useState<string[]>(loadSelectedBrokerIds);
+  const [selectedBrokerIds, setSelectedBrokerIds] = useState<string[]>(() => {
+    const persisted = selectionsQuery.data?.enabled_broker_ids;
+    if (persisted && persisted.length > 0) {
+      return persisted;
+    }
+    return loadSelectedBrokerIds();
+  });
   const [identitySavedThisSession, setIdentitySavedThisSession] = useState(false);
   const [claudeSavedThisSession, setClaudeSavedThisSession] = useState(false);
   const [firstBatchSent, setFirstBatchSent] = useState(loadComplete);
@@ -116,6 +123,21 @@ export function OnboardingPage() {
       ]);
     },
   });
+
+  const putSelectionsMutation = useMutation({
+    mutationFn: api.putBrokerSelections,
+    onSuccess: (result) => {
+      queryClient.setQueryData(["broker-selections"], result);
+    },
+  });
+
+  useEffect(() => {
+    const persisted = selectionsQuery.data?.enabled_broker_ids;
+    if (!persisted || persisted.length === 0) {
+      return;
+    }
+    setSelectedBrokerIds((current) => (current.length === 0 ? persisted : current));
+  }, [selectionsQuery.data]);
 
   const outreachMutation = useMutation({
     mutationFn: api.runOutreach,
@@ -189,15 +211,20 @@ export function OnboardingPage() {
   }
 
   function toggleBroker(brokerId: string) {
-    setSelectedBrokerIds((current) =>
-      current.includes(brokerId) ? current.filter((id) => id !== brokerId) : [...current, brokerId],
-    );
+    setSelectedBrokerIds((current) => {
+      const next = current.includes(brokerId)
+        ? current.filter((id) => id !== brokerId)
+        : [...current, brokerId];
+      putSelectionsMutation.mutate(next);
+      return next;
+    });
     window.localStorage.removeItem(ONBOARDING_COMPLETE_KEY);
     setFirstBatchSent(false);
   }
 
   function clearSelection() {
     setSelectedBrokerIds([]);
+    putSelectionsMutation.mutate([]);
     window.localStorage.removeItem(ONBOARDING_COMPLETE_KEY);
     setFirstBatchSent(false);
   }
@@ -365,7 +392,9 @@ export function OnboardingPage() {
         >
           <div className="grid gap-[10px]">
             <p className="text-sm text-content-muted">
-              Choose the companies you want Smokescreen to contact first.
+              Select the brokers you want Smokescreen to send opt-out requests to.
+              Your selection is saved and used for both this initial batch and all
+              future scheduled outreach.
             </p>
             <div className="max-h-[300px] overflow-y-auto rounded-sm border border-border">
               {brokersQuery.isLoading ? (

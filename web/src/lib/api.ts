@@ -218,9 +218,19 @@ export interface AppVersion {
   version: string;
 }
 
+export interface BrokerSelections {
+  enabled_broker_ids: string[];
+}
+
 export const api = {
   getVersion: () => requestJson<AppVersion>("/api/version"),
   listBrokers: () => requestJson<Broker[]>("/api/brokers"),
+  getBrokerSelections: () => requestJson<BrokerSelections>("/api/brokers/selections"),
+  putBrokerSelections: (enabledBrokerIds: string[]) =>
+    requestJson<BrokerSelections>(
+      "/api/brokers/selections",
+      jsonRequest("PUT", { enabled_broker_ids: enabledBrokerIds }),
+    ),
   createBroker: (input: BrokerInput) => requestJson<Broker>("/api/brokers", jsonRequest("POST", input)),
   updateBroker: (brokerId: string, input: BrokerUpdate) =>
     requestJson<Broker>(`/api/brokers/${encodeURIComponent(brokerId)}`, jsonRequest("PUT", input)),

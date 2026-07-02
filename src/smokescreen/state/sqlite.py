@@ -66,6 +66,12 @@ class SQLiteStore:
                 status TEXT NOT NULL DEFAULT 'pending'
             )
         """)
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS broker_selections (
+                broker_id TEXT PRIMARY KEY,
+                updated_at TEXT NOT NULL
+            )
+        """)
         self._conn.commit()
 
     def _row_to_record(self, row: sqlite3.Row) -> OptOutRecord:
@@ -288,6 +294,34 @@ class SQLiteStore:
         )
         self._conn.commit()
         return cur.rowcount > 0
+
+    # --- Broker selections ---
+
+    def list_enabled_brokers(self) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT broker_id FROM broker_selections ORDER BY broker_id"
+        ).fetchall()
+        return [r["broker_id"] for r in rows]
+
+    def set_enabled_brokers(self, broker_ids: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for raw in broker_ids:
+            broker_id = raw.strip()
+            if not broker_id or broker_id in seen:
+                continue
+            seen.add(broker_id)
+            normalized.append(broker_id)
+        normalized.sort()
+
+        now = datetime.utcnow().isoformat()
+        self._conn.execute("DELETE FROM broker_selections")
+        self._conn.executemany(
+            "INSERT INTO broker_selections (broker_id, updated_at) VALUES (?, ?)",
+            [(broker_id, now) for broker_id in normalized],
+        )
+        self._conn.commit()
+        return normalized
 
     def close(self) -> None:
         self._conn.close()

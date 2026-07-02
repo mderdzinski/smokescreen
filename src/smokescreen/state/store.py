@@ -75,3 +75,19 @@ class StateStore(Protocol):
     def reject_pending(self, entry_id: int) -> bool:
         """Reject a pending whitelist entry."""
         ...
+
+    def list_enabled_brokers(self) -> list[str]:
+        """Return the persisted list of broker IDs enabled for outreach.
+
+        A missing selections document must return an empty list, not the full
+        registry. Callers gate outreach on this value; defaulting to all
+        enabled would silently send opt-out email to every shipped broker.
+        """
+        ...
+
+    def set_enabled_brokers(self, broker_ids: list[str]) -> list[str]:
+        """Persist the list of broker IDs enabled for outreach.
+
+        Returns the stored list after normalization (deduplicated, ordered).
+        """
+        ...

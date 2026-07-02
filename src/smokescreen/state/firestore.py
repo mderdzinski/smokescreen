@@ -284,3 +284,35 @@ class FirestoreStore:
             return False
         ref.update({"status": PendingWhitelistStatus.REJECTED.value})
         return True
+
+    # --- Broker selections ---
+
+    def _broker_selections_ref(self):
+        return self._collection_ref(self._meta_collection).document("broker_selections")
+
+    def list_enabled_brokers(self) -> list[str]:
+        doc = self._broker_selections_ref().get()
+        if not doc.exists:
+            return []
+        data = doc.to_dict() or {}
+        raw = data.get("enabled_broker_ids") or []
+        return [str(item) for item in raw if isinstance(item, str)]
+
+    def set_enabled_brokers(self, broker_ids: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for raw in broker_ids:
+            broker_id = raw.strip()
+            if not broker_id or broker_id in seen:
+                continue
+            seen.add(broker_id)
+            normalized.append(broker_id)
+        normalized.sort()
+
+        self._broker_selections_ref().set(
+            {
+                "enabled_broker_ids": normalized,
+                "updated_at": datetime.utcnow().isoformat(),
+            }
+        )
+        return normalized

@@ -68,3 +68,31 @@ def test_delete(store):
     store.upsert(OptOutRecord(broker_id="spokeo"))
     store.delete("spokeo")
     assert store.get("spokeo") is None
+
+
+# --- Broker selections ---
+
+
+def test_broker_selections_default_empty(store):
+    """Fresh install must have no brokers enabled — safety default."""
+    assert store.list_enabled_brokers() == []
+
+
+def test_broker_selections_persist_and_normalize(store):
+    stored = store.set_enabled_brokers(["spokeo", "beenverified", "spokeo", "  "])
+    # Deduplicated, whitespace-stripped, and sorted for a stable read.
+    assert stored == ["beenverified", "spokeo"]
+    assert store.list_enabled_brokers() == ["beenverified", "spokeo"]
+
+
+def test_broker_selections_replace_semantics(store):
+    store.set_enabled_brokers(["spokeo", "beenverified"])
+    store.set_enabled_brokers(["radaris"])
+    assert store.list_enabled_brokers() == ["radaris"]
+
+
+def test_broker_selections_can_be_cleared(store):
+    store.set_enabled_brokers(["spokeo"])
+    stored = store.set_enabled_brokers([])
+    assert stored == []
+    assert store.list_enabled_brokers() == []

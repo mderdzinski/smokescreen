@@ -130,6 +130,14 @@ class OutreachRequest(BaseModel):
     broker_ids: list[str] | None = None
 
 
+class BrokerSelectionsBody(BaseModel):
+    enabled_broker_ids: list[str]
+
+
+class BrokerSelectionsResponse(BaseModel):
+    enabled_broker_ids: list[str]
+
+
 GMAIL_CREDENTIALS_REQUIRED_DETAIL = {
     "code": "gmail_credentials_required",
     "message": (
@@ -245,6 +253,42 @@ async def create_broker(data: BrokerCreate):
     store = get_store()
     store.sync_registry_whitelist([broker])
     return broker.model_dump()
+
+
+# --- Broker selections ---
+# NOTE: These must be declared BEFORE the /api/brokers/{broker_id} routes so
+# FastAPI resolves the concrete "selections" path first; otherwise the path
+# parameter route swallows /api/brokers/selections as broker_id="selections".
+
+
+@app.get("/api/brokers/selections", response_model=BrokerSelectionsResponse)
+async def get_broker_selections() -> BrokerSelectionsResponse:
+    """Return the persisted list of broker IDs enabled for outreach."""
+    return BrokerSelectionsResponse(
+        enabled_broker_ids=get_store().list_enabled_brokers()
+    )
+
+
+@app.put("/api/brokers/selections", response_model=BrokerSelectionsResponse)
+async def put_broker_selections(body: BrokerSelectionsBody) -> BrokerSelectionsResponse:
+    """Persist the list of broker IDs enabled for outreach.
+
+    Unknown IDs (not in the current registry) are rejected so users cannot
+    quietly enable a broker that will silently do nothing.
+    """
+    registry = get_registry()
+    unknown = [
+        broker_id
+        for broker_id in body.enabled_broker_ids
+        if broker_id.strip() and registry.get(broker_id.strip()) is None
+    ]
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown broker IDs: {', '.join(sorted(set(unknown)))}",
+        )
+    stored = get_store().set_enabled_brokers(body.enabled_broker_ids)
+    return BrokerSelectionsResponse(enabled_broker_ids=stored)
 
 
 @app.put("/api/brokers/{broker_id}")
@@ -485,7 +529,17 @@ async def run_outreach_endpoint(request: OutreachRequest):
     from smokescreen.jobs.outreach import run_outreach
 
     selected_registry = BrokerRegistry(selected_brokers)
-    processed = run_outreach(settings, selected_registry, get_store(), gmail)
+    # Explicit broker_ids (used by the onboarding "Send first batch" flow)
+    # bypasses the persisted enable-gate for that one-shot send; the
+    # scheduled outreach path still gates on selections.
+    explicit_filter = request.broker_ids is not None
+    processed = run_outreach(
+        settings,
+        selected_registry,
+        get_store(),
+        gmail,
+        enforce_selections=not explicit_filter,
+    )
     return {
         "status": "sent",
         "processed": processed,

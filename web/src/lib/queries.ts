@@ -25,6 +25,13 @@ export function useBrokers() {
   });
 }
 
+export function useBrokerSelections() {
+  return useQuery({
+    queryKey: ["broker-selections"],
+    queryFn: api.getBrokerSelections,
+  });
+}
+
 export function useSettings() {
   return useQuery({
     queryKey: ["settings"],

@@ -263,6 +263,40 @@ describe("OverviewPage", () => {
     expect(screen.getAllByText("Empty for now.")).toHaveLength(2);
   });
 
+  it("warns when no brokers are enabled and outreach will not run", async () => {
+    mockApi([
+      { body: emptyStats, path: "/api/stats/extended" },
+      { body: [], path: "/api/optouts" },
+      // Default mock already returns { enabled_broker_ids: [] } — keep it.
+    ]);
+
+    renderWithProviders(<OverviewPage />);
+
+    const banner = await screen.findByTestId("no-brokers-enabled-banner");
+    expect(banner).toHaveTextContent(/No brokers configured/i);
+    expect(within(banner).getByRole("link", { name: /Configure brokers/i })).toHaveAttribute(
+      "href",
+      "/setup",
+    );
+    expect(within(banner).getByRole("link", { name: /Open registry/i })).toHaveAttribute(
+      "href",
+      "/brokers",
+    );
+  });
+
+  it("hides the no-brokers banner once selections are configured", async () => {
+    mockApi([
+      { body: emptyStats, path: "/api/stats/extended" },
+      { body: [], path: "/api/optouts" },
+      { body: { enabled_broker_ids: ["spokeo"] }, path: "/api/brokers/selections" },
+    ]);
+
+    renderWithProviders(<OverviewPage />);
+
+    await screen.findByRole("heading", { name: "0 brokers requesting removal of your data" });
+    expect(screen.queryByTestId("no-brokers-enabled-banner")).not.toBeInTheDocument();
+  });
+
   it("groups broker replies that need review in the attention column", async () => {
     mockApi([
       {
@@ -411,6 +445,44 @@ describe("OnboardingPage", () => {
         anthropic_api_key: "sk-ant-test",
       },
     ]);
+  });
+
+  it("persists broker picks to the server when the user toggles them", async () => {
+    const user = userEvent.setup();
+    const selectionBodies: string[][] = [];
+    window.localStorage.setItem("smokescreen:onboarding-step", "2");
+    mockApi([
+      { body: settings, path: "/api/settings" },
+      { body: advancedSettings, path: "/api/settings/advanced" },
+      { body: [broker, secondBroker], path: "/api/brokers" },
+      {
+        assert: (request) => {
+          const body = parseJsonBody(request) as { enabled_broker_ids: string[] };
+          selectionBodies.push(body.enabled_broker_ids);
+        },
+        body: { enabled_broker_ids: ["acme"] },
+        method: "PUT",
+        path: "/api/brokers/selections",
+      },
+    ]);
+
+    renderWithProviders(<OnboardingPage />);
+
+    expect(await screen.findByRole("heading", { name: "Pick brokers" })).toBeInTheDocument();
+    const acmeCheckbox = await screen.findByRole("checkbox", { name: /Acme Data/ });
+    await user.click(acmeCheckbox);
+
+    await waitFor(() => {
+      expect(selectionBodies).toContainEqual(["acme"]);
+    });
+    // Toggling a second broker persists the accumulated set — proving the
+    // picker treats the server, not localStorage, as the source of truth.
+    await user.click(await screen.findByRole("checkbox", { name: /Second Broker/ }));
+    await waitFor(() => {
+      expect(selectionBodies.some((body) => body.length === 2 && body.includes("acme") && body.includes("second"))).toBe(
+        true,
+      );
+    });
   });
 
   it("blocks the first batch until required setup is ready", async () => {
@@ -605,6 +677,40 @@ describe("BrokerRegistryPage", () => {
     await waitFor(() => expect(deletedIds).toEqual(["acme"]));
     expect(screen.queryByText("Acme Data")).not.toBeInTheDocument();
     expect(screen.getByText("2 brokers")).toBeInTheDocument();
+  });
+
+  it("shows Enabled/Disabled per broker and persists toggles to the server", async () => {
+    const user = userEvent.setup();
+    const putBodies: string[][] = [];
+    mockApi([
+      { body: [broker, secondBroker], path: "/api/brokers" },
+      { body: { enabled_broker_ids: ["acme"] }, path: "/api/brokers/selections" },
+      {
+        assert: (request) => {
+          const body = parseJsonBody(request) as { enabled_broker_ids: string[] };
+          putBodies.push(body.enabled_broker_ids);
+        },
+        body: { enabled_broker_ids: ["acme", "second"] },
+        method: "PUT",
+        path: "/api/brokers/selections",
+      },
+    ]);
+
+    renderWithProviders(<BrokerRegistryPage />);
+
+    const acmeToggle = await screen.findByTestId("broker-enabled-toggle-acme");
+    const secondToggle = await screen.findByTestId("broker-enabled-toggle-second");
+    expect(acmeToggle).toHaveTextContent(/Enabled/);
+    expect(acmeToggle).toHaveAttribute("aria-pressed", "true");
+    // New brokers are disabled by default until explicitly enabled.
+    expect(secondToggle).toHaveTextContent(/Disabled/);
+    expect(secondToggle).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(secondToggle);
+
+    await waitFor(() => {
+      expect(putBodies).toContainEqual(["acme", "second"]);
+    });
   });
 });
 

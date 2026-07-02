@@ -333,9 +333,14 @@ def test_mark_optout_handled_not_found(client):
 # --- Outreach ---
 
 
-def test_run_outreach_omitted_broker_ids_processes_all_dry_run(settings_client):
+def test_run_outreach_omitted_broker_ids_processes_enabled_dry_run(settings_client):
+    """With broker_ids omitted, only the persisted enabled subset is processed."""
     client, _ = settings_client
     client.put("/api/settings", json={"dry_run": True})
+    client.put(
+        "/api/brokers/selections",
+        json={"enabled_broker_ids": ["spokeo", "beenverified"]},
+    )
 
     resp = client.post("/api/outreach", json={})
 
@@ -353,6 +358,33 @@ def test_run_outreach_omitted_broker_ids_processes_all_dry_run(settings_client):
         assert record["status"] == "INITIAL_SENT"
         assert record["thread_id"] == f"dry-run-thread-{broker_id}"
         assert record["last_message_id"] == f"dry-run-message-{broker_id}"
+
+
+def test_run_outreach_omitted_broker_ids_is_gated_when_no_selection(settings_client):
+    """No selection means no outreach, even with broker_ids omitted."""
+    client, _ = settings_client
+    client.put("/api/settings", json={"dry_run": True})
+
+    resp = client.post("/api/outreach", json={})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["processed"] == []
+    assert data["processed_count"] == 0
+
+
+def test_run_outreach_explicit_broker_ids_bypass_gate_dry_run(settings_client):
+    """Explicit broker_ids (onboarding first-batch flow) bypass the enable gate."""
+    client, _ = settings_client
+    client.put("/api/settings", json={"dry_run": True})
+
+    # No selections set — the explicit list still runs.
+    resp = client.post("/api/outreach", json={"broker_ids": ["spokeo"]})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["processed"] == ["spokeo"]
+    assert data["processed_count"] == 1
 
 
 def test_run_outreach_empty_broker_ids_is_noop_dry_run(settings_client):
@@ -532,6 +564,54 @@ def test_approve_pending_not_found(client):
 def test_reject_pending_not_found(client):
     resp = client.post("/api/whitelist/pending/999/reject")
     assert resp.status_code == 404
+
+
+# --- Broker selections endpoints ---
+
+
+def test_get_broker_selections_defaults_to_empty(client):
+    resp = client.get("/api/brokers/selections")
+    assert resp.status_code == 200
+    assert resp.json() == {"enabled_broker_ids": []}
+
+
+def test_put_broker_selections_persists_normalized_list(client):
+    resp = client.put(
+        "/api/brokers/selections",
+        json={"enabled_broker_ids": ["spokeo", "spokeo", "beenverified"]},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"enabled_broker_ids": ["beenverified", "spokeo"]}
+
+    # Subsequent GET returns the same normalized list.
+    get_resp = client.get("/api/brokers/selections")
+    assert get_resp.json() == {"enabled_broker_ids": ["beenverified", "spokeo"]}
+
+
+def test_put_broker_selections_rejects_unknown_broker(client):
+    resp = client.put(
+        "/api/brokers/selections",
+        json={"enabled_broker_ids": ["spokeo", "not-a-real-broker"]},
+    )
+    assert resp.status_code == 400
+    assert "not-a-real-broker" in resp.json()["detail"]
+
+    # The rejection must not partially apply.
+    get_resp = client.get("/api/brokers/selections")
+    assert get_resp.json() == {"enabled_broker_ids": []}
+
+
+def test_put_broker_selections_accepts_empty_list(client):
+    client.put(
+        "/api/brokers/selections",
+        json={"enabled_broker_ids": ["spokeo"]},
+    )
+    resp = client.put(
+        "/api/brokers/selections",
+        json={"enabled_broker_ids": []},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"enabled_broker_ids": []}
 
 
 # --- Settings endpoints ---

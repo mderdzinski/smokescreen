@@ -30,15 +30,34 @@ def run_outreach(
     registry: BrokerRegistry,
     store: StateStore,
     gmail: GmailClient | None = None,
+    *,
+    enforce_selections: bool = True,
 ) -> list[str]:
-    """Send initial opt-out emails to all PENDING brokers.
+    """Send initial opt-out emails to enabled PENDING brokers.
 
     Also re-queues COMPLETED brokers whose re-request interval has elapsed.
     Returns list of broker IDs that were processed.
+
+    Outreach is gated on the persisted enabled-brokers selection. If no
+    brokers are enabled, this returns immediately without sending; the
+    default for a fresh install is an empty enabled list, so users must
+    explicitly opt in via the dashboard before scheduled outreach fires.
+    Callers that pass a pre-filtered ``registry`` and want to bypass the
+    gate (for example, the one-shot ``/api/outreach`` endpoint with an
+    explicit ``broker_ids`` filter) may pass ``enforce_selections=False``.
     """
     processed: list[str] = []
 
-    for broker in registry.all():
+    if enforce_selections:
+        enabled = set(store.list_enabled_brokers())
+        if not enabled:
+            log.warning("no_brokers_enabled_outreach_skipped")
+            return processed
+        brokers_to_process = [b for b in registry.all() if b.id in enabled]
+    else:
+        brokers_to_process = list(registry.all())
+
+    for broker in brokers_to_process:
         record = store.get(broker.id)
 
         # Check if a completed broker is due for re-request

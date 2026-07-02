@@ -72,6 +72,7 @@ def test_outreach_rerequests_completed_broker(tmp_path):
     )
     registry = BrokerRegistry([broker])
     store = SQLiteStore(settings.sqlite_path)
+    store.set_enabled_brokers(["test-broker"])
 
     # Seed a completed record that's past the re-request interval
     record = OptOutRecord(
@@ -105,6 +106,7 @@ def test_outreach_skips_recently_completed(tmp_path):
     )
     registry = BrokerRegistry([broker])
     store = SQLiteStore(settings.sqlite_path)
+    store.set_enabled_brokers(["test-broker"])
 
     # Seed a recently completed record
     record = OptOutRecord(

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, Search, Trash2 } from "lucide-react";
 
 import { api, type Broker, type BrokerInput } from "../lib/api";
-import { useBrokers } from "../lib/queries";
+import { useBrokerSelections, useBrokers } from "../lib/queries";
 import { cn } from "../lib/utils";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -55,7 +55,27 @@ function removeBroker(current: Broker[] | undefined, brokerId: string): Broker[]
 export function BrokerRegistryPage() {
   const queryClient = useQueryClient();
   const brokersQuery = useBrokers();
+  const selectionsQuery = useBrokerSelections();
   const brokers = brokersQuery.data ?? [];
+  const enabledBrokerIds = useMemo(
+    () => new Set(selectionsQuery.data?.enabled_broker_ids ?? []),
+    [selectionsQuery.data?.enabled_broker_ids],
+  );
+
+  const putSelectionsMutation = useMutation({
+    mutationFn: api.putBrokerSelections,
+    onSuccess: (result) => {
+      queryClient.setQueryData(["broker-selections"], result);
+    },
+  });
+
+  function toggleEnabled(brokerId: string) {
+    const current = selectionsQuery.data?.enabled_broker_ids ?? [];
+    const next = current.includes(brokerId)
+      ? current.filter((id) => id !== brokerId)
+      : [...current, brokerId];
+    putSelectionsMutation.mutate(next);
+  }
   const [search, setSearch] = useState("");
   const [form, setForm] = useState<BrokerFormState>(emptyBrokerForm);
   const [formError, setFormError] = useState<string | null>(null);
@@ -218,50 +238,75 @@ export function BrokerRegistryPage() {
                   <TableHeader>Broker</TableHeader>
                   <TableHeader>Privacy contact</TableHeader>
                   <TableHeader>Aliases</TableHeader>
+                  <TableHeader>Outreach</TableHeader>
                   <TableHeader className="text-right">Actions</TableHeader>
                 </tr>
               </thead>
               <tbody>
-                {filteredBrokers.map((broker) => (
-                  <tr key={broker.id} className={cn(broker.id === justAddedId && "ss-rowin")}>
-                    <TableCell>
-                      <div className="font-semibold text-content-strong">{broker.name}</div>
-                      <div className="break-all font-mono text-xs text-content-muted">{broker.domain}</div>
-                    </TableCell>
-                    <TableCell className="break-all font-mono text-xs text-content-muted">
-                      {broker.privacy_email}
-                    </TableCell>
-                    <TableCell>
-                      {broker.aliases.length > 0 ? (
-                        <span className="inline-flex flex-wrap gap-[5px]">
-                          {broker.aliases.map((alias) => (
-                            <Badge key={alias} variant="outline">
-                              {alias}
-                            </Badge>
-                          ))}
-                        </span>
-                      ) : (
-                        <span className="text-content-faint">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        aria-label={`Delete ${broker.name}`}
-                        disabled={deleteMutation.isPending && deleteMutation.variables === broker.id}
-                        iconOnly
-                        onClick={() => deleteBroker(broker.id)}
-                        size="sm"
-                        type="button"
-                        variant="ghost"
-                      >
-                        <Trash2 />
-                      </Button>
-                    </TableCell>
-                  </tr>
-                ))}
+                {filteredBrokers.map((broker) => {
+                  const enabled = enabledBrokerIds.has(broker.id);
+                  const pending =
+                    putSelectionsMutation.isPending &&
+                    putSelectionsMutation.variables?.includes(broker.id) !== enabled;
+                  return (
+                    <tr key={broker.id} className={cn(broker.id === justAddedId && "ss-rowin")}>
+                      <TableCell>
+                        <div className="font-semibold text-content-strong">{broker.name}</div>
+                        <div className="break-all font-mono text-xs text-content-muted">{broker.domain}</div>
+                      </TableCell>
+                      <TableCell className="break-all font-mono text-xs text-content-muted">
+                        {broker.privacy_email}
+                      </TableCell>
+                      <TableCell>
+                        {broker.aliases.length > 0 ? (
+                          <span className="inline-flex flex-wrap gap-[5px]">
+                            {broker.aliases.map((alias) => (
+                              <Badge key={alias} variant="outline">
+                                {alias}
+                              </Badge>
+                            ))}
+                          </span>
+                        ) : (
+                          <span className="text-content-faint">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          aria-label={
+                            enabled
+                              ? `Disable outreach for ${broker.name}`
+                              : `Enable outreach for ${broker.name}`
+                          }
+                          aria-pressed={enabled}
+                          data-testid={`broker-enabled-toggle-${broker.id}`}
+                          disabled={pending}
+                          onClick={() => toggleEnabled(broker.id)}
+                          size="sm"
+                          type="button"
+                          variant={enabled ? "primary" : "outline"}
+                        >
+                          {enabled ? "Enabled" : "Disabled"}
+                        </Button>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          aria-label={`Delete ${broker.name}`}
+                          disabled={deleteMutation.isPending && deleteMutation.variables === broker.id}
+                          iconOnly
+                          onClick={() => deleteBroker(broker.id)}
+                          size="sm"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <Trash2 />
+                        </Button>
+                      </TableCell>
+                    </tr>
+                  );
+                })}
                 {filteredBrokers.length === 0 ? (
                   <tr>
-                    <TableCell className="text-center text-content-muted" colSpan={4}>
+                    <TableCell className="text-center text-content-muted" colSpan={5}>
                       No brokers found.
                     </TableCell>
                   </tr>

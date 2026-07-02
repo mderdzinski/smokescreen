@@ -50,12 +50,33 @@ export function renderWithProviders(ui: ReactElement, options: RenderWithProvide
   };
 }
 
+// Routes registered automatically for every mockApi() call unless the test
+// provides its own override for the same path. Keeps 20+ existing tests from
+// having to declare mocks for cross-cutting endpoints (broker-selections,
+// version, etc.) they don't care about.
+const DEFAULT_ROUTES: MockApiRoute[] = [
+  { body: { enabled_broker_ids: [] }, path: "/api/brokers/selections" },
+];
+
 export function mockApi(routes: MockApiRoute[]) {
   const calls: MockApiRequest[] = [];
+  const overriddenPaths = new Set(
+    routes
+      .filter((route) => typeof route.path === "string")
+      .map((route) => route.path as string),
+  );
+  const effectiveRoutes: MockApiRoute[] = [
+    ...routes,
+    ...DEFAULT_ROUTES.filter(
+      (route) =>
+        typeof route.path !== "string" ||
+        !overriddenPaths.has(route.path),
+    ),
+  ];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = normalizeRequest(input, init);
     calls.push(request);
-    const route = routes.find((candidate) => routeMatches(candidate, request));
+    const route = effectiveRoutes.find((candidate) => routeMatches(candidate, request));
 
     if (!route) {
       throw new Error(`Unhandled ${request.method} ${request.path}`);
