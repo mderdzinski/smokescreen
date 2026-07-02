@@ -32,6 +32,7 @@ from smokescreen.models import (
 )
 from smokescreen.state.machine import InvalidTransition, validate_transition
 from smokescreen.state.store import StateStore
+from smokescreen.version import get_app_version
 
 app = FastAPI(title="Smokescreen Dashboard", version="0.1.0")
 
@@ -494,6 +495,12 @@ async def run_outreach_endpoint(request: OutreachRequest):
 
 
 # --- Stats ---
+
+
+@app.get("/api/version")
+async def get_version() -> dict[str, str]:
+    """Return the running smokescreen version for the dashboard shell."""
+    return {"version": get_app_version()}
 
 
 @app.get("/api/stats")

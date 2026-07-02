@@ -214,7 +214,12 @@ function brokerImportForm(input: BrokerImportInput): FormData {
   return form;
 }
 
+export interface AppVersion {
+  version: string;
+}
+
 export const api = {
+  getVersion: () => requestJson<AppVersion>("/api/version"),
   listBrokers: () => requestJson<Broker[]>("/api/brokers"),
   createBroker: (input: BrokerInput) => requestJson<Broker>("/api/brokers", jsonRequest("POST", input)),
   updateBroker: (brokerId: string, input: BrokerUpdate) =>

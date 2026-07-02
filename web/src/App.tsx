@@ -39,6 +39,7 @@ import {
 } from "./lib/api";
 import {
   useAdvancedSettings,
+  useAppVersion,
   useBrokers,
   useExtendedStats,
   useOptOuts,
@@ -294,12 +295,34 @@ export function App() {
                 </AppNavLink>
               ))}
             </nav>
+            <AppVersionBadge />
             <UserMenu />
           </div>
         </div>
       </header>
       <Outlet />
     </div>
+  );
+}
+
+function AppVersionBadge() {
+  const { data, isError } = useAppVersion();
+  if (isError || !data?.version) {
+    return null;
+  }
+  const label = `v${data.version}`;
+  const releaseHref = `https://github.com/mderdzinski/smokescreen/releases/tag/${label}`;
+  return (
+    <a
+      aria-label={`Smokescreen version ${label}`}
+      className="shrink-0 font-mono text-2xs uppercase tracking-label text-steel-300 transition-colors duration-fast hover:text-smoke-50"
+      href={releaseHref}
+      rel="noreferrer"
+      target="_blank"
+      title={`Release notes for ${label}`}
+    >
+      {label}
+    </a>
   );
 }
 

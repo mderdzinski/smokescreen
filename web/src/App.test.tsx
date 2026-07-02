@@ -143,6 +143,7 @@ describe("App", () => {
         path: "/api/optouts?status=needs_attention",
       },
       { body: settings, path: "/api/settings" },
+      { body: { version: "0.1.0" }, path: "/api/version" },
     ]);
 
     renderWithProviders(<App />);
@@ -155,10 +156,43 @@ describe("App", () => {
     expect(await screen.findByText("2")).toHaveClass("ss-badge-live");
   });
 
+  it("renders the backend-provided version in the top bar", async () => {
+    mockApi([
+      { body: [], path: "/api/optouts?status=needs_attention" },
+      { body: settings, path: "/api/settings" },
+      { body: { version: "1.2.3" }, path: "/api/version" },
+    ]);
+
+    renderWithProviders(<App />);
+
+    const versionLink = await screen.findByRole("link", { name: /Smokescreen version v1\.2\.3/ });
+    expect(versionLink).toHaveTextContent("v1.2.3");
+    expect(versionLink).toHaveAttribute(
+      "href",
+      "https://github.com/mderdzinski/smokescreen/releases/tag/v1.2.3",
+    );
+  });
+
+  it("hides the version badge when the backend endpoint fails", async () => {
+    mockApi([
+      { body: [], path: "/api/optouts?status=needs_attention" },
+      { body: settings, path: "/api/settings" },
+      { path: "/api/version", status: 500 },
+    ]);
+
+    renderWithProviders(<App />);
+
+    await screen.findByRole("link", { name: "Status" });
+    await waitFor(() => {
+      expect(screen.queryByRole("link", { name: /Smokescreen version/ })).not.toBeInTheDocument();
+    });
+  });
+
   it("marks the active shell tab from the current route", async () => {
     mockApi([
       { body: [], path: "/api/optouts?status=needs_attention" },
       { body: settings, path: "/api/settings" },
+      { body: { version: "0.1.0" }, path: "/api/version" },
     ]);
 
     renderWithProviders(<App />, { route: "/setup" });
@@ -179,6 +213,7 @@ describe("App", () => {
         body: { ...settings, gmail_connected: true, gmail_connected_email: "signed-in@example.com" },
         path: "/api/settings",
       },
+      { body: { version: "0.1.0" }, path: "/api/version" },
     ]);
 
     renderWithProviders(<App />);

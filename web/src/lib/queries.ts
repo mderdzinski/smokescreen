@@ -9,6 +9,15 @@ export function useExtendedStats() {
   });
 }
 
+export function useAppVersion() {
+  return useQuery({
+    queryKey: ["app-version"],
+    queryFn: api.getVersion,
+    staleTime: Infinity,
+    retry: false,
+  });
+}
+
 export function useBrokers() {
   return useQuery({
     queryKey: ["brokers"],
