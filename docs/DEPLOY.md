@@ -5,6 +5,31 @@ project that has already completed [SETUP.md](SETUP.md). It assumes the project,
 billing, APIs, OAuth consent screen, OAuth client, Artifact Registry, and budget
 alert already exist.
 
+## Release Pipeline (default path)
+
+Normal deployments after the first one are automatic:
+
+1. A conventional-commit merge to `main` triggers `release.yml`. Semantic-release
+   analyzes commits and, when appropriate, cuts a new `vX.Y.Z` git tag.
+2. The `publish-release-image` job builds and pushes
+   `us-central1-docker.pkg.dev/smokescreen-app/smokescreen/smokescreen:vX.Y.Z`
+   to Artifact Registry using Workload Identity Federation.
+3. The `deploy` job runs `terraform apply -auto-approve` against the shared GCS
+   backend state, wiring the new image tag into Cloud Run and Scheduler.
+
+No manual `terraform apply` is required for image upgrades. See
+[SETUP.md](SETUP.md#set-up-automated-deployment) for the one-time GCS bucket,
+CI IAM, and GitHub Actions variable setup required to make this work.
+
+The manual sequence below is still needed for two cases:
+
+- **First deploy** into a fresh project — the three-phase apply is required
+  because Secret Manager containers must exist before their payloads can be
+  populated, and Cloud Run validates secret access at revision creation.
+- **Break-glass** — when the release workflow is broken and you need to push
+  a fix without waiting for CI, when debugging Terraform state, or when
+  reproducing a drift the pipeline flagged.
+
 ## Single-User Scope
 
 Smokescreen currently deploys as a single-user personal tool. The deployed
@@ -414,18 +439,86 @@ step is not needed.
 
 ## Update or Roll Back an Image
 
-To update to a new release, set `IMAGE_TAG` and `IMAGE` to the new image, then
-rerun `terraform plan` and `terraform apply` with the same variables used for
-the original deployment.
+### Normal upgrade — release pipeline
+
+To ship a new version, merge a conventional-commit change to `main`. The
+release workflow cuts a `vX.Y.Z` tag, publishes the image, and runs
+`terraform apply` against the shared GCS state. No local step is required.
+
+### Redeploy the last release without a new commit
+
+Sometimes you need to re-apply the current release — for example, after
+manually populating a new secret version so Cloud Run picks it up, or after
+changing a repository variable. Re-run the last successful `Release`
+workflow from **GitHub Actions → Release → …last run… → Re-run all jobs**.
+Semantic-release will not cut a new tag; the deploy job will re-apply
+Terraform against the same tag.
+
+### Roll back to an earlier tag
+
+Roll backs are still driven by Terraform, but the safer path is a revert
+commit that becomes its own release:
+
+1. `git revert` the offending commit, open a PR, and merge it. The release
+   workflow cuts a new `vX.Y.Z` tag on the reverted code and deploys it.
+
+For an emergency in-place rollback without a revert commit, use the
+break-glass path in the next section with the previous tag:
 
 ```bash
-export IMAGE_TAG="YOUR_NEW_IMAGE_TAG"
+export IMAGE_TAG="v0.1.4"   # last known-good tag
 export IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/smokescreen:${IMAGE_TAG}"
+terraform apply -var="image=${IMAGE}" ...
 ```
 
-To roll back, set `IMAGE_TAG` and `IMAGE` to the last known-good image tag and
-apply Terraform again. Cloud Run will create a new revision pointing at that
-older image.
+Cloud Run will create a new revision pointing at that older image. Follow
+up by opening a proper revert PR so `main` and the deployed state agree.
+
+### Break-glass local apply
+
+The manual `terraform apply` path documented above still works. Use it when
+the release workflow is broken, when debugging Terraform state, or when
+investigating drift the pipeline flagged. Because the backend now points at
+the shared GCS bucket, a local apply mutates the same state CI does — take
+the usual care about concurrent runs.
+
+## Troubleshooting the release workflow
+
+### `Release` job succeeded but no `deploy` ran
+
+The deploy job is gated on `needs.release.outputs.tag != ''`. If
+semantic-release did not analyze any release-worthy commits (all commits
+were `chore:`, `test:`, `refactor:` without `!` breaking marker, etc.), no
+tag was cut and deploy is intentionally skipped. This is the normal case
+for non-release merges.
+
+### `deploy` job fails at `terraform init`
+
+Most `terraform init` failures against the GCS backend are auth or bucket
+scope problems:
+
+- The CI service account is missing `roles/storage.objectAdmin` on the
+  tfstate bucket. Confirm the grant from
+  [SETUP.md](SETUP.md#grant-deploy-roles-to-the-ci-service-account) is
+  present on the bucket, not just project-wide.
+- The bucket name in `infra/backend.tf` does not match the bucket you
+  created. Forks must edit `backend.tf` to match their unique bucket name.
+- Workload Identity Federation is misconfigured. Re-run `docker-publish`
+  in isolation; if it can push images, WIF is working and the problem is
+  scoped to Terraform/bucket IAM.
+
+### `deploy` job fails at `terraform apply`
+
+- Missing repository variables → Terraform errors on required inputs
+  (`project_id`, `sender_email`, `sender_name`). Set the variables listed
+  in [SETUP.md](SETUP.md#set-github-actions-repository-variables).
+- IAM shortage → the apply reports `Permission denied` on a resource kind.
+  Cross-reference the failing resource against the role list in
+  [SETUP.md](SETUP.md#grant-deploy-roles-to-the-ci-service-account) and
+  add the missing role to the CI service account.
+- Secret access failure on Cloud Run → the payload was never populated
+  for that project. First deploys still need the manual Phase 2 secret
+  population step; the deploy job does not populate secrets.
 
 ## Checkpoint
 

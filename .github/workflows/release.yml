@@ -68,3 +68,47 @@ jobs:
     with:
       tag: ${{ needs.release.outputs.tag }}
     secrets: inherit
+
+  deploy:
+    name: Deploy to Cloud Run via Terraform
+    needs: [release, publish-release-image]
+    if: needs.release.outputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TF_INPUT: "0"
+      TF_IN_AUTOMATION: "1"
+      IMAGE_REPO: us-central1-docker.pkg.dev/smokescreen-app/smokescreen/smokescreen
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - name: Terraform init
+        working-directory: infra
+        run: terraform init -input=false
+
+      - name: Terraform apply
+        working-directory: infra
+        env:
+          TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ vars.GCP_REGION }}
+          TF_VAR_sender_email: ${{ vars.SMOKESCREEN_SENDER_EMAIL }}
+          TF_VAR_sender_name: ${{ vars.SMOKESCREEN_SENDER_NAME }}
+          TF_VAR_image: ${{ env.IMAGE_REPO }}:${{ needs.release.outputs.tag }}
+        run: terraform apply -auto-approve -input=false

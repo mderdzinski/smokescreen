@@ -215,6 +215,131 @@ establishes **how** IAP authenticates users at all.
 > oauth-clients` commands to configure IAP branding for personal projects.
 > The Console UI flow above is the supported path.
 
+## Set up automated deployment
+
+Once the release pipeline is landed on this repo, merges to `main` cut a
+semantic-release tag, build and push a Docker image to Artifact Registry,
+and then run `terraform apply` against your GCP project to roll out the new
+image. Getting that pipeline working requires three one-time setup steps
+below, all done from your local shell against your GCP project.
+
+The pipeline assumes a Workload Identity Federation (WIF) provider and
+service account already exist for GitHub Actions — you should already have
+these if `docker-publish.yml` is publishing images. The variables
+`vars.WIF_PROVIDER` and `vars.WIF_SERVICE_ACCOUNT` in the repository's
+Actions configuration reference them.
+
+### Create the Terraform state bucket
+
+Terraform state must live in GCS so both local operators and CI apply
+against the same state. The bucket is created manually, not by Terraform,
+to avoid a chicken-and-egg with the backend it configures.
+
+Bucket names are globally unique across all of GCS. `smokescreen-app-tfstate`
+is claimed by the overseer deployment; forks must pick a variant and update
+`infra/backend.tf` to match.
+
+```bash
+export TFSTATE_BUCKET="smokescreen-app-tfstate"   # pick your own for forks
+
+gcloud storage buckets create "gs://${TFSTATE_BUCKET}" \
+  --project="${PROJECT_ID}" \
+  --location="${REGION}" \
+  --default-storage-class=STANDARD \
+  --uniform-bucket-level-access
+
+gcloud storage buckets update "gs://${TFSTATE_BUCKET}" \
+  --versioning
+```
+
+Object versioning is what lets you recover from a bad `terraform apply`
+that corrupts state. Uniform bucket-level access is required so IAM on
+the bucket controls object access (Terraform's default assumption).
+
+### Grant deploy roles to the CI service account
+
+The CI service account already has WIF access and Artifact Registry writer
+access from the image-publish step. It now also needs enough IAM to run
+`terraform apply` against the smokescreen resource set. Grant only what
+`infra/main.tf` actually manages:
+
+```bash
+export CI_SA="YOUR_CI_SERVICE_ACCOUNT_EMAIL"  # same one used by WIF today
+
+for role in \
+  roles/run.admin \
+  roles/iam.serviceAccountUser \
+  roles/iam.serviceAccountAdmin \
+  roles/resourcemanager.projectIamAdmin \
+  roles/secretmanager.admin \
+  roles/cloudscheduler.admin \
+  roles/datastore.owner \
+  roles/iap.settingsAdmin
+do
+  gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+    --member="serviceAccount:${CI_SA}" \
+    --role="${role}"
+done
+
+# Terraform state bucket access — scoped to the bucket only, not project-wide.
+gcloud storage buckets add-iam-policy-binding "gs://${TFSTATE_BUCKET}" \
+  --member="serviceAccount:${CI_SA}" \
+  --role="roles/storage.objectAdmin"
+```
+
+Why each role, briefly:
+
+- `run.admin` — create/update Cloud Run services and jobs.
+- `iam.serviceAccountUser` — impersonate the smokescreen runtime service
+  accounts when wiring `--service-account` on Cloud Run and Scheduler.
+- `iam.serviceAccountAdmin` — create the runtime service accounts.
+- `resourcemanager.projectIamAdmin` — grant project-level roles to the
+  runtime service accounts (Firestore, Vertex AI, Secret Manager
+  accessor).
+- `secretmanager.admin` — create the Secret Manager secret containers.
+- `cloudscheduler.admin` — create the poll and outreach schedules.
+- `datastore.owner` — create and manage the Firestore database.
+- `iap.settingsAdmin` — apply IAP web IAM bindings on the dashboard
+  service.
+- `storage.objectAdmin` on the tfstate bucket — read and write state; do
+  not grant this project-wide.
+
+### Set GitHub Actions repository variables
+
+The deploy job reads non-sensitive configuration from **repository variables**
+(Settings → Secrets and variables → Actions → Variables). Do not put these
+in Secrets — they are not confidential and repository variables are the
+correct GitHub surface for them.
+
+| Variable | Example | Description |
+| --- | --- | --- |
+| `WIF_PROVIDER` | `projects/123/locations/global/workloadIdentityPools/gh/providers/github` | Already set for the docker-publish workflow. Deploy reuses it. |
+| `WIF_SERVICE_ACCOUNT` | `smokescreen-ci@YOUR_PROJECT_ID.iam.gserviceaccount.com` | Already set for docker-publish. Deploy reuses it. |
+| `GCP_PROJECT_ID` | `smokescreen-app` | Target project for `terraform apply`. |
+| `GCP_REGION` | `us-central1` | Terraform region. |
+| `SMOKESCREEN_SENDER_EMAIL` | `you@example.com` | Value passed as `sender_email`. |
+| `SMOKESCREEN_SENDER_NAME` | `Your Legal Name` | Value passed as `sender_name`. |
+
+Sensitive values (Anthropic API key, Gmail credentials JSON, Gmail token
+JSON) never appear in the GitHub Actions environment. They live in Secret
+Manager only, populated by the operator as documented in
+[docs/DEPLOY.md](DEPLOY.md#phase-2--populate-secret-payloads).
+
+### Migrate an existing local Terraform state
+
+If you had been running `terraform apply` locally without a backend, migrate
+your local state into the new bucket once:
+
+```bash
+gcloud auth application-default login   # ADC used by the gcs backend
+cd infra
+terraform init -migrate-state
+```
+
+Terraform detects the new backend block, prompts you to copy the local
+`terraform.tfstate` into GCS, and confirms once complete. Subsequent
+applies (local or CI) use the same remote state.
+
 ## Set a Billing Budget Alert
 
 Set a small budget before leaving the deployment unattended:
