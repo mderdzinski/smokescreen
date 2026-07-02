@@ -4,7 +4,8 @@ Smokescreen releases are automated with GitHub Actions:
 
 - Pushes to `main` run semantic-release.
 - semantic-release creates release commits, updates `pyproject.toml` and
-  `CHANGELOG.md`, and pushes `vX.Y.Z` tags.
+  `CHANGELOG.md`, pushes `vX.Y.Z` tags, and creates GitHub Releases for those
+  tags.
 - The Docker publish workflow builds the Linux amd64 image for `v*` tags and
   pushes both the version tag and `latest` to Artifact Registry. Direct tag
   pushes trigger it, and the release workflow calls the same workflow after
