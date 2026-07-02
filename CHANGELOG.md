@@ -1,3 +1,10 @@
+## [0.1.2](https://github.com/mderdzinski/smokescreen/compare/v0.1.1...v0.1.2) (2026-07-02)
+
+
+### Bug Fixes
+
+* align status screen with v2 spec ([12d1c33](https://github.com/mderdzinski/smokescreen/commit/12d1c3380b738f6d9f2049ed35e5010334bcf5cd))
+
 ## [0.1.1](https://github.com/mderdzinski/smokescreen/compare/v0.1.0...v0.1.1) (2026-07-02)
 
 
