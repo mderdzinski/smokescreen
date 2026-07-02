@@ -26,7 +26,16 @@
         "prepareCmd": "python -c \"from pathlib import Path; import re; path=Path('pyproject.toml'); text=path.read_text(); version='${nextRelease.version}'; text,count=re.subn(r'(?m)^version = \\\"[^\\\"]+\\\"$', f'version = \\\"{version}\\\"', text); assert count >= 1; path.write_text(text)\""
       }
     ],
-    "@semantic-release/github",
+    [
+      "@semantic-release/github",
+      {
+        "successComment": false,
+        "failComment": false,
+        "failTitle": false,
+        "labels": false,
+        "releasedLabels": false
+      }
+    ],
     [
       "@semantic-release/git",
       {
