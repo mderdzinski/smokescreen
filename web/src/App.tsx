@@ -1270,7 +1270,13 @@ function PendingApprovalItem({
 export function NeedsAttentionPage() {
   const queryClient = useQueryClient();
   const attentionQuery = useOptOuts("needs_attention");
-  const records = attentionQuery.data ?? [];
+  const records = useMemo(
+    () =>
+      (attentionQuery.data ?? []).filter((record) =>
+        record.status === "REJECTED" || record.status === "NEEDS_MANUAL" || record.status === "FAILED",
+      ),
+    [attentionQuery.data],
+  );
   const [resolvingBrokerId, setResolvingBrokerId] = useState<string | null>(null);
   const [resolvedBrokerIds, setResolvedBrokerIds] = useState<Set<string>>(() => new Set());
   const visibleRecords = useMemo(
@@ -1348,23 +1354,11 @@ export function NeedsAttentionPage() {
         />
       ) : null}
 
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-normal">Needs Attention</h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Smokescreen handles most of the workflow automatically. These replies need a quick human decision before it can continue.
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            retryAttention();
-          }}
-        >
-          <RefreshCcw className="h-4 w-4" />
-          Refresh
-        </Button>
+      <div>
+        <h1 className="text-2xl font-semibold tracking-normal">Needs Attention</h1>
+        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+          Smokescreen handles most of the workflow automatically. These replies need a quick human decision before it can continue.
+        </p>
       </div>
 
       {viewState === "loading" ? (

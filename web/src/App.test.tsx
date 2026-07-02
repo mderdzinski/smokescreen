@@ -723,7 +723,7 @@ describe("NeedsAttentionPage", () => {
       },
     ]);
 
-    renderWithProviders(<NeedsAttentionPage />);
+    const { container } = renderWithProviders(<NeedsAttentionPage />);
 
     expect(await screen.findByText("Broker wants a signed form before continuing.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Mark handled" }));
@@ -731,5 +731,7 @@ describe("NeedsAttentionPage", () => {
     expect(await screen.findByRole("button", { name: "Marking handled" })).toBeDisabled();
     await waitFor(() => expect(handledIds).toEqual(["acme"]));
     expect(await screen.findByText("Queue clear")).toBeInTheDocument();
+    expect(screen.getByText("Every broker reply has been handled.")).toBeInTheDocument();
+    expect(container.querySelector('img[src="/assets/glyph-mail-smoke.png"]')).toBeInTheDocument();
   });
 });
