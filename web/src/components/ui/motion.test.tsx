@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Poof, ScanSweep, SmokePlayer, ThrowOverlay, useCountUp } from "./motion";
+import { EmptyState, Poof, ScanSweep, SmokePlayer, SplashScreen, ThrowOverlay, useCountUp } from "./motion";
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -232,5 +232,29 @@ describe("ThrowOverlay", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "View status" }));
     expect(onViewStatus).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("EmptyState", () => {
+  it("renders the mail-smoke glyph with optional action content", () => {
+    const { container } = render(
+      <EmptyState action={<button type="button">Retry</button>} body="Every broker reply has been handled." title="Queue clear" />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Queue clear" })).toBeInTheDocument();
+    expect(screen.getByText("Every broker reply has been handled.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(container.querySelector('img[src="/assets/glyph-mail-smoke.png"]')).toBeInTheDocument();
+  });
+});
+
+describe("SplashScreen", () => {
+  it("renders the branded loading splash", () => {
+    const { container } = render(<SplashScreen />);
+
+    expect(screen.getByRole("status", { name: "Priming the smokescreen…" })).toBeInTheDocument();
+    expect(container.querySelector(".ss-pixel")).toHaveTextContent("smokescreen");
+    expect(container.querySelector('img[src="/assets/glyph-mail-smoke.png"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-ss-motion="splash-bar"]')).toBeInTheDocument();
   });
 });

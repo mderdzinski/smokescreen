@@ -483,6 +483,27 @@
   }
 }
 
+@keyframes ss-splash-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+@keyframes ss-splash-load {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(320%);
+  }
+}
+
 @layer components {
   .ss-scan-layer {
     animation: ss-sweep 2.1s linear infinite;
@@ -506,7 +527,9 @@
   .ss-scan-layer,
   .ss-badge-live,
   .ss-rowin,
-  [data-ss-motion="poof-chip"] {
+  [data-ss-motion="poof-chip"],
+  [data-ss-motion="splash-glyph"],
+  [data-ss-motion="splash-bar"] {
     animation: none !important;
   }
 

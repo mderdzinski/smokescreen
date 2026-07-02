@@ -5,6 +5,7 @@ import { Button } from "./button";
 
 const DEFAULT_COUNT_UP_DURATION = 900;
 const COUNT_UP_TICK_MS = 33;
+const MAIL_SMOKE_GLYPH_SRC = "/assets/glyph-mail-smoke.png";
 
 const SMOKE_SHEETS = [
   "/assets/throw-key-a.png",
@@ -462,6 +463,88 @@ export function ThrowOverlay({
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+export interface EmptyStateProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "title"> {
+  action?: React.ReactNode;
+  body?: React.ReactNode;
+  compact?: boolean;
+  title: React.ReactNode;
+}
+
+export function EmptyState({ action, body, className, compact = false, title, ...props }: EmptyStateProps) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col items-center justify-center text-center",
+        compact ? "gap-2 px-5 py-7" : "gap-3 px-6 py-12",
+        className,
+      )}
+      {...props}
+    >
+      <img
+        alt=""
+        aria-hidden="true"
+        className={cn(
+          "mb-0.5 h-auto opacity-[0.92] [filter:drop-shadow(0_6px_14px_rgba(0,0,0,0.35))] [image-rendering:pixelated]",
+          compact ? "w-[66px]" : "w-[92px]",
+        )}
+        src={MAIL_SMOKE_GLYPH_SRC}
+      />
+      <h3 className={cn("font-display font-semibold leading-snug text-content-strong", compact ? "text-md" : "text-lg")}>
+        {title}
+      </h3>
+      {body ? (
+        <p
+          className={cn(
+            "max-w-[36ch] text-sm leading-[1.55] text-content-muted",
+            compact && "max-w-[26ch] text-xs leading-relaxed",
+          )}
+        >
+          {body}
+        </p>
+      ) : null}
+      {action ? <div className="mt-1">{action}</div> : null}
+    </div>
+  );
+}
+
+export interface SplashScreenProps extends React.HTMLAttributes<HTMLDivElement> {
+  label?: string;
+}
+
+export function SplashScreen({ className, label = "Priming the smokescreen…", ...props }: SplashScreenProps) {
+  return (
+    <div
+      aria-label={label}
+      className={cn(
+        "fixed inset-0 z-[90] flex flex-col items-center justify-center gap-[22px]",
+        "bg-[radial-gradient(120%_90%_at_32%_24%,rgba(102,114,63,0.22),transparent_60%),linear-gradient(160deg,#20262a,#14181a)]",
+        className,
+      )}
+      role="status"
+      {...props}
+    >
+      <img
+        alt=""
+        aria-hidden="true"
+        className="h-auto w-[132px] [animation:ss-splash-bob_2.4s_var(--ease-standard)_infinite] [filter:drop-shadow(0_14px_30px_rgba(0,0,0,0.5))] [image-rendering:pixelated]"
+        data-ss-motion="splash-glyph"
+        src={MAIL_SMOKE_GLYPH_SRC}
+      />
+      <div className="ss-pixel text-[22px] text-smoke-50">
+        smoke<b className="text-olive-300">screen</b>
+      </div>
+      <div className="h-[3px] w-[168px] overflow-hidden rounded-sm bg-[rgba(255,255,255,0.10)]">
+        <span
+          aria-hidden="true"
+          className="block h-full w-[40%] bg-accent [animation:ss-splash-load_1.5s_var(--ease-standard)_infinite]"
+          data-ss-motion="splash-bar"
+        />
+      </div>
+      <div className="ss-label text-steel-300">{label}</div>
     </div>
   );
 }

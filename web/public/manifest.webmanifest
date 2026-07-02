@@ -1,0 +1,28 @@
+{
+  "name": "Smokescreen",
+  "short_name": "Smokescreen",
+  "description": "A local data broker opt-out dashboard.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#14181a",
+  "theme_color": "#14181a",
+  "icons": [
+    {
+      "src": "/assets/icon-mark-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/assets/icon-mark.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/icon-mark-square.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

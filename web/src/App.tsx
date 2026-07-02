@@ -58,7 +58,7 @@ import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { Logo } from "./components/ui/logo";
 import { Metric } from "./components/ui/metric";
-import { Poof, ScanSweep, useCountUp } from "./components/ui/motion";
+import { Poof, ScanSweep, SplashScreen, useCountUp } from "./components/ui/motion";
 import { StatusPill } from "./components/ui/status-pill";
 import { EmptyState, ErrorState, LoadingState } from "./components/status-state";
 
@@ -219,9 +219,11 @@ function AppNavLink({
 export function App() {
   const attentionQuery = useOptOuts("needs_attention");
   const attentionCount = attentionQuery.data?.length ?? 0;
+  const showBootSplash = attentionQuery.isLoading && !attentionQuery.data;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
+      {showBootSplash ? <SplashScreen /> : null}
       <header
         className="border-b border-ink-600 bg-surface-inverse"
         style={{
@@ -400,6 +402,7 @@ function StatusGroup({
   loading: boolean;
 }) {
   const copy = statusGroupLabels[group];
+  const emptyCopy = statusGroupEmptyCopy[group];
 
   return (
     <section className="grid content-start gap-3">
@@ -416,13 +419,35 @@ function StatusGroup({
       {loading ? (
         <StatusColumnPlaceholder>Loading requests</StatusColumnPlaceholder>
       ) : null}
-      {!loading && records.length === 0 ? <StatusColumnPlaceholder>Nothing here</StatusColumnPlaceholder> : null}
+      {!loading && records.length === 0 ? (
+        <EmptyState
+          className="rounded-md border border-dashed border-[color:var(--border-strong)] bg-transparent shadow-none"
+          compact
+          description={emptyCopy.description}
+          title={emptyCopy.title}
+        />
+      ) : null}
       {records.map((record) => (
         <BrokerStatusCard key={record.broker_id} record={record} />
       ))}
     </section>
   );
 }
+
+const statusGroupEmptyCopy: Record<BrokerStatusGroup, { title: string; description: string }> = {
+  working: {
+    title: "Queue clear",
+    description: "No broker requests are in flight.",
+  },
+  done: {
+    title: "Nothing removed yet",
+    description: "Confirmed removals will land here.",
+  },
+  "needs-attention": {
+    title: "Queue clear",
+    description: "Every broker reply has been handled.",
+  },
+};
 
 function BrokerStatusCard({ record }: { record: OptOutRecord }) {
   const copy = brokerStatusCopy[record.status];
@@ -1451,12 +1476,11 @@ function AttentionItem({
 
 function EmptyAttentionState() {
   return (
-    <Card className="mx-auto w-full max-w-xl px-5 py-11 text-center">
-      <div className="mx-auto mb-3 inline-grid h-11 w-11 place-items-center rounded-sm bg-fill-green text-soft-green">
-        <CheckCircle2 className="h-5 w-5" />
-      </div>
-      <h2 className="text-lg font-semibold tracking-normal">Queue clear</h2>
-      <p className="mt-[6px] text-sm text-content-muted">Nothing needs your attention right now.</p>
+    <Card className="mx-auto w-full max-w-xl">
+      <EmptyState
+        description="Every broker reply has been handled."
+        title="Queue clear"
+      />
     </Card>
   );
 }

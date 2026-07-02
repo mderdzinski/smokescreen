@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
-import { AlertTriangle, Inbox, LoaderCircle, RefreshCcw } from "lucide-react";
+import { AlertTriangle, LoaderCircle, RefreshCcw } from "lucide-react";
 
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
+import { EmptyState as GlyphEmptyState } from "./ui/motion";
 
 type StatusStateTone = "default" | "error";
 
@@ -78,26 +79,35 @@ export function EmptyState({
   children,
   className,
   description,
-  icon = <Inbox className="h-5 w-5" />,
+  compact = false,
+  icon: _icon,
   onAction,
   title,
 }: {
   actionLabel?: string;
   children?: ReactNode;
   className?: string;
+  compact?: boolean;
   description: string;
   icon?: ReactNode;
   onAction?: () => void;
   title: string;
 }) {
+  const action =
+    children ??
+    (onAction && actionLabel ? (
+      <Button type="button" variant="secondary" onClick={onAction}>
+        <RefreshCcw className="h-4 w-4" />
+        {actionLabel}
+      </Button>
+    ) : null);
+
   return (
-    <StatusState
-      actionLabel={actionLabel}
-      children={children}
+    <GlyphEmptyState
+      action={action}
+      body={description}
       className={className}
-      description={description}
-      icon={icon}
-      onAction={onAction}
+      compact={compact}
       title={title}
     />
   );

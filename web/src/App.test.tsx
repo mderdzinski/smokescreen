@@ -194,13 +194,18 @@ describe("OverviewPage", () => {
       { body: [], path: "/api/optouts" },
     ]);
 
-    renderWithProviders(<OverviewPage />);
+    const { container } = renderWithProviders(<OverviewPage />);
 
     expect(
       await screen.findByRole("heading", { name: "0 brokers requesting removal of your data" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Review requests/ })).toHaveAttribute("href", "/needs-attention");
-    expect(screen.getAllByText("Nothing here")).toHaveLength(3);
+    expect(screen.getAllByRole("heading", { name: "Queue clear" })).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: "Nothing removed yet" })).toBeInTheDocument();
+    expect(screen.getByText("No broker requests are in flight.")).toBeInTheDocument();
+    expect(screen.getByText("Confirmed removals will land here.")).toBeInTheDocument();
+    expect(screen.getByText("Every broker reply has been handled.")).toBeInTheDocument();
+    expect(container.querySelectorAll('img[src="/assets/glyph-mail-smoke.png"]')).toHaveLength(3);
   });
 
   it("groups broker replies that need review in the attention column", async () => {
