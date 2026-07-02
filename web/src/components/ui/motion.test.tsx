@@ -30,7 +30,7 @@ function CountUpProbe({ duration = 900, target }: { duration?: number; target: n
   return <div data-testid="count-up-value">{value}</div>;
 }
 
-function mockSmokeCanvas() {
+function mockSmokeCanvas({ loadImages = true }: { loadImages?: boolean } = {}) {
   const loadedSources: string[] = [];
   const drawImage = vi.fn();
 
@@ -44,7 +44,9 @@ function mockSmokeCanvas() {
 
     set src(value: string) {
       loadedSources.push(value);
-      window.setTimeout(() => this.onload?.(), 0);
+      if (loadImages) {
+        window.setTimeout(() => this.onload?.(), 0);
+      }
     }
   }
 
@@ -199,6 +201,23 @@ describe("SmokePlayer", () => {
 });
 
 describe("ThrowOverlay", () => {
+  it("resolves immediately under reduced motion even if sprite sheets are slow", () => {
+    vi.useFakeTimers();
+    mockReducedMotion(true);
+    mockSmokeCanvas({ loadImages: false });
+
+    render(<ThrowOverlay count={3} />);
+
+    expect(screen.getByText("Deploying smokescreen · going dark")).toBeInTheDocument();
+
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+
+    expect(screen.getByText("Deployment complete")).toBeInTheDocument();
+    expect(screen.getByText(/3 opt-out requests are on their way/)).toBeInTheDocument();
+  });
+
   it("resolves to the panel under reduced motion and honors dismiss actions", () => {
     vi.useFakeTimers();
     mockReducedMotion(true);

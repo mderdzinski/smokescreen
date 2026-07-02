@@ -248,6 +248,7 @@ export function SmokePlayer({
     let dead = false;
     let finished = false;
     let timer: number | undefined;
+    let reducedMotionDoneTimer: number | undefined;
     const images: HTMLImageElement[] = [];
     const frameRate = fps > 0 ? fps : 30;
 
@@ -288,13 +289,16 @@ export function SmokePlayer({
         window.clearInterval(timer);
         timer = undefined;
       }
+      if (reducedMotionDoneTimer !== undefined) {
+        window.clearTimeout(reducedMotionDoneTimer);
+        reducedMotionDoneTimer = undefined;
+      }
       onDoneRef.current?.();
     };
 
     const start = () => {
       if (prefersReducedMotion) {
         drawFrame(SMOKE_REDUCED_FRAME);
-        finish();
         return;
       }
 
@@ -327,6 +331,10 @@ export function SmokePlayer({
       return undefined;
     }
 
+    if (prefersReducedMotion) {
+      reducedMotionDoneTimer = window.setTimeout(finish, 0);
+    }
+
     const handleAssetReady = () => {
       loaded += 1;
       if (loaded === sheetSources.length && !dead) {
@@ -346,6 +354,9 @@ export function SmokePlayer({
       dead = true;
       if (timer !== undefined) {
         window.clearInterval(timer);
+      }
+      if (reducedMotionDoneTimer !== undefined) {
+        window.clearTimeout(reducedMotionDoneTimer);
       }
     };
   }, [fps, loop, onDoneRef, prefersReducedMotion, sheetSources]);
@@ -425,11 +436,14 @@ export function ThrowOverlay({
         }}
       />
 
-      <div className="ss-label absolute left-1/2 top-[26px] -translate-x-1/2 whitespace-nowrap text-center text-steel-300">
+      <div
+        aria-live="polite"
+        className="ss-label pointer-events-none absolute left-1/2 top-[26px] -translate-x-1/2 whitespace-nowrap text-center text-steel-300"
+      >
         {done ? "Deployment complete" : "Deploying smokescreen · going dark"}
       </div>
 
-      <div className="relative z-[1] [filter:drop-shadow(0_14px_26px_rgba(0,0,0,0.5))]">
+      <div className="pointer-events-none relative z-[1] [filter:drop-shadow(0_14px_26px_rgba(0,0,0,0.5))]">
         <SmokePlayer fps={30} width="min(62vw, 720px)" onDone={() => setPlayerDone(true)} />
       </div>
 
