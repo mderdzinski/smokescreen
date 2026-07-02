@@ -1347,7 +1347,7 @@ wheels = [
 
 [[package]]
 name = "smokescreen"
-version = "0.1.0"
+version = "0.0.5"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
@@ -1378,6 +1378,8 @@ dev = [
 dev = [
     { name = "commitizen" },
     { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
     { name = "ruff" },
 ]
 
@@ -1407,6 +1409,8 @@ requires-dist = [
 dev = [
     { name = "commitizen", specifier = ">=4.12.1" },
     { name = "pre-commit", specifier = ">=4.5.1" },
+    { name = "pytest", specifier = ">=7.4.0" },
+    { name = "pytest-asyncio", specifier = ">=0.21.0" },
     { name = "ruff", specifier = ">=0.14.14" },
 ]
 

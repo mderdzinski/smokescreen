@@ -117,11 +117,13 @@ export function BrokerRegistryPage() {
     },
   });
 
-  const activeError =
-    formError ?? brokersQuery.error?.message ?? createMutation.error?.message ?? deleteMutation.error?.message;
+  const activeError = brokersQuery.error?.message ?? createMutation.error?.message ?? deleteMutation.error?.message;
+  const brokerNameError = formError && !form.name.trim();
+  const domainError = formError && !form.domain.trim();
 
   function updateFormField(field: keyof BrokerFormState, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
+    setFormError(null);
   }
 
   function submitBroker(event: FormEvent<HTMLFormElement>) {
@@ -157,24 +159,26 @@ export function BrokerRegistryPage() {
       {activeError ? (
         <ErrorState
           description={
-            formError
-              ? formError
-              : "Smokescreen could not load or update the broker registry. Refresh the list before trying again."
+            "Smokescreen could not load or update the broker registry. Refresh the list before trying again."
           }
-          onAction={formError ? () => setFormError(null) : () => void brokersQuery.refetch()}
-          title={formError ? "Broker details need attention" : "Broker registry is unavailable"}
+          onAction={() => void brokersQuery.refetch()}
+          title="Broker registry is unavailable"
         />
       ) : null}
 
       <Card pad>
         <form className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end" onSubmit={submitBroker}>
           <TextField
+            error={Boolean(brokerNameError)}
+            hint={brokerNameError ? formError : undefined}
             label="Broker name"
             onChange={(event) => updateFormField("name", event.currentTarget.value)}
             placeholder="Acme Data Co"
             value={form.name}
           />
           <TextField
+            error={Boolean(domainError)}
+            hint={domainError ? formError : undefined}
             label="Domain"
             onChange={(event) => updateFormField("domain", event.currentTarget.value)}
             placeholder="acmedata.com"

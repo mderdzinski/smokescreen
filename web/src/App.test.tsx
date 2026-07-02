@@ -305,6 +305,23 @@ describe("OnboardingPage", () => {
 });
 
 describe("BrokerRegistryPage", () => {
+  it("shows missing broker details as inline field feedback", async () => {
+    const user = userEvent.setup();
+    mockApi([{ body: [broker], path: "/api/brokers" }]);
+
+    renderWithProviders(<BrokerRegistryPage />);
+
+    expect(await screen.findByText("Acme Data")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add broker" }));
+
+    expect(screen.getAllByText("Broker name and domain are required.")).toHaveLength(2);
+    expect(screen.queryByRole("heading", { name: "Broker registry is unavailable" })).not.toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Broker name"), "New Broker");
+    expect(screen.queryByText("Broker name and domain are required.")).not.toBeInTheDocument();
+  });
+
   it("searches brokers, adds a broker to the top, and deletes rows", async () => {
     const user = userEvent.setup();
     const createdBodies: unknown[] = [];
