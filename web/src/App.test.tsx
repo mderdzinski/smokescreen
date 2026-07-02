@@ -153,6 +153,20 @@ describe("App", () => {
     expect(screen.getByRole("link", { name: "Status" })).toHaveAttribute("aria-current", "page");
     expect(await screen.findByText("2")).toHaveClass("ss-badge-live");
   });
+
+  it("marks the active shell tab from the current route", async () => {
+    mockApi([{ body: [], path: "/api/optouts?status=needs_attention" }]);
+
+    renderWithProviders(<App />, { route: "/setup" });
+
+    const statusTab = screen.getByRole("link", { name: "Status" });
+    const setupTab = screen.getByRole("link", { name: "Setup" });
+
+    expect(statusTab).not.toHaveAttribute("aria-current");
+    expect(statusTab.querySelector("[data-ss-active-tab-rule='true']")).toBeNull();
+    expect(setupTab).toHaveAttribute("aria-current", "page");
+    expect(setupTab.querySelector("[data-ss-active-tab-rule='true']")).toBeInTheDocument();
+  });
 });
 
 describe("OverviewPage", () => {

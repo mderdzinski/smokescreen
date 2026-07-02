@@ -160,10 +160,10 @@ function formatUpdatedAgo(value: string): string {
 }
 
 const appTabs = [
-  { label: "Status", to: "/" },
-  { label: "Setup", to: "/setup" },
-  { label: "Brokers", to: "/brokers" },
-  { label: "Needs Attention", to: "/needs-attention", showAttentionCount: true },
+  { id: "status", label: "Status", to: "/" },
+  { id: "setup", label: "Setup", to: "/setup" },
+  { id: "brokers", label: "Brokers", to: "/brokers" },
+  { id: "attention", label: "Needs Attention", to: "/needs-attention", showAttentionCount: true },
 ] as const;
 
 function AppNavLink({
@@ -185,24 +185,33 @@ function AppNavLink({
       end={to === "/"}
       className={({ isActive }) =>
         cn(
-          "group relative inline-flex h-9 items-center gap-[6px] rounded-sm px-[13px] font-mono text-2xs font-semibold uppercase tracking-label text-steel-300 transition-colors duration-fast hover:text-smoke-50",
+          "relative inline-flex h-9 shrink-0 items-center gap-[6px] rounded-sm px-[13px] font-mono text-2xs font-semibold uppercase tracking-label text-steel-300 transition-colors duration-fast hover:text-smoke-50",
           isActive && "bg-ink-700 text-smoke-50",
         )
       }
     >
-      {children}
-      {hasAttention ? (
-        <span
-          className="ss-badge-live inline-grid h-4 min-w-4 place-items-center rounded-pill bg-rust-500 px-1 text-[10px] font-semibold leading-none text-paper"
-          title={`${attentionCount} item${attentionCount === 1 ? "" : "s"} need attention`}
-        >
-          {attentionCount}
-        </span>
-      ) : null}
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 bottom-[-1px] hidden h-[2px] bg-accent group-aria-[current=page]:block"
-      />
+      {({ isActive }) => (
+        <>
+          <span>{children}</span>
+          {hasAttention ? (
+            <span
+              aria-label={`${attentionCount} item${attentionCount === 1 ? "" : "s"} need attention`}
+              aria-live="polite"
+              className="ss-badge-live inline-grid h-4 min-w-4 place-items-center rounded-pill bg-rust-500 px-1 text-[10px] font-semibold leading-none text-paper"
+              title={`${attentionCount} item${attentionCount === 1 ? "" : "s"} need attention`}
+            >
+              {attentionCount}
+            </span>
+          ) : null}
+          {isActive ? (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-0 bottom-[-1px] h-[2px] bg-accent"
+              data-ss-active-tab-rule="true"
+            />
+          ) : null}
+        </>
+      )}
     </NavLink>
   );
 }
@@ -220,12 +229,12 @@ export function App() {
             "radial-gradient(120% 140% at 88% -40%, rgb(var(--olive-500-rgb) / 0.28), transparent 55%)",
         }}
       >
-        <div className="mx-auto flex min-h-header max-w-container flex-col justify-center gap-4 px-gutter py-4 sm:flex-row sm:items-center sm:justify-between sm:py-0">
+        <div className="mx-auto flex min-h-header max-w-container flex-col justify-center gap-4 px-gutter py-4 sm:h-header sm:flex-row sm:items-center sm:justify-between sm:py-0">
           <Logo inverse size="md" tagline="data broker opt-out" />
-          <nav aria-label="Primary" className="flex flex-wrap items-center gap-[2px]">
+          <nav aria-label="Primary" className="flex max-w-full items-center gap-[2px] overflow-x-auto whitespace-nowrap">
             {appTabs.map((tab) => (
               <AppNavLink
-                key={tab.to}
+                key={tab.id}
                 attentionCount={attentionCount}
                 showAttentionCount={"showAttentionCount" in tab && tab.showAttentionCount}
                 to={tab.to}
