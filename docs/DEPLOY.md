@@ -65,25 +65,39 @@ Cloud Run jobs run non-interactively, so they use Secret Manager-backed JSON
 environment variables instead of opening the installed-app browser flow. Create
 `token.json` locally once from the desktop OAuth client downloaded during setup.
 
+Install dependencies and trigger the flow with the Smokescreen CLI. The `poll`
+command initializes the Gmail client, which reliably opens the browser OAuth
+flow the first time it runs:
+
 ```bash
 uv sync
 
-uv run python - <<'PY'
-from smokescreen.config import get_settings
-from smokescreen.email.oauth import get_credentials
-
-settings = get_settings()
-get_credentials(settings.gmail_credentials_path, settings.gmail_token_path)
-print(f"Wrote {settings.gmail_token_path}")
-PY
+uv run smokescreen poll
 ```
 
-The command opens a browser and asks `YOUR_EMAIL` to grant Gmail access. The
-resulting `token.json` must contain a `refresh_token`; Cloud Run jobs cannot
-complete an interactive OAuth flow.
+> **Do not use `uv run smokescreen --dry-run outreach` (or any other
+> `--dry-run` command) to trigger OAuth.** Dry-run short-circuits before
+> Gmail client initialization, so it never opens the browser flow and never
+> writes `token.json`. Use `uv run smokescreen poll` instead.
 
-If Google does not return a refresh token, revoke the app grant from the Google
-account security page, delete `token.json`, and run the local OAuth flow again.
+The browser opens and asks `YOUR_EMAIL` to grant Gmail access. If the OAuth
+consent screen is still in External **testing** mode with test users, Google
+shows an "unverified app" warning. Click **Advanced**, then
+**Go to Smokescreen (unsafe)** to continue. This warning goes away once the
+consent screen is published, but is expected during personal-project setup.
+
+After the browser flow completes, Smokescreen writes `token.json` next to
+`credentials.json` in the repository root. The resulting `token.json` must
+contain a `refresh_token`; Cloud Run jobs cannot complete an interactive OAuth
+flow. Verify:
+
+```bash
+python3 -c "import json; d=json.load(open('token.json')); print('has refresh_token:', 'refresh_token' in d)"
+```
+
+Expected output includes `True`. If it prints `False`, revoke the app grant at
+`https://myaccount.google.com/permissions`, delete `token.json`, and re-run
+`uv run smokescreen poll` to redo the flow.
 
 ## Run Terraform
 
@@ -227,6 +241,32 @@ terraform apply \
 
 Restart or redeploy Cloud Run services after adding new secret versions later
 if a running revision does not pick them up automatically.
+
+#### Recovery — untaint Cloud Run resources after a partial apply
+
+If a full `terraform apply` was attempted before the secrets were populated,
+or if the first apply errored partway through, Terraform can mark the Cloud
+Run resources tainted. The next `terraform apply` then tries to destroy and
+recreate them and fails with:
+
+```text
+Error: cannot destroy service without setting deletion_protection=false
+```
+
+The resources actually exist and are correct on the GCP side — Terraform is
+being defensive because their creation errored mid-flight. Untaint them so
+Terraform trusts the existing GCP-side state, then re-run the Phase 3 apply:
+
+```bash
+terraform untaint google_cloud_run_v2_service.dashboard
+terraform untaint google_cloud_run_v2_job.poll_and_reply
+terraform untaint google_cloud_run_v2_job.outreach
+```
+
+Only untaint the resources Terraform actually marked tainted; extra
+`untaint` calls on clean resources are harmless but noisy. Following the
+[three-phase sequence](#first-deploy-sequence) from a fresh project avoids
+this state entirely.
 
 ## AI Provider Notes
 

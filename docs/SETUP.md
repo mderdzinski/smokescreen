@@ -147,12 +147,13 @@ Do not commit `credentials.json` or `token.json`.
 
 The Smokescreen dashboard sits behind Identity-Aware Proxy (IAP), which
 requires its own OAuth 2.0 client — separate from the Gmail OAuth client
-created above. The two clients play different roles:
+(`smokescreen-cli`) created above. The two clients play different roles:
 
-- **Gmail OAuth client** authorizes Smokescreen to send and read mail on
-  `YOUR_EMAIL`'s behalf. It is a Desktop-app client with Gmail scopes.
-- **IAP OAuth client** lets Google authenticate people visiting the dashboard
-  URL before IAP allows them through to Cloud Run. It is a Web-application
+- **Gmail OAuth client (`smokescreen-cli`)** authorizes Smokescreen to send
+  and read mail on `YOUR_EMAIL`'s behalf. It is a Desktop-app client with
+  Gmail scopes.
+- **IAP OAuth client** authenticates users at the dashboard front door
+  before IAP allows them through to Cloud Run. It is a Web-application
   client with no Gmail scopes.
 
 The OAuth consent screen you configured earlier is shared between both
@@ -165,50 +166,54 @@ Cloud Run service until Terraform provisions it — and **before opening the
 dashboard URL** for the first time. Come back to this section from
 [docs/DEPLOY.md](DEPLOY.md) when the deploy tells you to.
 
-### Preferred: first-access branding prompt
+### Choose Custom OAuth for personal projects
 
-The Cloud Console typically offers a guided IAP branding flow the first time
-you touch IAP in a project:
+IAP offers two OAuth modes, and only one works for personal Smokescreen
+deployments:
+
+- **Google-managed OAuth** requires the project to live inside a Google
+  Cloud **Organization** and restricts access to users of that organization.
+  It is **not suitable for personal projects**.
+- **Custom OAuth** works without an organization and allows any Google
+  account on the IAM allowlist (the account you passed as
+  `dashboard_allowed_user`). This is the correct choice for personal
+  Smokescreen deployments.
+
+Reference:
+[Enabling IAP for external identities: custom OAuth configuration](https://cloud.google.com/iap/docs/custom-oauth-configuration).
+
+### Console flow: set Custom OAuth on the dashboard service
 
 1. Open the IAP console for your project:
    `https://console.cloud.google.com/security/iap?project=YOUR_PROJECT_ID`.
-2. If prompted with **"Configure consent screen"** or **"OAuth branding"**,
-   click **Configure Consent Screen** or **Configure**.
-3. Enter these values:
-   - **Application name**: `Smokescreen Dashboard`
-   - **Support email**: `YOUR_EMAIL`
-   - **Developer contact email**: `YOUR_EMAIL`
-4. Save. Google creates and wires up the IAP OAuth Client ID automatically.
-5. Back on the IAP page, locate the `smokescreen-dashboard` Cloud Run
-   service. The IAP toggle should already be **ON** (Terraform enabled it);
-   confirm the row shows a green check or "OK" status once branding is
-   configured.
+2. Ensure the **Applications** tab is selected.
+3. Find the row for `smokescreen-dashboard`.
+4. Click the **⋮** (three-dot **More Options**) icon on the right of the
+   row.
+5. Click **Settings**.
+6. In the **Settings** panel, locate the **OAuth** section.
+7. Select the **Custom OAuth** radio option. **Do not** select
+   Google-managed for personal projects.
+8. Click **Auto Generate Credentials**. GCP creates a Web-application OAuth
+   Client behind the scenes with the correct redirect URI wired
+   automatically — you do not need to build the redirect URI by hand.
+9. Click **Download credentials** to save the JSON file. It contains the
+   Client ID and Client Secret. Keep it safe (it authenticates dashboard
+   users), but Smokescreen does not need it for any further deployment
+   step after saving this IAP configuration.
+10. Click **Save**.
+11. Wait about **30 seconds** for the configuration to propagate.
+12. Open the dashboard URL in a fresh **incognito / private** window to
+    verify. Sign in with the Google account on the `dashboard_allowed_user`
+    allowlist.
 
-### Fallback: manual OAuth client creation
-
-If the guided prompt does not appear (for example, IAP branding already
-exists but no client is bound), create the client manually:
-
-1. Open **APIs & Services > Credentials** for `YOUR_PROJECT_ID`.
-2. Click **Create Credentials > OAuth client ID**.
-3. Set **Application type** to **Web application**.
-4. Set **Name** to `Smokescreen IAP`.
-5. Under **Authorized redirect URIs**, add
-   `https://iap.googleapis.com/v1/oauth/clientIds/CLIENT_ID:handleRedirect`.
-   The Console pre-fills this pattern for IAP clients; if it does not,
-   create the client first, copy the generated **Client ID**, and paste it
-   back into the redirect URI.
-6. Save the client.
-7. Open the IAP console:
-   `https://console.cloud.google.com/security/iap?project=YOUR_PROJECT_ID`.
-8. Find the `smokescreen-dashboard` service, open its overflow menu, and
-   choose **Use existing client**. Paste the Client ID and Client Secret
-   from the credential you just created.
-
-Either path leaves you with an IAP-protected dashboard. The
-`dashboard_allowed_user` variable that Terraform applies still controls
+The `dashboard_allowed_user` variable that Terraform applies still controls
 **which** Google account is allowed through IAP; this section only
 establishes **how** IAP authenticates users at all.
+
+> Do not use deprecated `gcloud iap oauth-brands` or `gcloud iap
+> oauth-clients` commands to configure IAP branding for personal projects.
+> The Console UI flow above is the supported path.
 
 ## Set a Billing Budget Alert
 

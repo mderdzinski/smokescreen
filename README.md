@@ -26,7 +26,15 @@ export SMOKESCREEN_ANTHROPIC_API_KEY="sk-ant-..."
 
 # Set up Gmail OAuth (one-time — opens browser)
 # Place your Google Cloud OAuth client credentials at ./credentials.json
-# See "Gmail setup" below
+# See "Gmail setup" below, then trigger the OAuth flow with `smokescreen poll`:
+smokescreen poll
+
+# `smokescreen poll` initializes the Gmail client, which opens the browser
+# OAuth flow the first time. It writes token.json next to credentials.json.
+# Do NOT use `smokescreen --dry-run outreach` to trigger OAuth — dry-run
+# short-circuits before Gmail client initialization and never opens the flow.
+# Verify the token has a refresh_token:
+python3 -c "import json; d=json.load(open('token.json')); print('has refresh_token:', 'refresh_token' in d)"
 
 # Dry run — simulate outreach without sending email
 smokescreen --dry-run outreach
@@ -177,7 +185,7 @@ All settings use the `SMOKESCREEN_` env prefix. They can be set via environment 
 |----------|---------|-------------|
 | `SMOKESCREEN_SENDER_EMAIL` | `""` | Gmail address to send from |
 | `SMOKESCREEN_SENDER_NAME` | `""` | Full legal name for requests |
-| `SMOKESCREEN_AI_PROVIDER` | `anthropic` | Reply classifier provider: `anthropic` or `gemini` |
+| `SMOKESCREEN_AI_PROVIDER` | `anthropic` (local) / `gemini` (Terraform deploy) | Reply classifier provider: `anthropic` or `gemini`. Pydantic default is `anthropic` for the local CLI; the Terraform `ai_provider` variable defaults to `gemini` and sets this env var on Cloud Run. See the AI provider section below. |
 | `SMOKESCREEN_ANTHROPIC_API_KEY` | `""` | Claude API key |
 | `SMOKESCREEN_ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Claude model |
 | `SMOKESCREEN_GEMINI_MODEL` | `gemini-3.1-flash-lite` | Vertex AI Gemini model for reply classification |
@@ -200,21 +208,25 @@ All settings use the `SMOKESCREEN_` env prefix. They can be set via environment 
 
 ### AI provider
 
-Local runtime settings default to Anthropic for backward compatibility: set
-`SMOKESCREEN_ANTHROPIC_API_KEY` and optionally
-`SMOKESCREEN_ANTHROPIC_MODEL`. Anthropic requires a separate Anthropic account
-and API key.
+The default provider depends on where Smokescreen is running:
 
-Gemini uses Vertex AI through the official Google Gen AI SDK and Application
-Default Credentials. Set `SMOKESCREEN_AI_PROVIDER=gemini`; local development can
-authenticate with `gcloud auth application-default login`, and Cloud Run uses
-its service account. Gemini does not use a separate API key, but the project must
+- **Local development / `smokescreen` CLI runtime.** The Pydantic default is
+  `anthropic`, so a local run requires `SMOKESCREEN_ANTHROPIC_API_KEY`
+  (and optionally `SMOKESCREEN_ANTHROPIC_MODEL`). Anthropic requires a
+  separate Anthropic account and API key. Switch locally by exporting
+  `SMOKESCREEN_AI_PROVIDER=gemini` before running.
+- **Terraform / GCP deployment.** The `ai_provider` Terraform variable
+  defaults to `gemini` and sets `SMOKESCREEN_AI_PROVIDER=gemini` on the
+  Cloud Run resources. Gemini uses Vertex AI through Application Default
+  Credentials via the service account, so no Anthropic API key is needed
+  for the deployed dashboard by default. See
+  [docs/DEPLOY.md](docs/DEPLOY.md) for the provider modes.
+
+Gemini uses Vertex AI through the official Google Gen AI SDK. Locally you can
+authenticate with `gcloud auth application-default login`; Cloud Run uses its
+service account. Gemini does not use a separate API key, but the project must
 have `aiplatform.googleapis.com` enabled and the runtime service account must
 have `roles/aiplatform.user`.
-
-Terraform deployments default to Gemini by setting `SMOKESCREEN_AI_PROVIDER`
-from the `ai_provider` Terraform variable, whose default is `gemini`. See
-[docs/DEPLOY.md](docs/DEPLOY.md) for the Terraform provider modes.
 
 The default Gemini model is `gemini-3.1-flash-lite`. Google Cloud's
 [Gemini 3.1 Flash-Lite model page](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-1-flash-lite)
