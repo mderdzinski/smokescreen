@@ -613,7 +613,11 @@ def test_get_advanced_settings(settings_client):
     assert data["max_retries"] == 5
     assert data["rerequest_interval_days"] == 60
     assert data["dry_run"] is False
+    assert data["ai_provider"] == "anthropic"
     assert data["anthropic_model"] == "claude-sonnet-4-20250514"
+    assert data["gemini_model"] == "gemini-3.1-flash-lite"
+    assert data["gemini_project"] == ""
+    assert data["gemini_location"] == "global"
     assert "sender_email" not in data
     assert "sender_name" not in data
     assert "state_backend" not in data
@@ -687,6 +691,36 @@ def test_put_settings_saves_to_file(settings_client):
     file_data = json.loads(settings_file.read_text())
     assert file_data["max_retries"] == 10
     assert file_data["poll_label"] == "custom-label"
+
+
+def test_put_settings_ai_provider_fields(settings_client):
+    client, settings_file = settings_client
+    resp = client.put(
+        "/api/settings",
+        json={
+            "ai_provider": "gemini",
+            "gemini_model": "gemini-3.1-flash-lite",
+            "gemini_project": "vertex-project",
+            "gemini_location": "global",
+        },
+    )
+    assert resp.status_code == 200
+
+    file_data = json.loads(settings_file.read_text())
+    assert file_data["ai_provider"] == "gemini"
+    assert file_data["gemini_model"] == "gemini-3.1-flash-lite"
+    assert file_data["gemini_project"] == "vertex-project"
+    assert file_data["gemini_location"] == "global"
+
+    resp = client.get("/api/settings/advanced")
+    assert resp.json()["ai_provider"] == "gemini"
+
+
+def test_put_settings_rejects_unknown_ai_provider(settings_client):
+    client, settings_file = settings_client
+    resp = client.put("/api/settings", json={"ai_provider": "openai"})
+    assert resp.status_code == 422
+    assert not settings_file.exists()
 
 
 def test_put_settings_restart_required_for_ui_field(settings_client):

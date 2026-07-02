@@ -1,11 +1,11 @@
 # Smokescreen
 
-Automated data broker opt-out system. Sends CCPA/privacy deletion requests to data brokers via email, classifies their replies using Claude, and handles the back-and-forth (identity verification, follow-ups) until completion.
+Automated data broker opt-out system. Sends CCPA/privacy deletion requests to data brokers via email, classifies their replies using Claude or Vertex AI Gemini, and handles the back-and-forth (identity verification, follow-ups) until completion.
 
 ## How it works
 
 1. **Outreach** — Sends templated opt-out emails to all known data brokers
-2. **Poll** — Checks inbox for replies, classifies them with Claude (acknowledgment, identity request, completed, rejected, needs manual review), and responds automatically
+2. **Poll** — Checks inbox for replies, classifies them with the configured AI provider (acknowledgment, identity request, completed, rejected, needs manual review), and responds automatically
 3. **State machine** — Tracks each broker through: `PENDING → INITIAL_SENT → AWAITING_RESPONSE → COMPLETED/REJECTED/FAILED`
 
 ## Quick start
@@ -18,6 +18,11 @@ uv sync
 export SMOKESCREEN_SENDER_EMAIL="YOUR_EMAIL"
 export SMOKESCREEN_SENDER_NAME="Your Legal Name"
 export SMOKESCREEN_ANTHROPIC_API_KEY="sk-ant-..."
+
+# Optional: use Vertex AI Gemini instead of Anthropic
+# export SMOKESCREEN_AI_PROVIDER="gemini"
+# export SMOKESCREEN_GEMINI_PROJECT="your-gcp-project"
+# export SMOKESCREEN_GEMINI_LOCATION="global"
 
 # Set up Gmail OAuth (one-time — opens browser)
 # Place your Google Cloud OAuth client credentials at ./credentials.json
@@ -159,8 +164,12 @@ All settings use the `SMOKESCREEN_` env prefix. They can be set via environment 
 |----------|---------|-------------|
 | `SMOKESCREEN_SENDER_EMAIL` | `""` | Gmail address to send from |
 | `SMOKESCREEN_SENDER_NAME` | `""` | Full legal name for requests |
+| `SMOKESCREEN_AI_PROVIDER` | `anthropic` | Reply classifier provider: `anthropic` or `gemini` |
 | `SMOKESCREEN_ANTHROPIC_API_KEY` | `""` | Claude API key |
 | `SMOKESCREEN_ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Claude model |
+| `SMOKESCREEN_GEMINI_MODEL` | `gemini-3.1-flash-lite` | Vertex AI Gemini model for reply classification |
+| `SMOKESCREEN_GEMINI_PROJECT` | `""` | GCP project for Vertex AI; defaults to Firestore project or ADC environment |
+| `SMOKESCREEN_GEMINI_LOCATION` | `global` | Vertex AI location for Gemini |
 | `SMOKESCREEN_STATE_BACKEND` | `sqlite` | `sqlite` or `firestore` |
 | `SMOKESCREEN_SQLITE_PATH` | `smokescreen.db` | SQLite database path |
 | `SMOKESCREEN_FIRESTORE_PROJECT` | `""` | GCP project for Firestore |
@@ -175,6 +184,26 @@ All settings use the `SMOKESCREEN_` env prefix. They can be set via environment 
 | `SMOKESCREEN_POLL_LABEL` | `smokescreen` | Gmail label used to select active stored threads during polling; set blank to poll all active stored threads |
 | `SMOKESCREEN_DRY_RUN` | `false` | Skip actual sends |
 | `SMOKESCREEN_SETTINGS_FILE` | `settings.json` | Path to the settings JSON file |
+
+### AI provider
+
+Anthropic is the default provider and preserves existing deployments: set
+`SMOKESCREEN_ANTHROPIC_API_KEY` and optionally `SMOKESCREEN_ANTHROPIC_MODEL`.
+This has minimal GCP AI setup, but requires a separate Anthropic account and API
+key.
+
+Gemini uses Vertex AI through the official Google Gen AI SDK and Application
+Default Credentials. Set `SMOKESCREEN_AI_PROVIDER=gemini`; local development can
+authenticate with `gcloud auth application-default login`, and Cloud Run uses
+its service account. Gemini does not use a separate API key, but the project must
+have `aiplatform.googleapis.com` enabled and the runtime service account must
+have `roles/aiplatform.user`.
+
+The default Gemini model is `gemini-3.1-flash-lite`. Google Cloud's
+[Gemini 3.1 Flash-Lite model page](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-1-flash-lite)
+lists `gemini-3.1-flash-lite` as the GA model ID, and the
+[Provisioned Throughput supported-models page](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/provisioned-throughput/supported-models)
+lists it as the latest supported version for Gemini 3.1 Flash-Lite.
 
 ### Settings file
 
@@ -208,8 +237,8 @@ the version tag and `latest` using GitHub Actions Workload Identity Federation.
 Smokescreen can be deployed to Google Cloud as a personal cloud tool. The
 deployed shape is intentionally single-user: one IAP-gated Cloud Run dashboard,
 one Gmail mailbox connected through OAuth, scheduled polling and outreach jobs,
-Firestore state, and Secret Manager values for Gmail OAuth and the Anthropic
-API key.
+Firestore state, Secret Manager values for Gmail OAuth, and optionally an
+Anthropic API key when `SMOKESCREEN_AI_PROVIDER=anthropic`.
 
 The dashboard IAP allowlist should contain the deployer's Google account, and
 the connected Gmail account should be the mailbox that sends opt-out requests
@@ -239,7 +268,7 @@ billing budget alert, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 ## Security
 
 - Gmail scopes restricted to `gmail.send` + `gmail.readonly`
-- Identity documents are never sent to Claude — only email text
+- Identity documents are never sent to the AI classifier; only email text is used
 - Pre-redacted docs stored locally or in GCS
 - Cloud Run SA has least-privilege IAM roles
 - Credentials, tokens, and databases are gitignored

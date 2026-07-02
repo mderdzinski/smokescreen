@@ -5,11 +5,13 @@ from __future__ import annotations
 from datetime import datetime
 from email.utils import parseaddr
 from pathlib import Path
+from typing import Any
 
 import structlog
 from anthropic import Anthropic
+from google import genai
 
-from smokescreen.ai.classifier import classify_reply
+from smokescreen.ai.classifier import classify_reply, classify_reply_gemini
 from smokescreen.brokers.registry import BrokerRegistry
 from smokescreen.config import Settings
 from smokescreen.email.client import GmailClient
@@ -56,9 +58,7 @@ def run_poll(
         log.error("poll_no_gmail_client")
         return []
 
-    anthropic_client = None
-    if settings.anthropic_api_key:
-        anthropic_client = Anthropic(api_key=settings.anthropic_api_key)
+    ai_client = _build_classifier_client(settings)
 
     labeled_thread_ids = _poll_label_thread_ids(settings, gmail)
     processed: list[str] = []
@@ -92,12 +92,32 @@ def run_poll(
             broker_email=broker.privacy_email,
             store=store,
             gmail=gmail,
-            anthropic_client=anthropic_client,
+            ai_client=ai_client,
         )
         if result:
             processed.append(record.broker_id)
 
     return processed
+
+
+def _build_classifier_client(settings: Settings) -> Any | None:
+    """Create the configured reply-classification client."""
+    if settings.ai_provider == "anthropic":
+        if settings.anthropic_api_key:
+            return Anthropic(api_key=settings.anthropic_api_key)
+        return None
+
+    if settings.ai_provider == "gemini":
+        kwargs: dict[str, str] = {}
+        project = settings.gemini_project.strip() or settings.firestore_project.strip()
+        location = settings.gemini_location.strip()
+        if project:
+            kwargs["project"] = project
+        if location:
+            kwargs["location"] = location
+        return genai.Client(vertexai=True, **kwargs)
+
+    raise ValueError(f"Unknown AI provider: {settings.ai_provider}")
 
 
 def _poll_label_thread_ids(
@@ -150,7 +170,7 @@ def _process_thread(
     broker_email: str,
     store: StateStore,
     gmail: GmailClient | None,
-    anthropic_client: Anthropic | None,
+    ai_client: Any | None,
 ) -> bool:
     """Process a single broker's thread. Returns True if any action was taken."""
     if gmail is None:
@@ -198,27 +218,41 @@ def _process_thread(
         )
         return False
 
-    if anthropic_client is None:
-        log.warning("poll_no_anthropic_client", broker=record.broker_id)
+    if ai_client is None:
+        log.warning(
+            "poll_no_ai_classifier",
+            broker=record.broker_id,
+            provider=settings.ai_provider,
+        )
         record.status = BrokerStatus.NEEDS_MANUAL
-        record.notes = "No Anthropic API key configured"
+        record.notes = _missing_classifier_notes(settings)
         record.updated_at = datetime.utcnow()
         store.upsert(record)
         return True
 
     # Classify the reply
-    classification = classify_reply(
-        client=anthropic_client,
-        model=settings.anthropic_model,
-        broker_name=broker_name,
-        subject=latest.subject,
-        body=latest.body,
-    )
+    if settings.ai_provider == "anthropic":
+        classification = classify_reply(
+            client=ai_client,
+            model=settings.anthropic_model,
+            broker_name=broker_name,
+            subject=latest.subject,
+            body=latest.body,
+        )
+    else:
+        classification = classify_reply_gemini(
+            client=ai_client,
+            model=settings.gemini_model,
+            broker_name=broker_name,
+            subject=latest.subject,
+            body=latest.body,
+        )
 
     log.info(
         "poll_classified",
         broker=record.broker_id,
         classification=classification.value,
+        provider=settings.ai_provider,
     )
 
     return _handle_classification(
@@ -230,8 +264,13 @@ def _process_thread(
         classification=classification,
         store=store,
         gmail=gmail,
-        anthropic_client=anthropic_client,
     )
+
+
+def _missing_classifier_notes(settings: Settings) -> str:
+    if settings.ai_provider == "anthropic":
+        return "No Anthropic API key configured"
+    return f"No AI classifier configured for provider: {settings.ai_provider}"
 
 
 def _sender_address(sender: str) -> str:
@@ -249,7 +288,6 @@ def _handle_classification(
     classification: ReplyClassification,
     store: StateStore,
     gmail: GmailClient,
-    anthropic_client: Anthropic,
 ) -> bool:
     """Handle a classified reply. Returns True if action was taken."""
     now = datetime.utcnow()

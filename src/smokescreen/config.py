@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 SENSITIVE_FIELDS: set[str] = {
@@ -67,11 +68,37 @@ class Settings(BaseSettings):
     )
 
     # Claude API
+    ai_provider: Literal["anthropic", "gemini"] = Field(
+        default="anthropic",
+        description="AI provider for reply classification: 'anthropic' or 'gemini'",
+    )
     anthropic_api_key: str = Field(default="", description="Anthropic API key")
     anthropic_model: str = Field(
         default="claude-sonnet-4-20250514",
         description="Claude model to use for classification/composition",
     )
+    gemini_model: str = Field(
+        default="gemini-3.1-flash-lite",
+        description="Vertex AI Gemini model to use for reply classification",
+    )
+    gemini_project: str = Field(
+        default="",
+        description=(
+            "GCP project for Vertex AI Gemini; defaults to Firestore project or "
+            "Google ADC environment"
+        ),
+    )
+    gemini_location: str = Field(
+        default="global",
+        description="Vertex AI location for Gemini classification",
+    )
+
+    @field_validator("ai_provider", mode="before")
+    @classmethod
+    def _normalize_ai_provider(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
 
     # State backend
     state_backend: str = Field(

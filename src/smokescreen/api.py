@@ -664,11 +664,15 @@ FRIENDLY_SETTINGS_FIELDS: tuple[str, ...] = (
 )
 
 ADVANCED_SETTINGS_FIELDS: tuple[str, ...] = (
+    "ai_provider",
     "max_retries",
     "poll_label",
     "dry_run",
     "rerequest_interval_days",
     "anthropic_model",
+    "gemini_model",
+    "gemini_project",
+    "gemini_location",
 )
 
 
@@ -679,8 +683,12 @@ class SettingsUpdate(BaseModel):
     gmail_token_json: str | None = None
     sender_email: str | None = None
     sender_name: str | None = None
+    ai_provider: str | None = None
     anthropic_api_key: str | None = None
     anthropic_model: str | None = None
+    gemini_model: str | None = None
+    gemini_project: str | None = None
+    gemini_location: str | None = None
     identity_docs_dir: str | None = None
     max_retries: int | None = None
     poll_label: str | None = None

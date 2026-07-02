@@ -60,6 +60,18 @@ resource "google_project_iam_member" "dashboard_firestore" {
   member  = "serviceAccount:${google_service_account.dashboard.email}"
 }
 
+resource "google_project_iam_member" "aiplatform_user" {
+  project = var.project_id
+  role    = "roles/aiplatform.user"
+  member  = "serviceAccount:${google_service_account.smokescreen.email}"
+}
+
+resource "google_project_iam_member" "dashboard_aiplatform_user" {
+  project = var.project_id
+  role    = "roles/aiplatform.user"
+  member  = "serviceAccount:${google_service_account.dashboard.email}"
+}
+
 resource "google_project_iam_member" "secret_accessor" {
   project = var.project_id
   role    = "roles/secretmanager.secretAccessor"
@@ -158,6 +170,22 @@ resource "google_cloud_run_v2_service" "dashboard" {
         value = "false"
       }
       env {
+        name  = "SMOKESCREEN_AI_PROVIDER"
+        value = var.ai_provider
+      }
+      env {
+        name  = "SMOKESCREEN_GEMINI_MODEL"
+        value = var.gemini_model
+      }
+      env {
+        name  = "SMOKESCREEN_GEMINI_PROJECT"
+        value = var.project_id
+      }
+      env {
+        name  = "SMOKESCREEN_GEMINI_LOCATION"
+        value = var.gemini_location
+      }
+      env {
         name = "SMOKESCREEN_GMAIL_CREDENTIALS_JSON"
         value_source {
           secret_key_ref {
@@ -175,12 +203,16 @@ resource "google_cloud_run_v2_service" "dashboard" {
           }
         }
       }
-      env {
-        name = "SMOKESCREEN_ANTHROPIC_API_KEY"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.anthropic_key.secret_id
-            version = "latest"
+      dynamic "env" {
+        for_each = var.ai_provider == "anthropic" ? [1] : []
+
+        content {
+          name = "SMOKESCREEN_ANTHROPIC_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.anthropic_key.secret_id
+              version = "latest"
+            }
           }
         }
       }
@@ -248,6 +280,22 @@ resource "google_cloud_run_v2_job" "poll_and_reply" {
           value = "false"
         }
         env {
+          name  = "SMOKESCREEN_AI_PROVIDER"
+          value = var.ai_provider
+        }
+        env {
+          name  = "SMOKESCREEN_GEMINI_MODEL"
+          value = var.gemini_model
+        }
+        env {
+          name  = "SMOKESCREEN_GEMINI_PROJECT"
+          value = var.project_id
+        }
+        env {
+          name  = "SMOKESCREEN_GEMINI_LOCATION"
+          value = var.gemini_location
+        }
+        env {
           name = "SMOKESCREEN_GMAIL_CREDENTIALS_JSON"
           value_source {
             secret_key_ref {
@@ -265,12 +313,16 @@ resource "google_cloud_run_v2_job" "poll_and_reply" {
             }
           }
         }
-        env {
-          name = "SMOKESCREEN_ANTHROPIC_API_KEY"
-          value_source {
-            secret_key_ref {
-              secret  = google_secret_manager_secret.anthropic_key.secret_id
-              version = "latest"
+        dynamic "env" {
+          for_each = var.ai_provider == "anthropic" ? [1] : []
+
+          content {
+            name = "SMOKESCREEN_ANTHROPIC_API_KEY"
+            value_source {
+              secret_key_ref {
+                secret  = google_secret_manager_secret.anthropic_key.secret_id
+                version = "latest"
+              }
             }
           }
         }
@@ -322,6 +374,22 @@ resource "google_cloud_run_v2_job" "outreach" {
           value = "false"
         }
         env {
+          name  = "SMOKESCREEN_AI_PROVIDER"
+          value = var.ai_provider
+        }
+        env {
+          name  = "SMOKESCREEN_GEMINI_MODEL"
+          value = var.gemini_model
+        }
+        env {
+          name  = "SMOKESCREEN_GEMINI_PROJECT"
+          value = var.project_id
+        }
+        env {
+          name  = "SMOKESCREEN_GEMINI_LOCATION"
+          value = var.gemini_location
+        }
+        env {
           name = "SMOKESCREEN_GMAIL_CREDENTIALS_JSON"
           value_source {
             secret_key_ref {
@@ -339,12 +407,16 @@ resource "google_cloud_run_v2_job" "outreach" {
             }
           }
         }
-        env {
-          name = "SMOKESCREEN_ANTHROPIC_API_KEY"
-          value_source {
-            secret_key_ref {
-              secret  = google_secret_manager_secret.anthropic_key.secret_id
-              version = "latest"
+        dynamic "env" {
+          for_each = var.ai_provider == "anthropic" ? [1] : []
+
+          content {
+            name = "SMOKESCREEN_ANTHROPIC_API_KEY"
+            value_source {
+              secret_key_ref {
+                secret  = google_secret_manager_secret.anthropic_key.secret_id
+                version = "latest"
+              }
             }
           }
         }

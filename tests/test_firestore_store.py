@@ -324,7 +324,7 @@ def test_poll_adds_pending_whitelist_for_firestore_store():
         broker_email="privacy@spokeo.com",
         store=store,
         gmail=FakeGmail(),
-        anthropic_client=None,
+        ai_client=None,
     )
 
     assert processed is False
@@ -367,7 +367,7 @@ def test_poll_updates_firestore_record_for_completed_reply():
         broker_email="privacy@spokeo.com",
         store=store,
         gmail=FakeGmail(),
-        anthropic_client=_mock_anthropic("COMPLETED"),
+        ai_client=_mock_anthropic("COMPLETED"),
     )
 
     assert processed is True

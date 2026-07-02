@@ -109,11 +109,54 @@ def _seed_store(store: SQLiteStore) -> None:
     )
 
 
+def _seed_labeled_reply(store: SQLiteStore) -> None:
+    store.upsert(
+        OptOutRecord(
+            broker_id="labeled",
+            status=BrokerStatus.INITIAL_SENT,
+            thread_id="thread-labeled",
+            last_message_id="sent-labeled",
+        )
+    )
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+
+
+def _labeled_reply_gmail() -> FakeGmail:
+    return FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="sent-labeled",
+                    thread_id="thread-labeled",
+                    sender="me@example.com",
+                    subject="Opt out request",
+                    body="Please remove me.",
+                ),
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Re: request",
+                    body="We received your request.",
+                ),
+            ]
+        }
+    )
+
+
 def _mock_anthropic(label: str) -> MagicMock:
     client = MagicMock()
     content_block = MagicMock()
     content_block.text = label
     client.messages.create.return_value = MagicMock(content=[content_block])
+    return client
+
+
+def _mock_gemini(label: str) -> MagicMock:
+    client = MagicMock()
+    client.models.generate_content.return_value = MagicMock(text=label)
     return client
 
 
@@ -213,6 +256,87 @@ def test_poll_label_query_quotes_labels_with_spaces():
     assert _poll_label_query("privacy replies") == 'label:"privacy replies"'
 
 
+def test_run_poll_defaults_to_anthropic_provider(tmp_path):
+    settings = _settings(tmp_path, anthropic_api_key="test-key", poll_label="")
+    store = SQLiteStore(settings.sqlite_path)
+    _seed_labeled_reply(store)
+    gmail = _labeled_reply_gmail()
+    anthropic_client = _mock_anthropic("ACKNOWLEDGMENT")
+
+    with (
+        patch("smokescreen.jobs.poll.Anthropic") as anthropic,
+        patch("smokescreen.jobs.poll.genai.Client") as gemini_client,
+    ):
+        anthropic.return_value = anthropic_client
+        processed = run_poll(settings, _registry(), store, gmail=gmail)
+
+    assert processed == ["labeled"]
+    anthropic.assert_called_once_with(api_key="test-key")
+    gemini_client.assert_not_called()
+    assert anthropic_client.messages.create.call_args.kwargs["model"] == (
+        "claude-sonnet-4-20250514"
+    )
+    store.close()
+
+
+def test_run_poll_accepts_explicit_anthropic_provider(tmp_path):
+    settings = _settings(
+        tmp_path,
+        ai_provider="anthropic",
+        anthropic_api_key="test-key",
+        poll_label="",
+    )
+    store = SQLiteStore(settings.sqlite_path)
+    _seed_labeled_reply(store)
+    gmail = _labeled_reply_gmail()
+    anthropic_client = _mock_anthropic("ACKNOWLEDGMENT")
+
+    with (
+        patch("smokescreen.jobs.poll.Anthropic") as anthropic,
+        patch("smokescreen.jobs.poll.genai.Client") as gemini_client,
+    ):
+        anthropic.return_value = anthropic_client
+        processed = run_poll(settings, _registry(), store, gmail=gmail)
+
+    assert processed == ["labeled"]
+    anthropic.assert_called_once_with(api_key="test-key")
+    gemini_client.assert_not_called()
+    store.close()
+
+
+def test_run_poll_uses_gemini_provider(tmp_path):
+    settings = _settings(
+        tmp_path,
+        ai_provider="gemini",
+        gemini_project="vertex-project",
+        gemini_location="global",
+        poll_label="",
+    )
+    store = SQLiteStore(settings.sqlite_path)
+    _seed_labeled_reply(store)
+    gmail = _labeled_reply_gmail()
+    gemini_classifier = _mock_gemini("ACKNOWLEDGMENT")
+
+    with (
+        patch("smokescreen.jobs.poll.Anthropic") as anthropic,
+        patch("smokescreen.jobs.poll.genai.Client") as genai_client,
+    ):
+        genai_client.return_value = gemini_classifier
+        processed = run_poll(settings, _registry(), store, gmail=gmail)
+
+    assert processed == ["labeled"]
+    anthropic.assert_not_called()
+    genai_client.assert_called_once_with(
+        vertexai=True,
+        project="vertex-project",
+        location="global",
+    )
+    call = gemini_classifier.models.generate_content.call_args.kwargs
+    assert call["model"] == "gemini-3.1-flash-lite"
+    assert "We received your request." in call["contents"]
+    store.close()
+
+
 def test_process_thread_marks_manual_without_anthropic_key(tmp_path):
     settings = _settings(tmp_path)
     store = SQLiteStore(settings.sqlite_path)
@@ -242,7 +366,7 @@ def test_process_thread_marks_manual_without_anthropic_key(tmp_path):
         broker_email="privacy@labeled.example",
         store=store,
         gmail=gmail,
-        anthropic_client=None,
+        ai_client=None,
     )
 
     assert processed is True
@@ -284,7 +408,7 @@ def test_process_thread_persists_manual_review_reply_details(tmp_path):
         broker_email="privacy@labeled.example",
         store=store,
         gmail=gmail,
-        anthropic_client=_mock_anthropic("NEEDS_MANUAL"),
+        ai_client=_mock_anthropic("NEEDS_MANUAL"),
     )
 
     assert processed is True
@@ -335,7 +459,7 @@ def test_process_thread_sends_identity_reply_with_attachments(tmp_path):
         broker_email="privacy@labeled.example",
         store=store,
         gmail=gmail,
-        anthropic_client=_mock_anthropic("IDENTITY_REQUEST"),
+        ai_client=_mock_anthropic("IDENTITY_REQUEST"),
     )
 
     assert processed is True
@@ -435,7 +559,7 @@ def test_process_thread_adds_pending_whitelist_for_unknown_sender(tmp_path):
         broker_email="privacy@labeled.example",
         store=store,
         gmail=gmail,
-        anthropic_client=anthropic_client,
+        ai_client=anthropic_client,
     )
 
     assert processed is False
@@ -526,7 +650,7 @@ def test_process_thread_accepts_display_name_from_header(tmp_path):
         broker_email="privacy@labeled.example",
         store=store,
         gmail=gmail,
-        anthropic_client=None,
+        ai_client=None,
     )
 
     assert processed is True
