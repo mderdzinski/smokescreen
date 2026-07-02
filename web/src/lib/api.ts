@@ -96,6 +96,7 @@ export interface FriendlySettings {
   sender_name: string;
   identity_docs_dir: string;
   anthropic_api_key: string;
+  rerequest_interval_days: number;
   identity_configured: boolean;
   gmail_token_available: boolean;
   gmail_credentials_available: boolean;
@@ -103,6 +104,7 @@ export interface FriendlySettings {
   gmail_connected_email: string;
   sender_email_from_env: boolean;
   sender_name_from_env: boolean;
+  rerequest_interval_days_from_env: boolean;
   ai_provider: AiProvider;
   anthropic_key_from_secret: boolean;
   gmail_configured: boolean;
@@ -112,13 +114,15 @@ export interface FriendlySettings {
 export interface AdvancedSettings {
   poll_label: string;
   max_retries: number;
-  rerequest_interval_days: number;
   dry_run: boolean;
   anthropic_model: string;
 }
 
 export type SettingsUpdate = Partial<
-  Pick<FriendlySettings, "sender_email" | "sender_name" | "identity_docs_dir" | "anthropic_api_key"> &
+  Pick<
+    FriendlySettings,
+    "sender_email" | "sender_name" | "identity_docs_dir" | "anthropic_api_key" | "rerequest_interval_days"
+  > &
     AdvancedSettings & {
       gmail_token_json: string;
       gmail_credentials_json: string;

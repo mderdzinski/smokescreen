@@ -2,6 +2,9 @@
 
 from datetime import datetime, timedelta
 
+import pytest
+from pydantic import ValidationError
+
 from smokescreen.brokers.registry import BrokerRegistry
 from smokescreen.config import Settings
 from smokescreen.jobs.outreach import _check_rerequest, run_outreach
@@ -142,6 +145,81 @@ def test_settings_rerequest_interval_default():
 def test_settings_rerequest_interval_custom():
     s = Settings(sender_email="t@t.com", sender_name="T", rerequest_interval_days=30)
     assert s.rerequest_interval_days == 30
+
+
+# --- Bounds enforced by Settings config validation (sm-274) ---
+
+
+@pytest.mark.parametrize("value", [7, 60, 365])
+def test_settings_rerequest_interval_accepts_boundary(value):
+    s = Settings(
+        sender_email="t@t.com", sender_name="T", rerequest_interval_days=value
+    )
+    assert s.rerequest_interval_days == value
+
+
+@pytest.mark.parametrize("value", [0, 1, 6, 366, 1000])
+def test_settings_rerequest_interval_rejects_out_of_bounds(value):
+    with pytest.raises(ValidationError):
+        Settings(
+            sender_email="t@t.com", sender_name="T", rerequest_interval_days=value
+        )
+
+
+# --- Outreach at the bound values (sm-274) ---
+
+
+def _boundary_setup(tmp_path, interval_days: int):
+    settings = _make_settings(
+        sqlite_path=tmp_path / "test.db",
+        rerequest_interval_days=interval_days,
+    )
+    broker = Broker(
+        id="edge-broker",
+        name="Edge Broker",
+        domain="edge.com",
+        privacy_email="privacy@edge.com",
+    )
+    registry = BrokerRegistry([broker])
+    store = SQLiteStore(settings.sqlite_path)
+    store.set_enabled_brokers(["edge-broker"])
+    return settings, registry, store
+
+
+def test_outreach_rerequests_at_minimum_interval_bound(tmp_path):
+    """A completed record 8 days old is due for re-request when interval=7."""
+    settings, registry, store = _boundary_setup(tmp_path, interval_days=7)
+    record = OptOutRecord(
+        broker_id="edge-broker",
+        status=BrokerStatus.COMPLETED,
+        last_completed_at=datetime.utcnow() - timedelta(days=8),
+    )
+    record.updated_at = datetime.utcnow() - timedelta(days=8)
+    store.upsert(record)
+
+    processed = run_outreach(settings, registry, store, gmail=None)
+
+    assert "edge-broker" in processed
+    assert store.get("edge-broker").status == BrokerStatus.INITIAL_SENT
+    store.close()
+
+
+def test_outreach_holds_within_maximum_interval_bound(tmp_path):
+    """A completed record 300 days old is NOT due when interval=365."""
+    settings, registry, store = _boundary_setup(tmp_path, interval_days=365)
+    record = OptOutRecord(
+        broker_id="edge-broker",
+        status=BrokerStatus.COMPLETED,
+        last_completed_at=datetime.utcnow() - timedelta(days=300),
+    )
+    record.updated_at = datetime.utcnow() - timedelta(days=300)
+    store.upsert(record)
+
+    processed = run_outreach(settings, registry, store, gmail=None)
+
+    assert "edge-broker" not in processed
+    assert store.get("edge-broker").status == BrokerStatus.COMPLETED
+    store.close()
 
 
 # --- SQLite round-trip ---

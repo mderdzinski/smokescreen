@@ -729,6 +729,7 @@ ENV_CONTROLLED_FIELDS: tuple[str, ...] = (
     "gemini_model",
     "gemini_project",
     "gemini_location",
+    "rerequest_interval_days",
 )
 
 
@@ -746,6 +747,7 @@ FRIENDLY_SETTINGS_FIELDS: tuple[str, ...] = (
     "sender_name",
     "anthropic_api_key",
     "identity_docs_dir",
+    "rerequest_interval_days",
 )
 
 ADVANCED_SETTINGS_FIELDS: tuple[str, ...] = (
@@ -753,7 +755,6 @@ ADVANCED_SETTINGS_FIELDS: tuple[str, ...] = (
     "max_retries",
     "poll_label",
     "dry_run",
-    "rerequest_interval_days",
     "anthropic_model",
     "gemini_model",
     "gemini_project",
@@ -812,6 +813,9 @@ def _settings_response(
         )
         data["sender_email_from_env"] = _field_from_env("sender_email")
         data["sender_name_from_env"] = _field_from_env("sender_name")
+        data["rerequest_interval_days_from_env"] = _field_from_env(
+            "rerequest_interval_days"
+        )
         data["ai_provider"] = settings.ai_provider
         data["anthropic_key_from_secret"] = _field_from_env("anthropic_api_key")
         data["gmail_configured"] = (

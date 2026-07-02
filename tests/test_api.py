@@ -652,6 +652,9 @@ def test_get_settings(settings_client):
     assert data["gmail_credentials_available"] is False
     assert data["gmail_connected"] is False
     assert data["gmail_connected_email"] == ""
+    # rerequest_interval_days is now a friendly setting (sm-274)
+    assert data["rerequest_interval_days"] == 60
+    assert data["rerequest_interval_days_from_env"] is False
     assert "state_backend" not in data
     assert "sqlite_path" not in data
     assert "firestore_project" not in data
@@ -691,13 +694,14 @@ def test_get_advanced_settings(settings_client):
     data = resp.json()
     assert data["poll_label"] == "smokescreen"
     assert data["max_retries"] == 5
-    assert data["rerequest_interval_days"] == 60
     assert data["dry_run"] is False
     assert data["ai_provider"] == "anthropic"
     assert data["anthropic_model"] == "claude-sonnet-4-20250514"
     assert data["gemini_model"] == "gemini-3.1-flash-lite"
     assert data["gemini_project"] == ""
     assert data["gemini_location"] == "global"
+    # rerequest_interval_days moved to the friendly settings surface (sm-274)
+    assert "rerequest_interval_days" not in data
     assert "sender_email" not in data
     assert "sender_name" not in data
     assert "state_backend" not in data
@@ -771,6 +775,67 @@ def test_put_settings_saves_to_file(settings_client):
     file_data = json.loads(settings_file.read_text())
     assert file_data["max_retries"] == 10
     assert file_data["poll_label"] == "custom-label"
+
+
+def test_put_settings_rerequest_interval_days_round_trips(settings_client):
+    """Friendly PUT flow persists rerequest_interval_days and surfaces it on GET."""
+    client, settings_file = settings_client
+
+    resp = client.put("/api/settings", json={"rerequest_interval_days": 90})
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "saved", "restart_required": False}
+
+    file_data = json.loads(settings_file.read_text())
+    assert file_data["rerequest_interval_days"] == 90
+
+    get_resp = client.get("/api/settings")
+    assert get_resp.status_code == 200
+    assert get_resp.json()["rerequest_interval_days"] == 90
+
+
+@pytest.mark.parametrize("value", [7, 60, 365])
+def test_put_settings_rerequest_interval_days_accepts_boundary_values(
+    settings_client, value
+):
+    client, _ = settings_client
+    resp = client.put("/api/settings", json={"rerequest_interval_days": value})
+    assert resp.status_code == 200
+    assert client.get("/api/settings").json()["rerequest_interval_days"] == value
+
+
+@pytest.mark.parametrize("value", [0, 1, 6, 366, 1000, -1])
+def test_put_settings_rerequest_interval_days_rejects_out_of_bounds(
+    settings_client, value
+):
+    client, settings_file = settings_client
+    resp = client.put("/api/settings", json={"rerequest_interval_days": value})
+    assert resp.status_code == 422
+    # File must not have been mutated on validation failure.
+    assert not settings_file.exists()
+
+
+def test_put_settings_rerequest_interval_days_env_locked(
+    settings_client, monkeypatch
+):
+    """When SMOKESCREEN_REREQUEST_INTERVAL_DAYS is set, PUT is refused with 409."""
+    client, _ = settings_client
+    monkeypatch.setenv("SMOKESCREEN_REREQUEST_INTERVAL_DAYS", "90")
+
+    resp = client.put("/api/settings", json={"rerequest_interval_days": 45})
+    assert resp.status_code == 409
+    body = resp.json()
+    assert body["detail"]["code"] == "env_controlled_fields"
+    assert "rerequest_interval_days" in body["detail"]["fields"]
+
+
+def test_get_settings_reports_rerequest_interval_days_from_env(
+    settings_client, monkeypatch
+):
+    client, _ = settings_client
+    monkeypatch.setenv("SMOKESCREEN_REREQUEST_INTERVAL_DAYS", "90")
+
+    data = client.get("/api/settings").json()
+    assert data["rerequest_interval_days_from_env"] is True
 
 
 def test_put_settings_ai_provider_fields(settings_client):

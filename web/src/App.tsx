@@ -584,10 +584,13 @@ type IdentityForm = Pick<FriendlySettings, "sender_name" | "sender_email" | "ide
 type AdvancedForm = {
   poll_label: string;
   max_retries: string;
-  rerequest_interval_days: string;
   dry_run: boolean;
   anthropic_model: string;
 };
+
+const REREQUEST_INTERVAL_MIN_DAYS = 7;
+const REREQUEST_INTERVAL_MAX_DAYS = 365;
+const REREQUEST_INTERVAL_DEFAULT_DAYS = 60;
 
 const emptyIdentityForm: IdentityForm = {
   sender_name: "",
@@ -598,10 +601,24 @@ const emptyIdentityForm: IdentityForm = {
 const emptyAdvancedForm: AdvancedForm = {
   poll_label: "",
   max_retries: "5",
-  rerequest_interval_days: "60",
   dry_run: false,
   anthropic_model: "",
 };
+
+function validateRerequestInterval(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") {
+    return "Enter a number of days.";
+  }
+  const value = Number(trimmed);
+  if (!Number.isFinite(value) || !Number.isInteger(value)) {
+    return "Enter a whole number of days.";
+  }
+  if (value < REREQUEST_INTERVAL_MIN_DAYS || value > REREQUEST_INTERVAL_MAX_DAYS) {
+    return `Choose a value between ${REREQUEST_INTERVAL_MIN_DAYS} and ${REREQUEST_INTERVAL_MAX_DAYS} days.`;
+  }
+  return null;
+}
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
@@ -612,7 +629,12 @@ export function SettingsPage() {
   const [identityForm, setIdentityForm] = useState<IdentityForm>(emptyIdentityForm);
   const [anthropicApiKey, setAnthropicApiKey] = useState("");
   const [advancedForm, setAdvancedForm] = useState<AdvancedForm>(emptyAdvancedForm);
+  const [rerequestIntervalInput, setRerequestIntervalInput] = useState(
+    String(REREQUEST_INTERVAL_DEFAULT_DAYS),
+  );
   const [message, setMessage] = useState("");
+  const rerequestIntervalError = validateRerequestInterval(rerequestIntervalInput);
+  const rerequestIntervalLocked = Boolean(settings?.rerequest_interval_days_from_env);
   const error = settingsQuery.error ?? advancedQuery.error;
   const settingsLoading = (settingsQuery.isLoading && !settings) || (advancedQuery.isLoading && !advancedSettings);
   const retrySettings = () => {
@@ -638,6 +660,7 @@ export function SettingsPage() {
         sender_email: settings.sender_email,
         identity_docs_dir: settings.identity_docs_dir,
       });
+      setRerequestIntervalInput(String(settings.rerequest_interval_days));
     }
   }, [settings]);
 
@@ -646,7 +669,6 @@ export function SettingsPage() {
       setAdvancedForm({
         poll_label: advancedSettings.poll_label,
         max_retries: String(advancedSettings.max_retries),
-        rerequest_interval_days: String(advancedSettings.rerequest_interval_days),
         dry_run: advancedSettings.dry_run,
         anthropic_model: advancedSettings.anthropic_model,
       });
@@ -689,9 +711,18 @@ export function SettingsPage() {
     updateMutation.mutate({
       poll_label: advancedForm.poll_label.trim(),
       max_retries: Number(advancedForm.max_retries),
-      rerequest_interval_days: Number(advancedForm.rerequest_interval_days),
       dry_run: advancedForm.dry_run,
       anthropic_model: advancedForm.anthropic_model.trim(),
+    });
+  }
+
+  function saveRerequestInterval(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (rerequestIntervalError) {
+      return;
+    }
+    updateMutation.mutate({
+      rerequest_interval_days: Number(rerequestIntervalInput),
     });
   }
 
@@ -829,6 +860,53 @@ export function SettingsPage() {
           </form>
         </SettingsCard>
 
+        <SettingsCard
+          icon={<RotateCcw className="h-5 w-5" />}
+          title="Re-request cadence"
+          description="How often Smokescreen re-sends a deletion request to brokers that have completed one."
+        >
+          <form className="grid gap-4" onSubmit={saveRerequestInterval}>
+            <SettingsInput
+              label="Re-send deletion requests every"
+              type="number"
+              min={REREQUEST_INTERVAL_MIN_DAYS}
+              max={REREQUEST_INTERVAL_MAX_DAYS}
+              value={rerequestIntervalInput}
+              onChange={setRerequestIntervalInput}
+              error={rerequestIntervalError}
+              readOnly={rerequestIntervalLocked}
+              hint={
+                <>
+                  Days between deletion requests to the same broker. Data brokers
+                  can re-add your info after deletion; periodic re-requests keep
+                  them honest. Lower values send more email; higher values may let
+                  stale data linger. Allowed: {REREQUEST_INTERVAL_MIN_DAYS}–
+                  {REREQUEST_INTERVAL_MAX_DAYS} days. Default: {REREQUEST_INTERVAL_DEFAULT_DAYS} days.
+                  {rerequestIntervalLocked ? (
+                    <>
+                      {" "}
+                      This value is set from the deployment environment
+                      (SMOKESCREEN_REREQUEST_INTERVAL_DAYS) and cannot be edited
+                      from the dashboard.
+                    </>
+                  ) : null}
+                </>
+              }
+            />
+            <Button
+              type="submit"
+              disabled={
+                Boolean(rerequestIntervalError) ||
+                rerequestIntervalLocked ||
+                updateMutation.isPending
+              }
+            >
+              <Save className="h-4 w-4" />
+              Save cadence
+            </Button>
+          </form>
+        </SettingsCard>
+
         <Card className="lg:row-span-2">
           <details>
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5">
@@ -851,24 +929,13 @@ export function SettingsPage() {
                   onChange={(value) => setAdvancedForm((current) => ({ ...current, poll_label: value }))}
                   placeholder="smokescreen"
                 />
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <SettingsInput
-                    label="Max retries"
-                    type="number"
-                    min={0}
-                    value={advancedForm.max_retries}
-                    onChange={(value) => setAdvancedForm((current) => ({ ...current, max_retries: value }))}
-                  />
-                  <SettingsInput
-                    label="Re-request interval"
-                    type="number"
-                    min={1}
-                    value={advancedForm.rerequest_interval_days}
-                    onChange={(value) =>
-                      setAdvancedForm((current) => ({ ...current, rerequest_interval_days: value }))
-                    }
-                  />
-                </div>
+                <SettingsInput
+                  label="Max retries"
+                  type="number"
+                  min={0}
+                  value={advancedForm.max_retries}
+                  onChange={(value) => setAdvancedForm((current) => ({ ...current, max_retries: value }))}
+                />
                 <SettingsInput
                   label="Anthropic model"
                   value={advancedForm.anthropic_model}
@@ -938,6 +1005,11 @@ function SettingsInput({
   type = "text",
   placeholder,
   min,
+  max,
+  hint,
+  error,
+  disabled = false,
+  readOnly = false,
 }: {
   label: string;
   value: string;
@@ -945,21 +1017,43 @@ function SettingsInput({
   type?: "email" | "number" | "password" | "text";
   placeholder?: string;
   min?: number;
+  max?: number;
+  hint?: ReactNode;
+  error?: string | null;
+  disabled?: boolean;
+  readOnly?: boolean;
 }) {
   const id = useId();
+  const hintId = useId();
+  const errorId = useId();
 
   return (
     <label className="grid gap-2 text-sm font-medium" htmlFor={id}>
       {label}
       <input
         id={id}
-        className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
         min={min}
+        max={max}
         placeholder={placeholder}
         type={type}
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}
+        aria-invalid={error ? "true" : undefined}
+        aria-describedby={[hint ? hintId : null, error ? errorId : null].filter(Boolean).join(" ") || undefined}
+        disabled={disabled}
+        readOnly={readOnly}
       />
+      {hint ? (
+        <span id={hintId} className="font-normal text-xs text-muted-foreground">
+          {hint}
+        </span>
+      ) : null}
+      {error ? (
+        <span id={errorId} role="alert" className="font-normal text-xs text-rust-500">
+          {error}
+        </span>
+      ) : null}
     </label>
   );
 }

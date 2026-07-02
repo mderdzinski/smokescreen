@@ -52,6 +52,8 @@ const settings: FriendlySettings = {
   gmail_token_available: false,
   identity_configured: false,
   identity_docs_dir: "identity/",
+  rerequest_interval_days: 60,
+  rerequest_interval_days_from_env: false,
   sender_email: "jane@example.com",
   sender_email_from_env: false,
   sender_name: "Jane Doe",
@@ -63,7 +65,6 @@ const advancedSettings: AdvancedSettings = {
   dry_run: false,
   max_retries: 5,
   poll_label: "smokescreen",
-  rerequest_interval_days: 60,
 };
 
 const emptyStats: ExtendedStats = {
@@ -938,6 +939,109 @@ describe("SettingsPage", () => {
     await user.click(screen.getByRole("button", { name: "Save identity" }));
 
     expect(await screen.findByText("Settings were not saved")).toBeInTheDocument();
+  });
+
+  it("renders the re-request cadence field with the persisted friendly value", async () => {
+    mockApi([
+      {
+        body: { ...settings, rerequest_interval_days: 90 },
+        path: "/api/settings",
+      },
+      { body: advancedSettings, path: "/api/settings/advanced" },
+    ]);
+
+    renderWithProviders(<SettingsPage />);
+
+    const input = await screen.findByLabelText(/Re-send deletion requests every/);
+    expect(input).toHaveValue(90);
+    expect(input).toHaveAttribute("min", "7");
+    expect(input).toHaveAttribute("max", "365");
+    expect(
+      screen.getByText(/Days between deletion requests to the same broker/i),
+    ).toBeInTheDocument();
+  });
+
+  it("saves a valid cadence via PUT /api/settings", async () => {
+    const user = userEvent.setup();
+    const savedBodies: unknown[] = [];
+    mockApi([
+      { body: settings, path: "/api/settings" },
+      { body: advancedSettings, path: "/api/settings/advanced" },
+      {
+        assert: (request) => savedBodies.push(parseJsonBody(request)),
+        body: { restart_required: false, status: "saved" },
+        method: "PUT",
+        path: "/api/settings",
+      },
+    ]);
+
+    renderWithProviders(<SettingsPage />);
+
+    const input = await screen.findByLabelText(/Re-send deletion requests every/);
+    await user.clear(input);
+    await user.type(input, "180");
+    await user.click(screen.getByRole("button", { name: "Save cadence" }));
+
+    await waitFor(() =>
+      expect(savedBodies).toContainEqual({ rerequest_interval_days: 180 }),
+    );
+  });
+
+  it("blocks Save cadence and shows an inline error for out-of-bounds values", async () => {
+    const user = userEvent.setup();
+    const savedBodies: unknown[] = [];
+    mockApi([
+      { body: settings, path: "/api/settings" },
+      { body: advancedSettings, path: "/api/settings/advanced" },
+      {
+        assert: (request) => savedBodies.push(parseJsonBody(request)),
+        body: { restart_required: false, status: "saved" },
+        method: "PUT",
+        path: "/api/settings",
+      },
+    ]);
+
+    renderWithProviders(<SettingsPage />);
+
+    const input = await screen.findByLabelText(/Re-send deletion requests every/);
+    await user.clear(input);
+    await user.type(input, "5");
+
+    const saveButton = screen.getByRole("button", { name: "Save cadence" });
+    expect(saveButton).toBeDisabled();
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("alert")).toHaveTextContent(/between 7 and 365/i);
+
+    await user.click(saveButton);
+    // Nothing PUT — button was disabled and click is a noop for cadence.
+    expect(
+      savedBodies.some(
+        (body) => typeof body === "object" && body !== null && "rerequest_interval_days" in body,
+      ),
+    ).toBe(false);
+  });
+
+  it("locks the cadence field when set from the deployment environment", async () => {
+    mockApi([
+      {
+        body: {
+          ...settings,
+          rerequest_interval_days: 90,
+          rerequest_interval_days_from_env: true,
+        },
+        path: "/api/settings",
+      },
+      { body: advancedSettings, path: "/api/settings/advanced" },
+    ]);
+
+    renderWithProviders(<SettingsPage />);
+
+    const input = await screen.findByLabelText(/Re-send deletion requests every/);
+    expect(input).toHaveAttribute("readonly");
+    expect(screen.getByRole("button", { name: "Save cadence" })).toBeDisabled();
+    expect(
+      screen.getByText(/set from the deployment environment/i),
+    ).toBeInTheDocument();
   });
 });
 

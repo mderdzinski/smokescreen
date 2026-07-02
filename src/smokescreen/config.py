@@ -142,7 +142,12 @@ class Settings(BaseSettings):
     )
     rerequest_interval_days: int = Field(
         default=60,
-        description="Days after completion before re-sending a deletion request",
+        ge=7,
+        le=365,
+        description=(
+            "Days after completion before re-sending a deletion request. "
+            "Must be between 7 and 365."
+        ),
     )
 
 
