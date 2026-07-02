@@ -16,9 +16,19 @@ const config = {
     },
     extend: {
       colors: {
-        border: rgb("--border-rgb"),
-        input: rgb("--input-rgb"),
-        ring: rgb("--ring-rgb"),
+        border: {
+          DEFAULT: rgb("--border-rgb"),
+          strong: rgb("--border-strong-rgb"),
+          field: rgb("--border-field-rgb"),
+          dark: rgb("--border-dark-rgb"),
+        },
+        input: {
+          DEFAULT: rgb("--input-rgb"),
+          field: rgb("--border-field-rgb"),
+        },
+        ring: {
+          DEFAULT: rgb("--ring-rgb"),
+        },
         background: rgb("--background-rgb"),
         foreground: rgb("--foreground-rgb"),
         popover: {
@@ -213,11 +223,13 @@ const config = {
         container: "var(--container-max)",
       },
       borderRadius: {
+        DEFAULT: "var(--radius-md)",
         none: "var(--radius-0)",
         sm: "var(--radius-sm)",
         md: "var(--radius-md)",
         lg: "var(--radius-lg)",
         pill: "var(--radius-pill)",
+        full: "var(--radius-pill)",
       },
       borderWidth: {
         hair: "var(--bw-hair)",
@@ -241,6 +253,10 @@ const config = {
         fast: "var(--dur-fast)",
         base: "var(--dur-base)",
         slow: "var(--dur-slow)",
+      },
+      ringOffsetColor: {
+        DEFAULT: rgb("--background-rgb"),
+        background: rgb("--background-rgb"),
       },
     },
   },
