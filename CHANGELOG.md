@@ -1,3 +1,10 @@
+# [0.5.0](https://github.com/mderdzinski/smokescreen/compare/v0.4.1...v0.5.0) (2026-07-02)
+
+
+### Features
+
+* **dashboard:** display app version in top bar (sm-8i9) ([762ed8f](https://github.com/mderdzinski/smokescreen/commit/762ed8f1983e923165a1029e807169109913f832))
+
 ## [0.4.1](https://github.com/mderdzinski/smokescreen/compare/v0.4.0...v0.4.1) (2026-07-02)
 
 
