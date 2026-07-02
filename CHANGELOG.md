@@ -1,3 +1,10 @@
+## [0.0.3](https://github.com/mderdzinski/smokescreen/compare/v0.0.2...v0.0.3) (2026-07-02)
+
+
+### Bug Fixes
+
+* align component primitives with v2 spec ([69b0b24](https://github.com/mderdzinski/smokescreen/commit/69b0b2453ee572bb59edc6cb3dd944e6878e0587))
+
 ## [0.0.2](https://github.com/mderdzinski/smokescreen/compare/v0.0.1...v0.0.2) (2026-07-02)
 
 
