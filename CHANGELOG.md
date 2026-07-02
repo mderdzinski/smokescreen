@@ -1,3 +1,10 @@
+## [0.0.7](https://github.com/mderdzinski/smokescreen/compare/v0.0.6...v0.0.7) (2026-07-02)
+
+
+### Bug Fixes
+
+* tighten onboarding step flow ([6d12b1a](https://github.com/mderdzinski/smokescreen/commit/6d12b1a24648e3894048931ffc989bcd481fafc9))
+
 ## [0.0.6](https://github.com/mderdzinski/smokescreen/compare/v0.0.5...v0.0.6) (2026-07-02)
 
 
