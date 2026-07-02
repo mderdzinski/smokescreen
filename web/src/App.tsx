@@ -62,7 +62,7 @@ import { Poof, ScanSweep, SplashScreen, useCountUp } from "./components/ui/motio
 import { StatusPill } from "./components/ui/status-pill";
 import { EmptyState, ErrorState, LoadingState } from "./components/status-state";
 
-type BrokerStatusGroup = "working" | "done" | "needs-attention";
+type BrokerStatusGroup = "working" | "done" | "attention";
 
 interface BrokerStatusCopy {
   group: BrokerStatusGroup;
@@ -70,49 +70,61 @@ interface BrokerStatusCopy {
   description: string;
 }
 
+const brokerStatusGroup: Record<BrokerStatus, BrokerStatusGroup> = {
+  PENDING: "working",
+  INITIAL_SENT: "working",
+  AWAITING_RESPONSE: "working",
+  IDENTITY_REQUESTED: "working",
+  IDENTITY_SENT: "working",
+  COMPLETED: "done",
+  REJECTED: "attention",
+  NEEDS_MANUAL: "attention",
+  FAILED: "attention",
+};
+
 const brokerStatusCopy: Record<BrokerStatus, BrokerStatusCopy> = {
   PENDING: {
-    group: "working",
+    group: brokerStatusGroup.PENDING,
     label: "Queued",
     description: "Smokescreen is preparing the removal request.",
   },
   INITIAL_SENT: {
-    group: "working",
+    group: brokerStatusGroup.INITIAL_SENT,
     label: "Request sent",
     description: "The broker has the opt-out request.",
   },
   AWAITING_RESPONSE: {
-    group: "working",
+    group: brokerStatusGroup.AWAITING_RESPONSE,
     label: "Waiting on broker",
     description: "Smokescreen is watching for the broker's reply.",
   },
   IDENTITY_REQUESTED: {
-    group: "working",
+    group: brokerStatusGroup.IDENTITY_REQUESTED,
     label: "Identity requested",
     description: "The broker asked for identity details before continuing.",
   },
   IDENTITY_SENT: {
-    group: "working",
+    group: brokerStatusGroup.IDENTITY_SENT,
     label: "Identity sent",
     description: "Smokescreen sent the requested identity details.",
   },
   COMPLETED: {
-    group: "done",
+    group: brokerStatusGroup.COMPLETED,
     label: "Removed",
     description: "The broker marked the opt-out request complete.",
   },
   REJECTED: {
-    group: "needs-attention",
+    group: brokerStatusGroup.REJECTED,
     label: "Blocked by broker",
     description: "The broker declined the request and needs review.",
   },
   NEEDS_MANUAL: {
-    group: "needs-attention",
+    group: brokerStatusGroup.NEEDS_MANUAL,
     label: "Pending review",
     description: "Smokescreen needs you to review the broker's reply.",
   },
   FAILED: {
-    group: "needs-attention",
+    group: brokerStatusGroup.FAILED,
     label: "Could not finish",
     description: "Smokescreen could not complete this request automatically.",
   },
@@ -127,10 +139,16 @@ const statusGroupLabels: Record<BrokerStatusGroup, { title: string; description:
     title: "Done",
     description: "Brokers that confirmed removal.",
   },
-  "needs-attention": {
+  attention: {
     title: "Needs attention",
     description: "Replies that need a human review.",
   },
+};
+
+const statusEmptyDescriptions: Record<BrokerStatusGroup, string> = {
+  working: "No requests in flight.",
+  done: "Empty for now.",
+  attention: "Empty for now.",
 };
 
 function formatUpdatedAt(value: string): string {
@@ -263,7 +281,7 @@ export function OverviewPage() {
   const totalCount = stats?.total ?? optOuts.length;
   const workingCount = groupedOptOuts.working.length;
   const doneCount = groupedOptOuts.done.length;
-  const attentionCount = groupedOptOuts["needs-attention"].length;
+  const attentionCount = groupedOptOuts.attention.length;
   const animatedWorkingCount = useCountUp(loading ? 0 : workingCount);
   const animatedDoneCount = useCountUp(loading ? 0 : doneCount);
   const animatedAttentionCount = useCountUp(loading ? 0 : attentionCount);
@@ -282,7 +300,7 @@ export function OverviewPage() {
         />
       ) : null}
 
-      <div className="ss-haze relative overflow-hidden rounded-md border border-border border-t-bold border-t-brand bg-surface-card px-[26px] py-[26px] shadow-sm">
+      <Card variant="accent" className="ss-haze overflow-hidden px-[26px] py-[26px]">
         <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
           <div className="max-w-[44ch]">
             <span className="ss-label text-brand-strong">Privacy removal status</span>
@@ -306,7 +324,7 @@ export function OverviewPage() {
             </Button>
           </div>
         </div>
-      </div>
+      </Card>
 
       <div className="grid gap-[14px] md:grid-cols-3">
         <Metric
@@ -335,7 +353,7 @@ export function OverviewPage() {
       <div id="broker-status" className="grid scroll-mt-6 gap-[18px] lg:grid-cols-3">
         <StatusGroup group="working" records={groupedOptOuts.working} loading={loading} />
         <StatusGroup group="done" records={groupedOptOuts.done} loading={loading} />
-        <StatusGroup group="needs-attention" records={groupedOptOuts["needs-attention"]} loading={loading} />
+        <StatusGroup group="attention" records={groupedOptOuts.attention} loading={loading} />
       </div>
     </section>
   );
@@ -344,13 +362,13 @@ export function OverviewPage() {
 function groupOptOuts(records: OptOutRecord[]): Record<BrokerStatusGroup, OptOutRecord[]> {
   return records.reduce<Record<BrokerStatusGroup, OptOutRecord[]>>(
     (groups, record) => {
-      groups[brokerStatusCopy[record.status].group].push(record);
+      groups[brokerStatusGroup[record.status]].push(record);
       return groups;
     },
     {
       working: [],
       done: [],
-      "needs-attention": [],
+      attention: [],
     },
   );
 }
@@ -402,14 +420,13 @@ function StatusGroup({
   loading: boolean;
 }) {
   const copy = statusGroupLabels[group];
-  const emptyCopy = statusGroupEmptyCopy[group];
 
   return (
     <section className="grid content-start gap-3">
       <div>
         <div className="flex items-center justify-between gap-3">
           <h2 className="font-display text-lg font-semibold leading-tight text-content-strong">{copy.title}</h2>
-          <Badge variant={group === "needs-attention" && records.length > 0 ? "danger" : "neutral"}>
+          <Badge variant={group === "attention" && records.length > 0 ? "danger" : "neutral"}>
             {loading ? "--" : records.length}
           </Badge>
         </div>
@@ -417,15 +434,10 @@ function StatusGroup({
       </div>
 
       {loading ? (
-        <StatusColumnPlaceholder>Loading requests</StatusColumnPlaceholder>
+        <StatusColumnPlaceholder description="Fetching latest broker status." title="Loading requests" />
       ) : null}
       {!loading && records.length === 0 ? (
-        <EmptyState
-          className="rounded-md border border-dashed border-[color:var(--border-strong)] bg-transparent shadow-none"
-          compact
-          description={emptyCopy.description}
-          title={emptyCopy.title}
-        />
+        <StatusColumnPlaceholder description={statusEmptyDescriptions[group]} title="Nothing here" />
       ) : null}
       {records.map((record) => (
         <BrokerStatusCard key={record.broker_id} record={record} />
@@ -434,25 +446,10 @@ function StatusGroup({
   );
 }
 
-const statusGroupEmptyCopy: Record<BrokerStatusGroup, { title: string; description: string }> = {
-  working: {
-    title: "Queue clear",
-    description: "No broker requests are in flight.",
-  },
-  done: {
-    title: "Nothing removed yet",
-    description: "Confirmed removals will land here.",
-  },
-  "needs-attention": {
-    title: "Queue clear",
-    description: "Every broker reply has been handled.",
-  },
-};
-
 function BrokerStatusCard({ record }: { record: OptOutRecord }) {
   const copy = brokerStatusCopy[record.status];
   const isWorking = copy.group === "working";
-  const isAttention = copy.group === "needs-attention";
+  const isAttention = copy.group === "attention";
   const brokerReply = record.notes.trim() || "No broker reply saved.";
 
   return (
@@ -465,7 +462,7 @@ function BrokerStatusCard({ record }: { record: OptOutRecord }) {
             {record.broker_domain || "Domain not listed"}
           </div>
         </div>
-        <StatusPill status={record.status} />
+        <StatusPill className="shrink-0" status={record.status} />
       </div>
       <div className="relative z-[1] flex items-center gap-[6px] font-mono text-xs text-content-faint">
         <Clock3 className="h-[13px] w-[13px]" />
@@ -481,10 +478,11 @@ function BrokerStatusCard({ record }: { record: OptOutRecord }) {
   );
 }
 
-function StatusColumnPlaceholder({ children }: { children: ReactNode }) {
+function StatusColumnPlaceholder({ description, title }: { description: ReactNode; title: ReactNode }) {
   return (
-    <div className="rounded-md border border-dashed border-[color:var(--border-strong)] px-3 py-[22px] text-center font-mono text-xs text-content-faint">
-      {children}
+    <div className="rounded-md border border-dashed border-[color:var(--border-strong)] px-3 py-[22px] text-center">
+      <div className="font-mono text-xs text-content-faint">{title}</div>
+      <div className="mt-1 text-xs leading-normal text-content-muted">{description}</div>
     </div>
   );
 }

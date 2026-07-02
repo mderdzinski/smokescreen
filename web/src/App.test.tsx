@@ -194,18 +194,15 @@ describe("OverviewPage", () => {
       { body: [], path: "/api/optouts" },
     ]);
 
-    const { container } = renderWithProviders(<OverviewPage />);
+    renderWithProviders(<OverviewPage />);
 
     expect(
       await screen.findByRole("heading", { name: "0 brokers requesting removal of your data" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Review requests/ })).toHaveAttribute("href", "/needs-attention");
-    expect(screen.getAllByRole("heading", { name: "Queue clear" })).toHaveLength(2);
-    expect(screen.getByRole("heading", { name: "Nothing removed yet" })).toBeInTheDocument();
-    expect(screen.getByText("No broker requests are in flight.")).toBeInTheDocument();
-    expect(screen.getByText("Confirmed removals will land here.")).toBeInTheDocument();
-    expect(screen.getByText("Every broker reply has been handled.")).toBeInTheDocument();
-    expect(container.querySelectorAll('img[src="/assets/glyph-mail-smoke.png"]')).toHaveLength(3);
+    expect(screen.getAllByText("Nothing here")).toHaveLength(3);
+    expect(screen.getByText("No requests in flight.")).toBeInTheDocument();
+    expect(screen.getAllByText("Empty for now.")).toHaveLength(2);
   });
 
   it("groups broker replies that need review in the attention column", async () => {
@@ -243,6 +240,59 @@ describe("OverviewPage", () => {
     expect(screen.getByRole("link", { name: /Review requests/ })).toHaveAttribute("href", "/needs-attention");
     expect(screen.getByText("Review")).toBeInTheDocument();
     expect(screen.getByText("Broker requested a signed identity form.")).toBeInTheDocument();
+  });
+
+  it("maps every broker status into the correct T4 dashboard column", async () => {
+    mockApi([
+      {
+        body: {
+          ...emptyStats,
+          by_status: {
+            AWAITING_RESPONSE: 1,
+            COMPLETED: 1,
+            FAILED: 1,
+            IDENTITY_REQUESTED: 1,
+            IDENTITY_SENT: 1,
+            INITIAL_SENT: 1,
+            PENDING: 1,
+            REJECTED: 1,
+          },
+          completed_count: 1,
+          needs_attention: 2,
+          total: 8,
+        },
+        path: "/api/stats/extended",
+      },
+      {
+        body: [
+          optOut({ broker_id: "queued", broker_name: "Queued Broker", status: "PENDING" }),
+          optOut({ broker_id: "sent", broker_name: "Sent Broker", status: "INITIAL_SENT" }),
+          optOut({ broker_id: "awaiting", broker_name: "Awaiting Broker", status: "AWAITING_RESPONSE" }),
+          optOut({ broker_id: "id-requested", broker_name: "ID Request Broker", status: "IDENTITY_REQUESTED" }),
+          optOut({ broker_id: "id-sent", broker_name: "ID Sent Broker", status: "IDENTITY_SENT" }),
+          optOut({ broker_id: "done", broker_name: "Done Broker", status: "COMPLETED" }),
+          optOut({ broker_id: "rejected", broker_name: "Rejected Broker", status: "REJECTED" }),
+          optOut({ broker_id: "failed", broker_name: "Failed Broker", status: "FAILED" }),
+        ],
+        path: "/api/optouts",
+      },
+    ]);
+
+    renderWithProviders(<OverviewPage />);
+
+    expect(await screen.findByRole("heading", { name: "5 brokers requesting removal of your data" })).toBeInTheDocument();
+    const workingColumn = screen.getByRole("heading", { name: "Working" }).closest("section") as HTMLElement;
+    const doneColumn = screen.getByRole("heading", { name: "Done" }).closest("section") as HTMLElement;
+    const attentionColumn = screen.getByRole("heading", { name: "Needs attention" }).closest("section") as HTMLElement;
+
+    expect(within(workingColumn).getByText("Queued Broker")).toBeInTheDocument();
+    expect(within(workingColumn).getByText("Sent Broker")).toBeInTheDocument();
+    expect(within(workingColumn).getByText("Awaiting Broker")).toBeInTheDocument();
+    expect(within(workingColumn).getByText("ID Request Broker")).toBeInTheDocument();
+    expect(within(workingColumn).getByText("ID Sent Broker")).toBeInTheDocument();
+    expect(within(doneColumn).getByText("Done Broker")).toBeInTheDocument();
+    expect(within(attentionColumn).getByText("Rejected Broker")).toBeInTheDocument();
+    expect(within(attentionColumn).getByText("Failed Broker")).toBeInTheDocument();
   });
 });
 
