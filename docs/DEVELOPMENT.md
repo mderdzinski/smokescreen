@@ -1,0 +1,258 @@
+# Smokescreen Development
+
+This guide covers building, testing, modifying, and contributing to
+Smokescreen. No Google Cloud project is required for normal application
+development unless you are testing infrastructure changes, publishing Docker
+images from a fork, or exercising Vertex AI Gemini against a real GCP project.
+
+## Clone the Repository
+
+```bash
+git clone https://github.com/YOUR_GITHUB_OWNER/YOUR_REPO.git
+cd smokescreen
+```
+
+If you are contributing to the upstream repository, use the maintainer-provided
+remote and branch workflow for your change.
+
+## Install Dependencies
+
+Install Python dependencies with `uv`:
+
+```bash
+uv sync --extra dev
+```
+
+Install React dashboard dependencies with npm:
+
+```bash
+npm --prefix web install
+```
+
+## Run Smokescreen Locally
+
+Use split dev mode for day-to-day React work. This starts FastAPI on
+`http://127.0.0.1:8000` and Vite on `http://127.0.0.1:5173`; open the React app
+at the Vite URL. Vite proxies `/api` to FastAPI.
+
+```bash
+./scripts/dev.sh
+```
+
+Use production-style local mode to verify the built React bundle served by the
+FastAPI app. Open `http://127.0.0.1:8000` after the server starts.
+
+```bash
+npm --prefix web run build
+smokescreen serve
+```
+
+The React dashboard is the default UI at `/`, and the former `/app` mount
+redirects to `/`.
+
+## Run Tests and Linters
+
+Run the Python test suite:
+
+```bash
+uv run pytest tests/ -v
+```
+
+Run Ruff:
+
+```bash
+uv run ruff check .
+```
+
+Build the web dashboard:
+
+```bash
+npm --prefix web run build
+```
+
+For the full local quality gate used by this repository when Docker is
+available, run:
+
+```bash
+./scripts/check
+```
+
+The quality gate runs Ruff, the test suite, and a Docker image smoke check:
+
+```bash
+uv run --extra dev ruff check src/ tests/
+uv run --extra dev pytest tests/ -v
+docker_image="${SMOKESCREEN_DOCKER_IMAGE:-smokescreen:check}"
+docker build -t "$docker_image" .
+docker run --rm "$docker_image" --help
+```
+
+If you are touching Terraform, also validate the infrastructure configuration:
+
+```bash
+terraform -chdir=infra validate
+```
+
+## Semantic Release
+
+Pushes to `main` run semantic-release with Conventional Commits to update
+`pyproject.toml`, maintain `CHANGELOG.md`, and create `vX.Y.Z` tags.
+
+Use Conventional Commit prefixes intentionally:
+
+| Prefix | Release effect |
+| --- | --- |
+| `feat:` | Creates a minor version bump. |
+| `fix:` | Creates a patch version bump. |
+| `chore:` | Usually no release unless configured otherwise. |
+| `docs:` | No release for documentation-only changes. |
+
+Use `[skip ci]` only for generated or automation commits that should not trigger
+CI. Release commits in this repository use the `[skip ci]` pattern.
+
+## GitHub Actions Workflows
+
+[`release.yml`](../.github/workflows/release.yml) runs on pushes to `main`. It
+checks out the full git history, installs semantic-release, runs the release
+process, resolves the release tag created at `HEAD`, and then calls the Docker
+publish workflow when a new release tag exists.
+
+[`docker-publish.yml`](../.github/workflows/docker-publish.yml) runs on `v*`
+tags and can also be called by `release.yml` through `workflow_call`. It checks
+out the release tag, authenticates to Google Cloud using Workload Identity
+Federation, logs in to Artifact Registry, and builds and pushes `linux/amd64`
+Docker images for both the release tag and `latest`.
+
+If your fork publishes to its own Artifact Registry repository, make sure the
+workflow image target points at your `YOUR_PROJECT_ID` image path.
+
+## Setting Up CI for a Fork
+
+Deployers using published upstream images do not need Workload Identity
+Federation. You need this section only if your fork's GitHub Actions should
+publish Docker images to your Artifact Registry repository.
+
+This setup requires `gcloud` and GitHub CLI (`gh`) if you want to set repository
+variables from the shell.
+
+Set placeholders:
+
+```bash
+export PROJECT_ID="YOUR_PROJECT_ID"
+export REGION="YOUR_REGION"
+export GITHUB_REPO="YOUR_GITHUB_OWNER/YOUR_REPO"
+export ARTIFACT_REPO="smokescreen"
+export PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" \
+  --format="value(projectNumber)")"
+export WIF_POOL_ID="github"
+export WIF_PROVIDER_ID="github"
+export GITHUB_ACTIONS_SA_NAME="smokescreen-github-actions"
+export GITHUB_ACTIONS_SA_EMAIL="${GITHUB_ACTIONS_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+```
+
+Create a service account for GitHub Actions:
+
+```bash
+gcloud iam service-accounts create "$GITHUB_ACTIONS_SA_NAME" \
+  --display-name="Smokescreen GitHub Actions"
+
+gcloud artifacts repositories add-iam-policy-binding "$ARTIFACT_REPO" \
+  --location="$REGION" \
+  --member="serviceAccount:${GITHUB_ACTIONS_SA_EMAIL}" \
+  --role="roles/artifactregistry.writer"
+```
+
+Create the workload identity pool and GitHub OIDC provider:
+
+```bash
+gcloud iam workload-identity-pools create "$WIF_POOL_ID" \
+  --project="$PROJECT_ID" \
+  --location="global" \
+  --display-name="GitHub Actions"
+
+gcloud iam workload-identity-pools providers create-oidc "$WIF_PROVIDER_ID" \
+  --project="$PROJECT_ID" \
+  --location="global" \
+  --workload-identity-pool="$WIF_POOL_ID" \
+  --display-name="GitHub Actions" \
+  --issuer-uri="https://token.actions.githubusercontent.com" \
+  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref" \
+  --attribute-condition="attribute.repository == '${GITHUB_REPO}'"
+```
+
+Allow only your repository to impersonate the GitHub Actions service account:
+
+```bash
+gcloud iam service-accounts add-iam-policy-binding "$GITHUB_ACTIONS_SA_EMAIL" \
+  --project="$PROJECT_ID" \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WIF_POOL_ID}/attribute.repository/${GITHUB_REPO}"
+```
+
+Capture the provider resource name and add the GitHub repository variables used
+by the workflow:
+
+```bash
+export WIF_PROVIDER="$(gcloud iam workload-identity-pools providers describe "$WIF_PROVIDER_ID" \
+  --project="$PROJECT_ID" \
+  --location="global" \
+  --workload-identity-pool="$WIF_POOL_ID" \
+  --format="value(name)")"
+
+gh variable set WIF_PROVIDER --repo "$GITHUB_REPO" --body "$WIF_PROVIDER"
+gh variable set WIF_SERVICE_ACCOUNT --repo "$GITHUB_REPO" --body "$GITHUB_ACTIONS_SA_EMAIL"
+```
+
+GitHub CLI (`gh`) is optional; you can set the same repository variables from
+the GitHub web UI.
+
+## Extending AI Providers and Classification
+
+The classifier currently supports Anthropic and Vertex AI Gemini.
+
+To extend classification behavior:
+
+1. Update `src/smokescreen/ai/prompts.py` if the classifier or composer prompt
+   needs new instructions.
+2. Update `src/smokescreen/ai/classifier.py` for provider-specific response
+   parsing or label handling.
+3. Update `src/smokescreen/jobs/poll.py` so the poll job initializes the right
+   client and calls the right classifier path.
+4. Add or update tests in `tests/test_classifier.py` and `tests/test_poll.py`.
+
+To add a new AI provider:
+
+1. Add configuration fields in `src/smokescreen/config.py`.
+2. Add any provider dependency to `pyproject.toml`.
+3. Add provider client setup and fallback behavior in `src/smokescreen/jobs/poll.py`.
+4. Add Terraform variables, environment variables, secrets, and IAM only if the
+   deployed runtime needs them.
+5. Document local and Cloud Run setup in [DEPLOY.md](DEPLOY.md) and this file.
+6. Cover the new provider with unit tests and, where possible, mocked API
+   clients.
+
+Identity documents and attachments should not be sent to AI providers; the
+classifier works on broker email text.
+
+## PR and Merge Queue Workflow
+
+Keep changes focused and commit with a Conventional Commit prefix. For
+documentation-only work, use `docs:`.
+
+Before opening or submitting work, run the checks that match your change:
+
+```bash
+terraform -chdir=infra validate
+uv run pytest tests/ -v
+uv run ruff check .
+npm --prefix web run build
+```
+
+Open a pull request or submit through the repository's merge queue process.
+Maintainer repos use the Refinery merge queue; local branches are not considered
+landed until they are on `main` or accepted by the queue. Do not merge your own
+PR unless the repository maintainers explicitly ask you to.
+
+## Checkpoint
+
+I can make a change and get it merged.

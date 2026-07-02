@@ -246,11 +246,18 @@ and receives broker replies. Multi-tenant support is not currently in scope and
 would require separate user auth, per-user Gmail connections, tenant-aware
 storage, and stricter authorization boundaries.
 
-For the full public setup path, including the dedicated GCP project, named
-`gcloud` configuration, required APIs, Artifact Registry, GitHub Actions
-Workload Identity Federation, OAuth consent screen, local `token.json`
-generation, Terraform apply, Secret Manager population, IAP verification, and a
-billing budget alert, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Use the deployment docs for the path that matches your goal:
+
+- [docs/SETUP.md](docs/SETUP.md) — one-time GCP project bootstrap: project,
+  billing, isolated `gcloud` config, APIs, Artifact Registry, OAuth consent,
+  OAuth client credentials, and budget alerts.
+- [docs/DEPLOY.md](docs/DEPLOY.md) — repeatable deployment: choose an image,
+  run Terraform, generate `token.json`, populate Secret Manager, verify IAP and
+  Scheduler, and update or roll back image versions.
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — local development and
+  contribution workflow: clone, install, run locally, test, lint, understand
+  release automation, configure fork CI, extend AI providers, and get changes
+  merged.
 
 ## Brokers
 
