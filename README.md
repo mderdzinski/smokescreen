@@ -15,7 +15,7 @@ Automated data broker opt-out system. Sends CCPA/privacy deletion requests to da
 uv sync
 
 # Configure (minimum required)
-export SMOKESCREEN_SENDER_EMAIL="you@gmail.com"
+export SMOKESCREEN_SENDER_EMAIL="YOUR_EMAIL"
 export SMOKESCREEN_SENDER_NAME="Your Legal Name"
 export SMOKESCREEN_ANTHROPIC_API_KEY="sk-ant-..."
 
@@ -203,151 +203,25 @@ Pushes to `main` run semantic-release with Conventional Commits to update
 tags build and push `linux/amd64` Docker images to Artifact Registry as both
 the version tag and `latest` using GitHub Actions Workload Identity Federation.
 
-## Cloud deployment
+## Deployment
 
-The `infra/` directory contains Terraform for deploying to GCP:
+Smokescreen can be deployed to Google Cloud as a personal cloud tool. The
+deployed shape is intentionally single-user: one IAP-gated Cloud Run dashboard,
+one Gmail mailbox connected through OAuth, scheduled polling and outreach jobs,
+Firestore state, and Secret Manager values for Gmail OAuth and the Anthropic
+API key.
 
-- **Cloud Run Jobs**: `smokescreen-poll` (every 10 min) and `smokescreen-outreach` (daily 9am)
-- **Cloud Run Dashboard**: `smokescreen-dashboard`, running `serve --host 0.0.0.0 --port 8080` behind IAP with scale-to-zero and a single maximum instance
-- **Firestore**: Serverless state storage
-- **Secret Manager**: Gmail OAuth credentials/token and Anthropic API key
-- **IAM**: A Smokescreen jobs service account with Firestore, Secret Manager, and per-job Cloud Run invoker access; a dashboard service account with Firestore write access and access only to the Smokescreen secrets; and IAP dashboard access for `dashboard_allowed_user`
+The dashboard IAP allowlist should contain the deployer's Google account, and
+the connected Gmail account should be the mailbox that sends opt-out requests
+and receives broker replies. Multi-tenant support is not currently in scope and
+would require separate user auth, per-user Gmail connections, tenant-aware
+storage, and stricter authorization boundaries.
 
-Enable the required project APIs before applying:
-
-```bash
-gcloud services enable \
-  run.googleapis.com \
-  cloudscheduler.googleapis.com \
-  firestore.googleapis.com \
-  secretmanager.googleapis.com \
-  iam.googleapis.com
-```
-
-Use a named gcloud configuration for this project so Smokescreen project and
-account settings stay isolated from other local Google Cloud work:
-
-```bash
-gcloud config configurations create smokescreen
-gcloud config configurations activate smokescreen
-gcloud config set project smokescreen-app
-gcloud config set run/region us-central1
-```
-
-Required Terraform variables:
-
-| Variable | Description |
-|----------|-------------|
-| `project_id` | GCP project ID that owns Firestore, Secret Manager, Cloud Run, and Scheduler |
-| `region` | Region for Cloud Run Jobs, Firestore, and Cloud Scheduler; defaults to `us-central1` |
-| `sender_email` | Gmail address used in opt-out email headers and replies |
-| `sender_name` | Full legal name used in opt-out requests |
-| `image` | Published container image URI for the Cloud Run Jobs and dashboard service |
-| `dashboard_allowed_user` | Google account email granted IAP access to the dashboard; defaults to `mark.derdzinski@gmail.com` |
-
-The dashboard uses the default Cloud Run `run.app` URL after deployment. IAP is
-enabled on the service, and Terraform grants `roles/iap.httpsResourceAccessor`
-to `user:${dashboard_allowed_user}`.
-
-```bash
-cd infra
-terraform init
-terraform plan -var="project_id=your-project" \
-               -var="sender_email=you@gmail.com" \
-               -var="sender_name=Your Name" \
-               -var="image=gcr.io/your-project/smokescreen:latest"
-terraform apply
-```
-
-Plan validation does not require writing to a project when refresh is disabled.
-This sample should produce a create-only plan with the Cloud Run Jobs, Scheduler
-jobs, secrets, Firestore database, service account, and IAM bindings:
-
-```bash
-terraform fmt -check -recursive
-terraform validate
-terraform plan -refresh=false -input=false \
-  -var="project_id=smokescreen-dev-123456" \
-  -var="region=us-central1" \
-  -var="sender_email=privacy@example.com" \
-  -var="sender_name=Example User" \
-  -var="image=us-central1-docker.pkg.dev/smokescreen-dev-123456/smokescreen/smokescreen:latest"
-```
-
-Terraform creates the Gmail and Anthropic Secret Manager secret containers. The
-secret payload values are populated by hand after the first successful apply so
-they do not land in Terraform state. Add secret versions before running the
-scheduled jobs or opening the dashboard:
-
-```bash
-gcloud secrets versions add smokescreen-gmail-credentials \
-  --data-file=credentials.json
-gcloud secrets versions add smokescreen-gmail-token \
-  --data-file=token.json
-printf '%s' "$SMOKESCREEN_ANTHROPIC_API_KEY" | \
-  gcloud secrets versions add smokescreen-anthropic-key --data-file=-
-```
-
-Required secret payloads:
-
-| Secret | Payload |
-|--------|---------|
-| `smokescreen-gmail-credentials` | Gmail OAuth client credentials JSON from Google Cloud Console |
-| `smokescreen-gmail-token` | Authorized-user token JSON from the one-time local OAuth flow; must include a `refresh_token` |
-| `smokescreen-anthropic-key` | Anthropic API key text |
-
-### Cloud Scheduler invocation validation
-
-Terraform configures each Scheduler job to POST to the Cloud Run Jobs Run API:
-
-```text
-https://REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/PROJECT_ID/jobs/smokescreen-poll:run
-https://REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/PROJECT_ID/jobs/smokescreen-outreach:run
-```
-
-The Scheduler HTTP targets use an OAuth access token for
-`smokescreen@PROJECT_ID.iam.gserviceaccount.com`, and Terraform grants that
-service account `roles/run.invoker` on only the two Smokescreen jobs. Because
-the target host is `*.googleapis.com`, Cloud Scheduler should use OAuth rather
-than OIDC for this path.
-
-After `terraform apply` and secret-version creation, verify the Scheduler
-configuration and force one run:
-
-```bash
-export PROJECT_ID="your-project"
-export REGION="us-central1"
-export SMOKESCREEN_SA="smokescreen@${PROJECT_ID}.iam.gserviceaccount.com"
-
-gcloud scheduler jobs describe smokescreen-poll-schedule \
-  --location="$REGION" \
-  --format="value(httpTarget.oauthToken.serviceAccountEmail,httpTarget.uri)"
-
-gcloud run jobs get-iam-policy smokescreen-poll \
-  --region="$REGION" \
-  --flatten="bindings[].members" \
-  --filter="bindings.role:roles/run.invoker AND bindings.members:serviceAccount:${SMOKESCREEN_SA}"
-
-gcloud scheduler jobs run smokescreen-poll-schedule --location="$REGION"
-gcloud run jobs executions list \
-  --job=smokescreen-poll \
-  --region="$REGION" \
-  --limit=1
-```
-
-Repeat the same checks for `smokescreen-outreach-schedule` and
-`smokescreen-outreach`. A successful forced Scheduler run creates a new Cloud
-Run Job execution; if the execution starts and then fails inside the container,
-the invocation path is working and the failure should be debugged from the job
-logs and secret payloads.
-
-### Building the container
-
-```bash
-docker build -t smokescreen .
-docker tag smokescreen gcr.io/your-project/smokescreen:latest
-docker push gcr.io/your-project/smokescreen:latest
-```
+For the full public setup path, including the dedicated GCP project, named
+`gcloud` configuration, required APIs, Artifact Registry, GitHub Actions
+Workload Identity Federation, OAuth consent screen, local `token.json`
+generation, Terraform apply, Secret Manager population, IAP verification, and a
+billing budget alert, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Brokers
 
