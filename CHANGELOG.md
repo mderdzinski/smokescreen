@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/mderdzinski/smokescreen/compare/v1.0.1...v1.0.2) (2026-07-02)
+
+
+### Bug Fixes
+
+* **ci:** create GitHub Releases from semantic-release tags ([feffafc](https://github.com/mderdzinski/smokescreen/commit/feffafc63872aff941dd9eec5addb24b4e3fed21))
+
 ## [1.0.1](https://github.com/mderdzinski/smokescreen/compare/v1.0.0...v1.0.1) (2026-07-02)
 
 
