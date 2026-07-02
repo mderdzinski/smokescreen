@@ -1,3 +1,10 @@
+# [0.9.0](https://github.com/mderdzinski/smokescreen/compare/v0.8.0...v0.9.0) (2026-07-02)
+
+
+### Features
+
+* **dashboard:** surface deletion re-request cadence in settings (sm-274) ([01e20c7](https://github.com/mderdzinski/smokescreen/commit/01e20c7a650084c5439a84a793aacb2a580da9ab))
+
 # [0.8.0](https://github.com/mderdzinski/smokescreen/compare/v0.7.0...v0.8.0) (2026-07-02)
 
 
