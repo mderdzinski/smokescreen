@@ -372,10 +372,17 @@ export interface ThrowOverlayProps {
   count?: number;
   onClose?: () => void;
   onViewStatus?: () => void;
+  resolveWhen?: boolean;
 }
 
-export function ThrowOverlay({ count = 0, onClose, onViewStatus }: ThrowOverlayProps) {
-  const [done, setDone] = React.useState(false);
+export function ThrowOverlay({
+  count = 0,
+  onClose,
+  onViewStatus,
+  resolveWhen = true,
+}: ThrowOverlayProps) {
+  const [playerDone, setPlayerDone] = React.useState(false);
+  const done = playerDone && resolveWhen;
   const prefersReducedMotion = usePrefersReducedMotion();
 
   React.useEffect(() => {
@@ -422,7 +429,7 @@ export function ThrowOverlay({ count = 0, onClose, onViewStatus }: ThrowOverlayP
       </div>
 
       <div className="relative z-[1] [filter:drop-shadow(0_14px_26px_rgba(0,0,0,0.5))]">
-        <SmokePlayer fps={30} width="min(62vw, 720px)" onDone={() => setDone(true)} />
+        <SmokePlayer fps={30} width="min(62vw, 720px)" onDone={() => setPlayerDone(true)} />
       </div>
 
       {done ? (

@@ -217,6 +217,7 @@ export function OnboardingPage() {
       {throwOverlayOpen ? (
         <ThrowOverlay
           count={throwOverlayCount}
+          resolveWhen={firstBatchSent}
           onClose={() => setThrowOverlayOpen(false)}
           onViewStatus={() => {
             setThrowOverlayOpen(false);
@@ -518,8 +519,8 @@ function StepTile({
   return (
     <button
       className={cn(
-        "flex min-h-[72px] items-center justify-between gap-[10px] rounded-md border bg-surface-card px-4 py-3 text-left shadow-sm transition-[border-color,box-shadow] duration-fast ease-standard hover:border-[color:var(--border-strong)]",
-        active && "border-brand shadow-focus",
+        "flex min-h-[72px] min-w-0 items-center justify-between gap-[10px] rounded-md border bg-surface-card px-4 py-3 text-left transition-[border-color,box-shadow] duration-fast ease-standard",
+        active ? "border-brand shadow-focus" : "border-border shadow-sm hover:border-[color:var(--border-strong)]",
       )}
       type="button"
       onClick={onClick}

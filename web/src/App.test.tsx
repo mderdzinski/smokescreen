@@ -242,6 +242,64 @@ describe("OverviewPage", () => {
 });
 
 describe("OnboardingPage", () => {
+  it("walks through the four setup steps and gates launch until prerequisites are complete", async () => {
+    const user = userEvent.setup();
+    const savedBodies: unknown[] = [];
+    mockApi([
+      { body: settings, path: "/api/settings" },
+      { body: advancedSettings, path: "/api/settings/advanced" },
+      { body: [broker, secondBroker], path: "/api/brokers" },
+      {
+        assert: (request) => savedBodies.push(parseJsonBody(request)),
+        body: { restart_required: false, status: "saved" },
+        method: "PUT",
+        path: "/api/settings",
+      },
+    ]);
+
+    renderWithProviders(<OnboardingPage />);
+
+    expect(await screen.findByRole("heading", { name: "Configure identity" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Brokers Step 3/ }));
+    expect(await screen.findByRole("heading", { name: "Pick brokers" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Continue/ })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: /Identity Step 1/ }));
+    await screen.findByRole("heading", { name: "Configure identity" });
+    await user.clear(screen.getByLabelText("Full name"));
+    await user.type(screen.getByLabelText("Full name"), "Jane Smith");
+    await user.clear(screen.getByLabelText("Gmail address"));
+    await user.type(screen.getByLabelText("Gmail address"), "jane@gmail.com");
+    await user.click(screen.getByRole("button", { name: "Save identity" }));
+
+    expect(await screen.findByRole("heading", { name: "Add Claude" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Anthropic API key"), "sk-ant-test");
+    await user.click(screen.getByRole("button", { name: "Save Claude key" }));
+
+    expect(await screen.findByRole("heading", { name: "Pick brokers" })).toBeInTheDocument();
+    const acmeCheckbox = screen.getByRole("checkbox", { name: /Acme Data/ });
+    await user.click(acmeCheckbox);
+
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    expect(acmeCheckbox.closest("label")).toHaveClass("bg-fill-olive");
+    await user.click(screen.getByRole("button", { name: /Continue/ }));
+
+    expect(await screen.findByRole("heading", { name: "Send first batch" })).toBeInTheDocument();
+    expect(screen.getByText("Configured")).toBeInTheDocument();
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send first batch" })).toBeEnabled();
+    expect(savedBodies).toEqual([
+      {
+        sender_email: "jane@gmail.com",
+        sender_name: "Jane Smith",
+      },
+      {
+        anthropic_api_key: "sk-ant-test",
+      },
+    ]);
+  });
+
   it("blocks the first batch until required setup is ready", async () => {
     window.localStorage.setItem("smokescreen:onboarding-step", "3");
     window.localStorage.setItem("smokescreen:onboarding-brokers", JSON.stringify(["acme"]));
@@ -301,6 +359,56 @@ describe("OnboardingPage", () => {
     expect(await screen.findByText("Smoke's out.")).toBeInTheDocument();
     expect(screen.getByText("1 opt-out request is on the way. Track them on the Status board.")).toBeInTheDocument();
     expect(window.localStorage.getItem("smokescreen:onboarding-complete")).toBe("true");
+  });
+
+  it("keeps the launch overlay pending until the first batch is accepted", async () => {
+    const user = userEvent.setup();
+    let resolveOutreach: (() => void) | undefined;
+    mockReducedSmokeOverlay();
+    window.localStorage.setItem("smokescreen:onboarding-step", "3");
+    window.localStorage.setItem("smokescreen:onboarding-brokers", JSON.stringify(["acme"]));
+    mockApi([
+      {
+        body: {
+          ...settings,
+          anthropic_api_key: "stored",
+          gmail_connected: true,
+          gmail_connected_email: "jane@gmail.com",
+          identity_configured: true,
+        },
+        path: "/api/settings",
+      },
+      { body: advancedSettings, path: "/api/settings/advanced" },
+      { body: [broker], path: "/api/brokers" },
+      {
+        method: "POST",
+        path: "/api/outreach",
+        respond: () =>
+          new Promise<Response>((resolve) => {
+            resolveOutreach = () =>
+              resolve(
+                new Response(JSON.stringify({ dry_run: false, processed: ["acme"], processed_count: 1, status: "sent" }), {
+                  headers: { "Content-Type": "application/json" },
+                }),
+              );
+          }),
+      },
+    ]);
+
+    renderWithProviders(<OnboardingPage />);
+
+    expect(await screen.findByRole("heading", { name: "Send first batch" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Send first batch" }));
+    expect(screen.getByRole("dialog", { name: "Sending opt-out requests" })).toBeInTheDocument();
+
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(screen.getByText("Deploying smokescreen · going dark")).toBeInTheDocument();
+    expect(screen.queryByText("Deployment complete")).not.toBeInTheDocument();
+
+    resolveOutreach?.();
+
+    expect(await screen.findByText("Deployment complete")).toBeInTheDocument();
+    expect(screen.getByText(/1 opt-out request is on their way/)).toBeInTheDocument();
   });
 });
 
