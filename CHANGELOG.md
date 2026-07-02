@@ -1,3 +1,10 @@
+## [0.1.3](https://github.com/mderdzinski/smokescreen/compare/v0.1.2...v0.1.3) (2026-07-02)
+
+
+### Bug Fixes
+
+* align needs attention review queue ([1b81d94](https://github.com/mderdzinski/smokescreen/commit/1b81d942c7960bef856f757c3673e2265edfc5c5))
+
 ## [0.1.2](https://github.com/mderdzinski/smokescreen/compare/v0.1.1...v0.1.2) (2026-07-02)
 
 
