@@ -1,3 +1,10 @@
+## [0.0.5](https://github.com/mderdzinski/smokescreen/compare/v0.0.4...v0.0.5) (2026-07-02)
+
+
+### Bug Fixes
+
+* align motion library with v2 spec ([d4a532c](https://github.com/mderdzinski/smokescreen/commit/d4a532c3c7c4583b943a79e040f558de48aa1d67))
+
 ## [0.0.4](https://github.com/mderdzinski/smokescreen/compare/v0.0.3...v0.0.4) (2026-07-02)
 
 
