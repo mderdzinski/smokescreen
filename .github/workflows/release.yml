@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: semantic-release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release-tag.outputs.tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install semantic-release
+        run: >
+          npm install --no-save --no-package-lock
+          semantic-release@^24
+          @semantic-release/changelog@^6
+          @semantic-release/commit-analyzer@^13
+          @semantic-release/exec@^6
+          @semantic-release/git@^10
+          @semantic-release/release-notes-generator@^14
+
+      - name: Run semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
+
+      - name: Resolve released tag
+        id: release-tag
+        shell: bash
+        run: |
+          git fetch --tags --force origin
+          tag="$(git tag --points-at HEAD --list 'v*' | sort -V | tail -n 1)"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          if [[ -n "${tag}" ]]; then
+            echo "Resolved release tag ${tag}"
+          else
+            echo "No semantic-release tag was created for this push."
+          fi
+
+  publish-release-image:
+    name: Publish release Docker image
+    needs: release
+    if: needs.release.outputs.tag != ''
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+    secrets: inherit
