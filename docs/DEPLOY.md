@@ -97,8 +97,9 @@ Terraform provisions:
 - Service accounts and IAM bindings for Cloud Run, Scheduler, Firestore, Secret
   Manager, Vertex AI, and IAP.
 
-Anthropic is the default reply classifier provider. It requires an Anthropic API
-key and stores that key in Secret Manager.
+Gemini is the default reply classifier provider. It uses Vertex AI through the
+Cloud Run service accounts and does not require a separate AI API key or
+provider-specific Secret Manager secret.
 
 ```bash
 cd infra
@@ -123,8 +124,8 @@ terraform apply \
 Always pass `dashboard_allowed_user` for your own deployment. That value is the
 single Google account allowed through IAP.
 
-To deploy with Vertex AI Gemini instead of Anthropic, add these variables to
-both `terraform plan` and `terraform apply`:
+To make the default provider choice explicit, or to override the Gemini model or
+location, add these variables to both `terraform plan` and `terraform apply`:
 
 ```bash
   -var="ai_provider=gemini" \
@@ -132,13 +133,19 @@ both `terraform plan` and `terraform apply`:
   -var="gemini_location=global"
 ```
 
+To deploy with Anthropic instead, set:
+
+```bash
+  -var="ai_provider=anthropic"
+```
+
 ## Populate Secret Manager
 
-Terraform creates the secret containers, but the secret payloads are added
-manually so they do not enter Terraform state.
+Terraform creates the required secret containers, but the secret payloads are
+added manually so they do not enter Terraform state.
 
 From the repository root, not `infra/`, add the Gmail OAuth client credentials,
-authorized user token, and Anthropic API key for the default Anthropic provider:
+and authorized user token:
 
 ```bash
 gcloud secrets versions add smokescreen-gmail-credentials \
@@ -146,19 +153,26 @@ gcloud secrets versions add smokescreen-gmail-credentials \
 
 gcloud secrets versions add smokescreen-gmail-token \
   --data-file=token.json
+```
 
+If you deploy with `ai_provider=anthropic`, Terraform also creates the
+`smokescreen-anthropic-key` secret container. Populate it after `terraform
+apply`:
+
+```bash
 printf '%s' "$SMOKESCREEN_ANTHROPIC_API_KEY" | \
   gcloud secrets versions add smokescreen-anthropic-key --data-file=-
 ```
 
-Required secret payloads:
+Secret payloads:
 
 | Secret | Payload |
 | --- | --- |
 | `smokescreen-gmail-credentials` | OAuth client JSON downloaded from Google Cloud Console. |
 | `smokescreen-gmail-token` | Authorized-user token JSON from the local OAuth flow. Must include a `refresh_token`. |
-| `smokescreen-anthropic-key` | Anthropic API key text. Required only when `ai_provider=anthropic`. |
+| `smokescreen-anthropic-key` | Anthropic API key text. Created and required only when `ai_provider=anthropic`. |
 
+The default Gemini deployment skips `smokescreen-anthropic-key` entirely.
 Gemini uses Vertex AI through Application Default Credentials and does not
 require a Gemini API key or Gemini-specific secret.
 
@@ -167,17 +181,19 @@ running revision does not pick them up automatically.
 
 ## AI Provider Notes
 
-Anthropic preserves the original behavior and is the Terraform default. It uses
-`SMOKESCREEN_ANTHROPIC_API_KEY`, stored in the `smokescreen-anthropic-key`
-secret, and requires a separate Anthropic account and API key.
-
 Gemini uses Vertex AI through the Google Gen AI SDK and Application Default
-Credentials. Terraform sets `SMOKESCREEN_AI_PROVIDER=gemini`,
+Credentials and is the Terraform default. Terraform sets
+`SMOKESCREEN_AI_PROVIDER=gemini`,
 `SMOKESCREEN_GEMINI_MODEL`, `SMOKESCREEN_GEMINI_PROJECT`, and
-`SMOKESCREEN_GEMINI_LOCATION` on the Cloud Run resources when configured with
-the variables above. It also grants `roles/aiplatform.user` to the poll/outreach
-service account and the dashboard service account. Do not create a Gemini API
-key or Gemini-specific secret.
+`SMOKESCREEN_GEMINI_LOCATION` on the Cloud Run resources. It also grants
+`roles/aiplatform.user` to the poll/outreach service account and the dashboard
+service account. Do not create a Gemini API key or Gemini-specific secret.
+
+Anthropic remains supported when `ai_provider=anthropic`. Terraform then creates
+the `smokescreen-anthropic-key` secret container, grants the dashboard service
+account access to it, and injects that secret as
+`SMOKESCREEN_ANTHROPIC_API_KEY` into the dashboard, poll, and outreach Cloud Run
+resources. Anthropic requires a separate Anthropic account and API key.
 
 The default Gemini model is `gemini-3.1-flash-lite`. Google Cloud's
 [Gemini 3.1 Flash-Lite model page](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-1-flash-lite)

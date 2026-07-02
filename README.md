@@ -187,10 +187,10 @@ All settings use the `SMOKESCREEN_` env prefix. They can be set via environment 
 
 ### AI provider
 
-Anthropic is the default provider and preserves existing deployments: set
-`SMOKESCREEN_ANTHROPIC_API_KEY` and optionally `SMOKESCREEN_ANTHROPIC_MODEL`.
-This has minimal GCP AI setup, but requires a separate Anthropic account and API
-key.
+Local runtime settings default to Anthropic for backward compatibility: set
+`SMOKESCREEN_ANTHROPIC_API_KEY` and optionally
+`SMOKESCREEN_ANTHROPIC_MODEL`. Anthropic requires a separate Anthropic account
+and API key.
 
 Gemini uses Vertex AI through the official Google Gen AI SDK and Application
 Default Credentials. Set `SMOKESCREEN_AI_PROVIDER=gemini`; local development can
@@ -198,6 +198,10 @@ authenticate with `gcloud auth application-default login`, and Cloud Run uses
 its service account. Gemini does not use a separate API key, but the project must
 have `aiplatform.googleapis.com` enabled and the runtime service account must
 have `roles/aiplatform.user`.
+
+Terraform deployments default to Gemini by setting `SMOKESCREEN_AI_PROVIDER`
+from the `ai_provider` Terraform variable, whose default is `gemini`. See
+[docs/DEPLOY.md](docs/DEPLOY.md) for the Terraform provider modes.
 
 The default Gemini model is `gemini-3.1-flash-lite`. Google Cloud's
 [Gemini 3.1 Flash-Lite model page](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-1-flash-lite)

@@ -25,13 +25,13 @@ variable "image" {
 }
 
 variable "ai_provider" {
-  description = "AI provider for reply classification: anthropic or gemini"
+  description = "Default AI provider for reply classification. 'gemini' (uses Vertex AI, no separate secret needed) or 'anthropic' (requires anthropic-key secret populated)."
   type        = string
-  default     = "anthropic"
+  default     = "gemini"
 
   validation {
-    condition     = contains(["anthropic", "gemini"], var.ai_provider)
-    error_message = "ai_provider must be either anthropic or gemini."
+    condition     = contains(["gemini", "anthropic"], var.ai_provider)
+    error_message = "ai_provider must be one of: gemini, anthropic."
   }
 }
 

@@ -31,6 +31,9 @@ Install and verify these tools before starting:
 - `gcloud` CLI authenticated with permission to create projects, enable APIs,
   create IAM resources, and manage billing for the project.
 - Docker Desktop or another Docker engine that can push Docker images.
+- Optional: an Anthropic API key, only if you plan to deploy Terraform with
+  `ai_provider=anthropic`. The default Gemini deployment uses Vertex AI and does
+  not require an Anthropic key.
 
 Set local shell variables for the placeholders used below:
 
