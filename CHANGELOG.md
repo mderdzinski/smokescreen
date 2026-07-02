@@ -1,3 +1,10 @@
+# [0.4.0](https://github.com/mderdzinski/smokescreen/compare/v0.3.0...v0.4.0) (2026-07-02)
+
+
+### Features
+
+* **dashboard:** add logout button with IAP session clear (sm-3df) ([07f1800](https://github.com/mderdzinski/smokescreen/commit/07f1800803182075c7e66727356df2269d5c7b81))
+
 # [0.3.0](https://github.com/mderdzinski/smokescreen/compare/v0.2.0...v0.3.0) (2026-07-02)
 
 
