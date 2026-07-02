@@ -202,8 +202,6 @@ Pushes to `main` run semantic-release with Conventional Commits to update
 `pyproject.toml`, maintain `CHANGELOG.md`, and create `vX.Y.Z` tags. Release
 tags build and push `linux/amd64` Docker images to Artifact Registry as both
 the version tag and `latest` using GitHub Actions Workload Identity Federation.
-See [`docs/CI_SETUP.md`](docs/CI_SETUP.md) for the one-time Google Cloud and
-GitHub Actions setup.
 
 ## Cloud deployment
 
