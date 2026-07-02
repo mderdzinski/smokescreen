@@ -1,3 +1,10 @@
+## [0.1.1](https://github.com/mderdzinski/smokescreen/compare/v0.1.0...v0.1.1) (2026-07-02)
+
+
+### Bug Fixes
+
+* align throw overlay reduced motion ([f62edd0](https://github.com/mderdzinski/smokescreen/commit/f62edd0ae6928a534c46266cff644ab16a8b7f61))
+
 # [0.1.0](https://github.com/mderdzinski/smokescreen/compare/v0.0.7...v0.1.0) (2026-07-02)
 
 
