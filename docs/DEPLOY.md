@@ -101,31 +101,22 @@ Gemini is the default reply classifier provider. It uses Vertex AI through the
 Cloud Run service accounts and does not require a separate AI API key or
 provider-specific Secret Manager secret.
 
-```bash
-cd infra
-terraform init
-terraform plan \
-  -var="project_id=${PROJECT_ID}" \
-  -var="region=${REGION}" \
-  -var="sender_email=${DEPLOYER_EMAIL}" \
-  -var="sender_name=${DEPLOYER_NAME}" \
-  -var="dashboard_allowed_user=${DEPLOYER_EMAIL}" \
-  -var="image=${IMAGE}"
+### First-Deploy Sequence
 
-terraform apply \
-  -var="project_id=${PROJECT_ID}" \
-  -var="region=${REGION}" \
-  -var="sender_email=${DEPLOYER_EMAIL}" \
-  -var="sender_name=${DEPLOYER_NAME}" \
-  -var="dashboard_allowed_user=${DEPLOYER_EMAIL}" \
-  -var="image=${IMAGE}"
-```
+The first deploy into a fresh project runs as three phases: apply the secret
+containers, populate the secret payloads with `gcloud`, then apply everything
+else. Cloud Run eagerly validates referenced secret versions (`versions/latest`)
+and secret-accessor IAM at revision creation time, so it cannot create a working
+revision until the payload exists. Secret versions in turn can only be added
+with `gcloud` after Terraform has created the secret container. This is the
+standard Terraform + Cloud Run + Secret Manager first-deploy pattern.
 
-Always pass `dashboard_allowed_user` for your own deployment. That value is the
-single Google account allowed through IAP.
+Subsequent applies do not repeat Phase 1. Once the secret containers and
+payloads exist, upgrading image tags or changing configuration is a normal
+single `terraform apply` — see [Update or Roll Back an Image](#update-or-roll-back-an-image).
 
-To make the default provider choice explicit, or to override the Gemini model or
-location, add these variables to both `terraform plan` and `terraform apply`:
+Choose the variable set that matches your provider. The default is Gemini; to
+make it explicit or override the model or location, add:
 
 ```bash
   -var="ai_provider=gemini" \
@@ -139,13 +130,47 @@ To deploy with Anthropic instead, set:
   -var="ai_provider=anthropic"
 ```
 
-## Populate Secret Manager
+Always pass `dashboard_allowed_user` for your own deployment. That value is the
+single Google account allowed through IAP.
 
-Terraform creates the required secret containers, but the secret payloads are
-added manually so they do not enter Terraform state.
+Initialize Terraform once:
 
-From the repository root, not `infra/`, add the Gmail OAuth client credentials,
-and authorized user token:
+```bash
+cd infra
+terraform init
+```
+
+#### Phase 1 — Apply secret containers only
+
+Create the Secret Manager containers first with `-target`. Terraform should
+show 2 resources to add for the default Gemini deployment, or 3 when
+`ai_provider=anthropic`. Review the plan, then approve.
+
+```bash
+terraform apply \
+  -var="project_id=${PROJECT_ID}" \
+  -var="region=${REGION}" \
+  -var="sender_email=${DEPLOYER_EMAIL}" \
+  -var="sender_name=${DEPLOYER_NAME}" \
+  -var="dashboard_allowed_user=${DEPLOYER_EMAIL}" \
+  -var="image=${IMAGE}" \
+  -target=google_secret_manager_secret.gmail_credentials \
+  -target=google_secret_manager_secret.gmail_token
+```
+
+If `ai_provider=anthropic`, add the Anthropic container target as well:
+
+```bash
+  -target=google_secret_manager_secret.anthropic_key
+```
+
+#### Phase 2 — Populate secret payloads
+
+Terraform creates the secret containers, but the payloads are added manually
+with `gcloud` so they do not enter Terraform state.
+
+From the repository root, not `infra/`, add the Gmail OAuth client credentials
+and the authorized user token:
 
 ```bash
 gcloud secrets versions add smokescreen-gmail-credentials \
@@ -155,9 +180,7 @@ gcloud secrets versions add smokescreen-gmail-token \
   --data-file=token.json
 ```
 
-If you deploy with `ai_provider=anthropic`, Terraform also creates the
-`smokescreen-anthropic-key` secret container. Populate it after `terraform
-apply`:
+If you deploy with `ai_provider=anthropic`, also populate the Anthropic key:
 
 ```bash
 printf '%s' "$SMOKESCREEN_ANTHROPIC_API_KEY" | \
@@ -176,8 +199,34 @@ The default Gemini deployment skips `smokescreen-anthropic-key` entirely.
 Gemini uses Vertex AI through Application Default Credentials and does not
 require a Gemini API key or Gemini-specific secret.
 
-Restart or redeploy Cloud Run services after adding new secret versions if a
-running revision does not pick them up automatically.
+#### Phase 3 — Apply everything else
+
+With the secret payloads in place, apply the remaining resources with the same
+variables and no `-target`. Terraform should show the remaining roughly 17-19
+resources to add — Cloud Run services and jobs, Cloud Scheduler jobs,
+Firestore, service accounts, IAM bindings, and IAP. Review the plan, then
+approve.
+
+```bash
+terraform plan \
+  -var="project_id=${PROJECT_ID}" \
+  -var="region=${REGION}" \
+  -var="sender_email=${DEPLOYER_EMAIL}" \
+  -var="sender_name=${DEPLOYER_NAME}" \
+  -var="dashboard_allowed_user=${DEPLOYER_EMAIL}" \
+  -var="image=${IMAGE}"
+
+terraform apply \
+  -var="project_id=${PROJECT_ID}" \
+  -var="region=${REGION}" \
+  -var="sender_email=${DEPLOYER_EMAIL}" \
+  -var="sender_name=${DEPLOYER_NAME}" \
+  -var="dashboard_allowed_user=${DEPLOYER_EMAIL}" \
+  -var="image=${IMAGE}"
+```
+
+Restart or redeploy Cloud Run services after adding new secret versions later
+if a running revision does not pick them up automatically.
 
 ## AI Provider Notes
 
