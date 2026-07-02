@@ -67,15 +67,16 @@ separately before CI runs. The Docker workflow expects this image path:
 us-central1-docker.pkg.dev/smokescreen-app/smokescreen/smokescreen
 ```
 
-## GitHub Actions secrets
+## GitHub Actions repository variables
 
-Set these repository secrets in `mderdzinski/smokescreen`:
+Set these repository variables in `mderdzinski/smokescreen`:
 
 ```text
 WIF_PROVIDER=projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github-actions/providers/github
 WIF_SERVICE_ACCOUNT=smokescreen-ci@smokescreen-app.iam.gserviceaccount.com
 ```
 
-`WIF_PROVIDER` must use the numeric project number, not the project ID. The
-release workflow uses the repository-provided `GITHUB_TOKEN`; no Google Cloud
-JSON key or long-lived Google Cloud credential is required.
+`WIF_PROVIDER` must use the numeric project number, not the project ID. Configure
+these as variables, not secrets. The release workflow uses the
+repository-provided `GITHUB_TOKEN`; no Google Cloud JSON key or long-lived
+Google Cloud credential is required.
