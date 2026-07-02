@@ -218,6 +218,9 @@ __marimo__/
 
 # Smokescreen secrets & local data
 credentials.json
+
+# Design handoff bundle — reference material for agents, kept locally
+.handoff/
 token.json
 *.db
 identity/
