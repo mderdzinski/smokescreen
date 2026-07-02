@@ -1,3 +1,10 @@
+# [0.8.0](https://github.com/mderdzinski/smokescreen/compare/v0.7.0...v0.8.0) (2026-07-02)
+
+
+### Features
+
+* make onboarding UI env-aware and provider-aware (sm-ewk) ([611f752](https://github.com/mderdzinski/smokescreen/commit/611f75208914eed07b3db1c66aabdbfa51f78b4f))
+
 # [0.7.0](https://github.com/mderdzinski/smokescreen/compare/v0.6.0...v0.7.0) (2026-07-02)
 
 
