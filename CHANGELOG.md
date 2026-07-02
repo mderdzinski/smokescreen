@@ -1,3 +1,10 @@
+# [0.6.0](https://github.com/mderdzinski/smokescreen/compare/v0.5.0...v0.6.0) (2026-07-02)
+
+
+### Features
+
+* gate outreach on persisted broker selections (sm-sjz) ([83ff791](https://github.com/mderdzinski/smokescreen/commit/83ff791aa078fdc7373d193ef1e17c826010bae7))
+
 # [0.5.0](https://github.com/mderdzinski/smokescreen/compare/v0.4.1...v0.5.0) (2026-07-02)
 
 
