@@ -43,7 +43,7 @@ export function Avatar({
         "relative inline-flex flex-none items-center justify-center overflow-hidden border border-[color:var(--border-strong)] bg-surface-sunken text-content-muted",
         sizeClasses[size],
         shapeClasses[shape],
-        ring && "ring-2 ring-paper ring-offset-2 ring-offset-brand",
+        ring && "ring-2 ring-brand ring-offset-2 ring-offset-paper",
         className,
       )}
       {...props}
@@ -51,7 +51,9 @@ export function Avatar({
       {src ? (
         <img alt={alt} className="block h-full w-full object-cover [image-rendering:pixelated]" src={src} />
       ) : (
-        <span className="font-pixel text-[.7em] leading-none text-brand-strong">{initials || ".."}</span>
+        <span className="font-pixel text-[.7em] leading-none text-brand-strong">
+          {initials || "\u00b7\u00b7"}
+        </span>
       )}
     </span>
   );

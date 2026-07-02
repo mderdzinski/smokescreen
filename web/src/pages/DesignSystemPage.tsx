@@ -10,8 +10,11 @@ import { StatusPill, type BrokerStatus } from "../components/ui/status-pill";
 import { TextField } from "../components/ui/text-field";
 
 const buttonVariants = ["primary", "accent", "secondary", "outline", "ghost", "danger"] as const;
+const buttonSizes = ["sm", "md", "lg"] as const;
 const badgeVariants = ["neutral", "olive", "amber", "success", "danger", "solid", "outline"] as const;
 const cardVariants = ["default", "sunken", "flat", "inverse", "accent"] as const;
+const metricTones = ["neutral", "working", "done", "attention"] as const;
+const avatarSizes = ["xs", "sm", "md", "lg", "xl"] as const;
 const statuses: BrokerStatus[] = [
   "PENDING",
   "INITIAL_SENT",
@@ -35,19 +38,34 @@ export function DesignSystemPage() {
       </Card>
 
       <Card label="Core" title="Buttons" action={<Badge variant="olive">6 variants</Badge>}>
-        <div className="flex flex-wrap items-center gap-3">
-          {buttonVariants.map((variant) => (
-            <Button key={variant} variant={variant}>
-              {variant === "accent" ? <Send /> : null}
-              {variant}
+        <div className="grid gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            {buttonVariants.map((variant) => (
+              <Button key={variant} variant={variant}>
+                {variant === "accent" ? <Send /> : null}
+                {variant}
+              </Button>
+            ))}
+            <Button iconOnly aria-label="Settings" variant="ghost">
+              <Settings />
             </Button>
-          ))}
-          <Button iconOnly aria-label="Settings" variant="ghost">
-            <Settings />
-          </Button>
-          <Button block className="sm:max-w-56" size="lg">
-            Block button
-          </Button>
+            <Button block className="sm:max-w-56" size="lg">
+              Block button
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            {buttonSizes.map((size) => (
+              <Button key={size} size={size} variant="outline">
+                {size}
+              </Button>
+            ))}
+            <Button iconOnly aria-label="Small settings" size="sm" variant="secondary">
+              <Settings />
+            </Button>
+            <Button iconOnly aria-label="Large settings" size="lg" variant="secondary">
+              <Settings />
+            </Button>
+          </div>
         </div>
       </Card>
 
@@ -69,10 +87,20 @@ export function DesignSystemPage() {
         </div>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Metric icon={<Mail />} label="Working" sub="requests in flight" tone="working" value={7} />
-        <Metric icon={<CheckCircle2 />} label="Removed" sub="broker confirmations" tone="done" value={12} />
-        <Metric icon={<AlertTriangle />} label="Needs attention" sub="waiting on you" tone="attention" value={2} />
+      <div className="grid gap-4 lg:grid-cols-4">
+        {metricTones.map((tone) => (
+          <Metric
+            icon={
+              tone === "done" ? <CheckCircle2 /> : tone === "attention" ? <AlertTriangle /> : <Mail />
+            }
+            key={tone}
+            label={tone === "done" ? "Removed" : tone === "attention" ? "Needs attention" : tone}
+            rail={tone !== "neutral"}
+            sub={tone === "neutral" ? "baseline readout" : tone === "done" ? "broker confirmations" : "requests in flight"}
+            tone={tone}
+            value={tone === "neutral" ? 20 : tone === "working" ? 7 : tone === "done" ? 12 : 2}
+          />
+        ))}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-5">
@@ -94,13 +122,22 @@ export function DesignSystemPage() {
           </div>
           <Card variant="sunken" pad>
             <div className="flex flex-wrap items-center gap-4">
-              <Avatar ring size="xl" src="/assets/operator-head.png" />
-              <Avatar initials="SS" shape="round" />
-              <Avatar initials="OP" size="sm" />
+              {avatarSizes.map((size) => (
+                <Avatar
+                  initials={size === "xs" ? undefined : size.toUpperCase()}
+                  key={size}
+                  ring={size === "xl"}
+                  shape={size === "sm" ? "round" : "square"}
+                  size={size}
+                  src={size === "xl" ? "/assets/operator-head.png" : undefined}
+                />
+              ))}
             </div>
             <div className="mt-5 grid gap-3">
+              <Logo size="lg" tagline="data broker opt-out" />
               <Logo tagline="data broker opt-out" />
               <Logo showMark={false} size="sm" />
+              <Logo inverse size="sm" tagline="inverse lockup" />
             </div>
           </Card>
         </div>

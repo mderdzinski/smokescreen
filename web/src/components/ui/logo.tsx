@@ -56,7 +56,9 @@ export function Logo({
         >
           smoke<b className="text-brand">screen</b>
         </span>
-        {tagline ? <span className="ss-label text-steel-300">{tagline}</span> : null}
+        {tagline ? (
+          <span className={cn("ss-label", inverse ? "text-steel-300" : "text-content-muted")}>{tagline}</span>
+        ) : null}
       </span>
     </span>
   );

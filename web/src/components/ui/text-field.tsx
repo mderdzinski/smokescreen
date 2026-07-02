@@ -59,7 +59,11 @@ export function TextField(props: TextFieldProps) {
             {...(fieldProps as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
             aria-describedby={describedBy}
             aria-invalid={error || undefined}
-            className={cn(fieldClass, "min-h-[76px] resize-y px-3 py-3 leading-normal", error && "border-rust-400")}
+            className={cn(
+              fieldClass,
+              "min-h-[76px] resize-y px-3 py-3 leading-normal",
+              error && "border-rust-400 hover:border-rust-400 focus-visible:border-rust-400",
+            )}
             id={fieldId}
           />
         ) : (
@@ -67,7 +71,12 @@ export function TextField(props: TextFieldProps) {
             {...(fieldProps as Omit<React.InputHTMLAttributes<HTMLInputElement>, "size">)}
             aria-describedby={describedBy}
             aria-invalid={error || undefined}
-            className={cn(fieldClass, "h-[38px] px-3", icon && "pl-8", error && "border-rust-400")}
+            className={cn(
+              fieldClass,
+              "h-[38px] px-3",
+              icon && "pl-8",
+              error && "border-rust-400 hover:border-rust-400 focus-visible:border-rust-400",
+            )}
             id={fieldId}
           />
         )}

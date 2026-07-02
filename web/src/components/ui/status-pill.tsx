@@ -53,16 +53,6 @@ export interface StatusPillProps extends React.HTMLAttributes<HTMLSpanElement> {
   pulse?: boolean;
 }
 
-function fallbackLabel(status?: string) {
-  return status
-    ? status
-        .toLowerCase()
-        .split("_")
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(" ")
-    : "Idle";
-}
-
 export function StatusPill({ className, label, pulse, status, tone, ...props }: StatusPillProps) {
   const mapped = status ? BROKER_STATUS_DISPLAY[status] : undefined;
   const resolvedTone = tone ?? mapped?.tone ?? "idle";
@@ -84,7 +74,7 @@ export function StatusPill({ className, label, pulse, status, tone, ...props }: 
           shouldPulse && "animate-[ss-led_1.6s_var(--ease-standard)_infinite]",
         )}
       />
-      {label ?? mapped?.label ?? fallbackLabel(status)}
+      {label ?? mapped?.label ?? status ?? "Idle"}
     </span>
   );
 }
