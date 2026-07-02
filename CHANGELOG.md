@@ -1,3 +1,10 @@
+# [0.2.0](https://github.com/mderdzinski/smokescreen/compare/v0.1.3...v0.2.0) (2026-07-02)
+
+
+### Features
+
+* add Vertex AI Gemini classifier provider ([93b559a](https://github.com/mderdzinski/smokescreen/commit/93b559a6690e74c9b53cfb000368d29e9da9eaa7))
+
 ## [0.1.3](https://github.com/mderdzinski/smokescreen/compare/v0.1.2...v0.1.3) (2026-07-02)
 
 
