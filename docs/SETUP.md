@@ -87,7 +87,10 @@ commands from a new shell.
 ## Enable Required APIs
 
 Enable the APIs used by Terraform, Cloud Run, Scheduler, Secret Manager,
-Artifact Registry, Gmail OAuth, IAP, and Vertex AI Gemini.
+Artifact Registry, Gmail OAuth, IAP, Vertex AI Gemini, and Cloud Resource
+Manager. Cloud Resource Manager is required for project-scoped IAM
+operations such as `gcloud iap web get-iam-policy` during deploy
+verification.
 
 ```bash
 gcloud services enable \
@@ -100,7 +103,8 @@ gcloud services enable \
   secretmanager.googleapis.com \
   cloudscheduler.googleapis.com \
   aiplatform.googleapis.com \
-  gmail.googleapis.com
+  gmail.googleapis.com \
+  cloudresourcemanager.googleapis.com
 ```
 
 ## Create the Artifact Registry Repository
