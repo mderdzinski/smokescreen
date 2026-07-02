@@ -154,6 +154,19 @@ smokescreen serve --host 0.0.0.0 --port 9000
 - **Pending Whitelist** — Approve or reject new whitelist requests detected from incoming mail
 - **Settings** — Configure all settings via the UI (persisted to a JSON file)
 
+**Signing out (deployed dashboard):**
+
+The deployed dashboard sits behind Identity-Aware Proxy (IAP), which maintains
+its own session cookie separate from your Google account session. The header's
+**Sign out** button clears local dashboard state and then redirects to IAP's
+documented clear-cookie endpoint (`?gcp-iap-mode=CLEAR_LOGIN_COOKIE`),
+dropping the IAP session for Smokescreen.
+
+Clearing the IAP session does **not** sign you out of Google. If your browser
+still has an active Google session, reopening the dashboard URL may sign you
+back in automatically or show a Google account picker. To fully sign out of
+Google, sign out at [accounts.google.com](https://accounts.google.com/Logout).
+
 ## Configuration
 
 All settings use the `SMOKESCREEN_` env prefix. They can be set via environment variables, the settings JSON file, or the dashboard Settings tab.

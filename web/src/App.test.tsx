@@ -142,6 +142,7 @@ describe("App", () => {
         ],
         path: "/api/optouts?status=needs_attention",
       },
+      { body: settings, path: "/api/settings" },
     ]);
 
     renderWithProviders(<App />);
@@ -155,7 +156,10 @@ describe("App", () => {
   });
 
   it("marks the active shell tab from the current route", async () => {
-    mockApi([{ body: [], path: "/api/optouts?status=needs_attention" }]);
+    mockApi([
+      { body: [], path: "/api/optouts?status=needs_attention" },
+      { body: settings, path: "/api/settings" },
+    ]);
 
     renderWithProviders(<App />, { route: "/setup" });
 
@@ -166,6 +170,25 @@ describe("App", () => {
     expect(statusTab.querySelector("[data-ss-active-tab-rule='true']")).toBeNull();
     expect(setupTab).toHaveAttribute("aria-current", "page");
     expect(setupTab.querySelector("[data-ss-active-tab-rule='true']")).toBeInTheDocument();
+  });
+
+  it("shows a sign-out button linking to the signed-out route and surfaces the operator email", async () => {
+    mockApi([
+      { body: [], path: "/api/optouts?status=needs_attention" },
+      {
+        body: { ...settings, gmail_connected: true, gmail_connected_email: "signed-in@example.com" },
+        path: "/api/settings",
+      },
+    ]);
+
+    renderWithProviders(<App />);
+
+    const signOutLink = screen.getByRole("link", {
+      name: /Sign out of the Smokescreen dashboard/,
+    });
+    expect(signOutLink).toHaveAttribute("href", "/signed-out");
+
+    expect(await screen.findByTestId("app-user-email")).toHaveTextContent("signed-in@example.com");
   });
 });
 

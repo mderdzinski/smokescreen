@@ -4,6 +4,7 @@ import { App, NeedsAttentionPage, OverviewPage, SettingsPage, TrustedSendersPage
 import { BrokerRegistryPage } from "./pages/BrokerRegistryPage";
 import { DesignSystemPage } from "./pages/DesignSystemPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
+import { SignedOutPage } from "./pages/SignedOutPage";
 
 export const router = createBrowserRouter(
   [
@@ -44,6 +45,10 @@ export const router = createBrowserRouter(
           element: <DesignSystemPage />,
         },
       ],
+    },
+    {
+      path: "/signed-out",
+      element: <SignedOutPage />,
     },
   ],
 );

@@ -11,6 +11,7 @@ import {
   ExternalLink,
   Inbox,
   KeyRound,
+  LogOut,
   Mail,
   RefreshCcw,
   RotateCcw,
@@ -234,6 +235,35 @@ function AppNavLink({
   );
 }
 
+function UserMenu() {
+  const settingsQuery = useSettings();
+  const identityEmail =
+    settingsQuery.data?.gmail_connected_email?.trim() ||
+    settingsQuery.data?.sender_email?.trim() ||
+    "";
+
+  return (
+    <div className="flex shrink-0 items-center gap-3">
+      {identityEmail ? (
+        <span
+          aria-label="Signed-in operator email"
+          className="max-w-[220px] truncate font-mono text-2xs uppercase tracking-label text-steel-300"
+          data-testid="app-user-email"
+          title={identityEmail}
+        >
+          {identityEmail}
+        </span>
+      ) : null}
+      <Button asChild size="sm" variant="outline">
+        <Link to="/signed-out" aria-label="Sign out of the Smokescreen dashboard">
+          <LogOut aria-hidden="true" />
+          <span>Sign out</span>
+        </Link>
+      </Button>
+    </div>
+  );
+}
+
 export function App() {
   const attentionQuery = useOptOuts("needs_attention");
   const attentionCount = attentionQuery.data?.length ?? 0;
@@ -251,18 +281,21 @@ export function App() {
       >
         <div className="mx-auto flex min-h-header max-w-container flex-col justify-center gap-4 px-gutter py-4 sm:h-header sm:flex-row sm:items-center sm:justify-between sm:py-0">
           <Logo inverse size="md" tagline="data broker opt-out" />
-          <nav aria-label="Primary" className="flex max-w-full items-center gap-[2px] overflow-x-auto whitespace-nowrap">
-            {appTabs.map((tab) => (
-              <AppNavLink
-                key={tab.id}
-                attentionCount={attentionCount}
-                showAttentionCount={"showAttentionCount" in tab && tab.showAttentionCount}
-                to={tab.to}
-              >
-                {tab.label}
-              </AppNavLink>
-            ))}
-          </nav>
+          <div className="flex max-w-full flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-6">
+            <nav aria-label="Primary" className="flex max-w-full items-center gap-[2px] overflow-x-auto whitespace-nowrap">
+              {appTabs.map((tab) => (
+                <AppNavLink
+                  key={tab.id}
+                  attentionCount={attentionCount}
+                  showAttentionCount={"showAttentionCount" in tab && tab.showAttentionCount}
+                  to={tab.to}
+                >
+                  {tab.label}
+                </AppNavLink>
+              ))}
+            </nav>
+            <UserMenu />
+          </div>
         </div>
       </header>
       <Outlet />
