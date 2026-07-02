@@ -449,7 +449,14 @@ resource "google_cloud_scheduler_job" "poll_schedule" {
   depends_on = [google_cloud_run_v2_job_iam_member.poll_scheduler_invoker]
 
   http_target {
-    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/smokescreen-poll:run"
+    # Cloud Run Jobs here are google_cloud_run_v2_job resources, so this URI
+    # must target the v2 Jobs REST endpoint:
+    #   POST https://run.googleapis.com/v2/projects/{project}/locations/{location}/jobs/{job}:run
+    # Targeting the legacy v1 namespaces endpoint returns HTTP 400
+    # INVALID_ARGUMENT (URL_ERROR-ERROR_OTHER). Do not change back to v1.
+    # Refs: https://cloud.google.com/run/docs/execute/jobs-on-schedule
+    #       https://cloud.google.com/run/docs/reference/rest/v2/projects.locations.jobs/run
+    uri         = "https://run.googleapis.com/v2/projects/${var.project_id}/locations/${var.region}/jobs/smokescreen-poll:run"
     http_method = "POST"
 
     oauth_token {
@@ -466,7 +473,10 @@ resource "google_cloud_scheduler_job" "outreach_schedule" {
   depends_on = [google_cloud_run_v2_job_iam_member.outreach_scheduler_invoker]
 
   http_target {
-    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/smokescreen-outreach:run"
+    # Must target the Cloud Run Jobs v2 REST endpoint to match the
+    # google_cloud_run_v2_job resource; see poll_schedule comment above for
+    # the failure mode when v1 is used.
+    uri         = "https://run.googleapis.com/v2/projects/${var.project_id}/locations/${var.region}/jobs/smokescreen-outreach:run"
     http_method = "POST"
 
     oauth_token {

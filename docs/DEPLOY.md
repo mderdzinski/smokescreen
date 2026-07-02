@@ -316,6 +316,62 @@ If a job execution starts and then fails inside the container, the Scheduler to
 Cloud Run invocation path is working. Check Cloud Run job logs and Secret
 Manager payloads next.
 
+## Troubleshooting
+
+### Scheduler shows `INVALID_ARGUMENT` / HTTP 400 (`URL_ERROR-ERROR_OTHER`)
+
+Symptom: `gcloud scheduler jobs run smokescreen-poll-schedule` (or
+`smokescreen-outreach-schedule`) fails, and the Scheduler job history shows
+`status=INVALID_ARGUMENT`, original HTTP response code `400`, and
+`debugInfo=URL_ERROR-ERROR_OTHER`. Manual `gcloud run jobs execute` still
+works, which means the job resource and IAM are healthy — only the
+Scheduler-to-Cloud-Run invocation is broken.
+
+Cause: the Scheduler `http_target.uri` is pointing at the legacy Cloud Run v1
+Jobs endpoint (`https://REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/PROJECT/jobs/JOB:run`)
+while the actual jobs are `google_cloud_run_v2_job` resources. The v1
+endpoint does not accept v2 job invocations.
+
+Fix: confirm `infra/main.tf` uses the Cloud Run Jobs **v2** REST endpoint for
+both scheduler resources:
+
+```text
+https://run.googleapis.com/v2/projects/PROJECT_ID/locations/REGION/jobs/JOB_NAME:run
+```
+
+Re-run `terraform apply` and re-trigger the scheduler job to verify.
+
+### Cloud Run job stuck on `SecretsAccessCheckFailed` / `Ready=False`
+
+Symptom: A Cloud Run v2 Job stays in `Ready=False` with a
+`SecretsAccessCheckFailed` condition even after the Secret Manager payloads
+have been populated. This happens when the job was created (during the
+first `terraform apply`) before the referenced secret versions existed.
+Cloud Run caches the failed access check and does not automatically retry it
+when the version later appears.
+
+Fix: force a job update so Cloud Run re-evaluates secret access. Run this
+once for each job after populating the secrets and before triggering the
+scheduler:
+
+```bash
+gcloud run jobs update smokescreen-poll \
+  --region="$REGION" \
+  --project="$PROJECT_ID" \
+  --update-labels=refresh=1
+
+gcloud run jobs update smokescreen-outreach \
+  --region="$REGION" \
+  --project="$PROJECT_ID" \
+  --update-labels=refresh=1
+```
+
+The `--update-labels=refresh=1` change is a no-op nudge that triggers Cloud
+Run to re-check secret access; the label itself is not read by the
+application. If the deploy followed the [First-Deploy Sequence](#first-deploy-sequence)
+correctly (Phase 1, then populate secrets, then Phase 3), this recovery
+step is not needed.
+
 ## Update or Roll Back an Image
 
 To update to a new release, set `IMAGE_TAG` and `IMAGE` to the new image, then
