@@ -1,3 +1,10 @@
+## [0.20.1](https://github.com/mderdzinski/smokescreen/compare/v0.20.0...v0.20.1) (2026-07-03)
+
+
+### Bug Fixes
+
+* apply smokescreen label to outbound outreach threads ([db13949](https://github.com/mderdzinski/smokescreen/commit/db13949bef1f5f42bffa09c834498a53a05b0ca6))
+
 # [0.20.0](https://github.com/mderdzinski/smokescreen/compare/v0.19.1...v0.20.0) (2026-07-03)
 
 
