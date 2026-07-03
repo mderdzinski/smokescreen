@@ -413,6 +413,7 @@ export function ThrowOverlay({
       aria-label="Sending opt-out requests"
       aria-modal="true"
       className="fixed inset-0 z-[100] flex flex-col items-center justify-center px-4 [animation:ss-ov-in_240ms_var(--ease-standard)_both]"
+      data-ss-motion="overlay"
       onClick={() => {
         if (done) {
           onClose?.();
@@ -450,6 +451,7 @@ export function ThrowOverlay({
       {done ? (
         <div
           className="relative z-[2] mt-2 flex w-full max-w-[520px] flex-col gap-4 rounded-md border border-border bg-card px-5 py-4 shadow-lg [animation:ss-panel-rise_360ms_var(--ease-out)_both] sm:flex-row sm:items-center"
+          data-ss-motion="panel-rise"
           onClick={(event) => event.stopPropagation()}
           style={{ borderTopColor: "var(--clear-500)", borderTopWidth: 2 }}
         >

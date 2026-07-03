@@ -439,12 +439,10 @@
 
 @keyframes ss-rowin {
   from {
-    opacity: 0;
     transform: translateY(-6px);
   }
 
   to {
-    opacity: 1;
     transform: translateY(0);
   }
 }
@@ -527,6 +525,8 @@
   .ss-scan-layer,
   .ss-badge-live,
   .ss-rowin,
+  [data-ss-motion="overlay"],
+  [data-ss-motion="panel-rise"],
   [data-ss-motion="poof-chip"],
   [data-ss-motion="splash-glyph"],
   [data-ss-motion="splash-bar"] {

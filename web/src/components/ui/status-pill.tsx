@@ -79,7 +79,7 @@ export function StatusPill({ className, label, pulse, status, tone, ...props }: 
         className={cn(
           "h-[7px] w-[7px] flex-none rounded-pill",
           toneClasses[resolvedTone].led,
-          shouldPulse && "animate-[ss-led_1.6s_var(--ease-standard)_infinite]",
+          shouldPulse && "animate-[ss-led_1.6s_var(--ease-standard)_infinite] motion-reduce:animate-none",
         )}
       />
       {label ?? mapped?.label ?? status ?? "Idle"}
