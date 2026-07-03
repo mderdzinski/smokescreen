@@ -55,7 +55,10 @@ export function renderWithProviders(ui: ReactElement, options: RenderWithProvide
 // having to declare mocks for cross-cutting endpoints (broker-selections,
 // version, etc.) they don't care about.
 const DEFAULT_ROUTES: MockApiRoute[] = [
+  { body: [], path: "/api/brokers" },
   { body: { enabled_broker_ids: [] }, path: "/api/brokers/selections" },
+  { body: [], path: "/api/whitelist" },
+  { body: [], path: "/api/whitelist/pending" },
 ];
 
 export function mockApi(routes: MockApiRoute[]) {

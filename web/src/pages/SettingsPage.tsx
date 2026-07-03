@@ -9,7 +9,6 @@ import {
   type ReactNode,
 } from "react";
 import {
-  AlertTriangle,
   Brain,
   CheckCircle2,
   ChevronDown,
@@ -33,9 +32,10 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
-import { EmptyState, ErrorState, LoadingState } from "../components/status-state";
+import { ErrorState, LoadingState } from "../components/status-state";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { TrustedSendersSection } from "../components/trusted-senders-section";
 import { Card } from "../components/ui/card";
 import { StatusPill } from "../components/ui/status-pill";
 import { Switch } from "../components/ui/switch";
@@ -49,7 +49,7 @@ import {
   type IdentityDocumentKind,
   type SettingsUpdate,
 } from "../lib/api";
-import { useAdvancedSettings, useBrokers, usePendingWhitelist, useSettings, useWhitelist } from "../lib/queries";
+import { useAdvancedSettings, usePendingWhitelist, useSettings } from "../lib/queries";
 import { cn } from "../lib/utils";
 
 const REREQUEST_INTERVAL_MIN_DAYS = 7;
@@ -557,11 +557,11 @@ export function SettingsPage() {
               <SettingsSection refCallback={registerSection("trusted")} id="trusted">
                 <Card pad>
                   <SectionHead
-                    description="Smokescreen only acts on replies from approved addresses."
+                    description="Smokescreen only acts on replies from approved addresses. Most are added automatically from the broker registry; review detected senders before their messages are trusted."
                     label="03 · Trusted senders"
                     title="Who Smokescreen trusts"
                   />
-                  <TrustedSendersShell />
+                  <TrustedSendersSection />
                 </Card>
               </SettingsSection>
 
@@ -1138,103 +1138,6 @@ function AiProviderPicker({
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function TrustedSendersShell() {
-  const whitelistQuery = useWhitelist();
-  const pendingQuery = usePendingWhitelist();
-  const brokersQuery = useBrokers();
-  const trustedSenders = whitelistQuery.data ?? [];
-  const pendingSenders = pendingQuery.data ?? [];
-  const brokerById = useMemo(
-    () => new Map((brokersQuery.data ?? []).map((broker) => [broker.id, broker.name])),
-    [brokersQuery.data],
-  );
-  const manualCount = trustedSenders.filter((entry) => entry.source === "manual").length;
-  const registryCount = trustedSenders.length - manualCount;
-  const loading = whitelistQuery.isLoading || pendingQuery.isLoading || brokersQuery.isLoading;
-  const error = whitelistQuery.error ?? pendingQuery.error ?? brokersQuery.error;
-
-  if (error) {
-    return (
-      <ErrorState
-        className="shadow-none"
-        description="Smokescreen could not load trusted-sender counts."
-        onAction={() => {
-          void whitelistQuery.refetch();
-          void pendingQuery.refetch();
-          void brokersQuery.refetch();
-        }}
-        title="Trusted senders are unavailable"
-      />
-    );
-  }
-
-  return (
-    <div className="grid gap-4">
-      <div className="grid gap-3 sm:grid-cols-4">
-        <SettingsMetric label="Trusted" loading={loading} value={trustedSenders.length} />
-        <SettingsMetric label="Need review" loading={loading} tone="attention" value={pendingSenders.length} />
-        <SettingsMetric label="From registry" loading={loading} value={registryCount} />
-        <SettingsMetric label="Added by you" loading={loading} value={manualCount} />
-      </div>
-
-      {loading ? (
-        <LoadingState
-          className="bg-surface-sunken py-8 shadow-none"
-          description="Checking approved and newly detected sender addresses."
-          title="Loading trusted senders"
-        />
-      ) : null}
-
-      {!loading && pendingSenders.length > 0 ? (
-        <div className="rounded-sm border border-bd-rust bg-fill-rust p-4">
-          <div className="flex items-center gap-2 text-soft-rust">
-            <AlertTriangle aria-hidden="true" className="h-4 w-4" />
-            <span className="font-display text-sm font-semibold">Pending sender review</span>
-          </div>
-          <div className="mt-3 grid gap-2">
-            {pendingSenders.slice(0, 3).map((entry) => (
-              <div className="flex flex-wrap items-center justify-between gap-2 text-sm" key={entry.id}>
-                <span className="break-all font-mono text-content-strong">{entry.email}</span>
-                <Badge variant="danger">{brokerById.get(entry.broker_id ?? "") ?? "Unknown broker"}</Badge>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {!loading && pendingSenders.length === 0 ? (
-        <EmptyState
-          className="bg-surface-sunken py-8 shadow-none"
-          description="No sender approvals are waiting right now."
-          icon={<CheckCircle2 aria-hidden="true" className="h-5 w-5" />}
-          title="All senders are reviewed"
-        />
-      ) : null}
-    </div>
-  );
-}
-
-function SettingsMetric({
-  label,
-  loading,
-  tone = "neutral",
-  value,
-}: {
-  label: string;
-  loading: boolean;
-  tone?: "attention" | "neutral";
-  value: number;
-}) {
-  return (
-    <div className="rounded-sm border border-border bg-surface-sunken px-3 py-3">
-      <div className="ss-label">{label}</div>
-      <div className={cn("mt-1 font-display text-2xl font-semibold text-content-strong", tone === "attention" && "text-soft-rust")}>
-        {loading ? "--" : value}
-      </div>
     </div>
   );
 }

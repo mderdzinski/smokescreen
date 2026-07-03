@@ -1096,6 +1096,77 @@ describe("SettingsPage", () => {
     expect(await screen.findByText("Identity document uploaded.")).toBeInTheDocument();
   });
 
+  it("manages trusted senders from the embedded settings section", async () => {
+    const user = userEvent.setup();
+    const approvedIds: number[] = [];
+    const rejectedIds: number[] = [];
+    const deletedIds: number[] = [];
+    const manualBodies: unknown[] = [];
+    const manualSender: WhitelistEntry = {
+      added_at: "2026-06-22T12:00:00Z",
+      broker_id: "acme",
+      email: "manual@acme.example",
+      id: 2,
+      source: "manual",
+    };
+    const rejectedSender: PendingWhitelistEntry = {
+      ...pendingSender,
+      email: "junk@relay.example",
+      id: 8,
+    };
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockApi([
+      ...settingsPageRoutes({
+        pendingBody: [pendingSender, rejectedSender],
+        whitelistBody: [trustedSender, manualSender],
+      }),
+      {
+        assert: () => approvedIds.push(7),
+        body: { ...trustedSender, email: pendingSender.email, id: 9, source: "manual" },
+        method: "POST",
+        path: "/api/whitelist/pending/7/approve",
+      },
+      {
+        assert: () => rejectedIds.push(8),
+        body: { id: 8, status: "rejected" },
+        method: "POST",
+        path: "/api/whitelist/pending/8/reject",
+      },
+      {
+        assert: (request) => manualBodies.push(parseJsonBody(request)),
+        body: { ...manualSender, email: "new@acme.example", id: 10 },
+        method: "POST",
+        path: "/api/whitelist",
+      },
+      {
+        assert: () => deletedIds.push(2),
+        method: "DELETE",
+        path: "/api/whitelist/2",
+      },
+    ]);
+
+    renderWithProviders(<SettingsPage />);
+
+    expect(await screen.findByTestId("trusted-senders-section")).toBeInTheDocument();
+    expect(screen.getByText("unknown@relay.example")).toBeInTheDocument();
+    expect(screen.getByText("2 senders need review")).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: "Approve" })[0]);
+    await waitFor(() => expect(approvedIds).toEqual([7]));
+
+    await user.click(screen.getAllByRole("button", { name: "Reject" })[1]);
+    await waitFor(() => expect(rejectedIds).toEqual([8]));
+
+    await user.selectOptions(screen.getByLabelText("Broker"), "acme");
+    await user.type(screen.getByLabelText("Email address"), "new@acme.example");
+    await user.click(screen.getByRole("button", { name: "Add sender" }));
+    await waitFor(() => expect(manualBodies).toEqual([{ broker_id: "acme", email: "new@acme.example" }]));
+
+    await user.click(screen.getByRole("button", { name: "Remove manual@acme.example" }));
+    await waitFor(() => expect(deletedIds).toEqual([2]));
+    confirmSpy.mockRestore();
+  });
+
   it("batches changed fields into one sticky save-bar PUT", async () => {
     const user = userEvent.setup();
     const savedBodies: unknown[] = [];
