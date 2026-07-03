@@ -1,3 +1,10 @@
+# [0.18.0](https://github.com/mderdzinski/smokescreen/compare/v0.17.0...v0.18.0) (2026-07-03)
+
+
+### Features
+
+* embed trusted senders in settings ([e33dde7](https://github.com/mderdzinski/smokescreen/commit/e33dde7bff9989c08e840435db651558cef7f433))
+
 # [0.17.0](https://github.com/mderdzinski/smokescreen/compare/v0.16.0...v0.17.0) (2026-07-03)
 
 
