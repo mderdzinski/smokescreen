@@ -131,7 +131,8 @@ Terraform provisions:
 - Cloud Run dashboard service behind IAP.
 - Cloud Run jobs for polling and outreach.
 - Cloud Scheduler jobs for scheduled polling and outreach.
-- Firestore in native mode for deployed state storage.
+- Firestore in native mode for deployed state storage and Terraform-managed
+  composite indexes.
 - A private, versioned GCS bucket in `us-central1` for identity document uploads.
 - Secret Manager secret containers.
 - Service accounts and IAM bindings for Cloud Run, Scheduler, Firestore, Secret
@@ -140,6 +141,23 @@ Terraform provisions:
 Gemini is the default reply classifier provider. It uses Vertex AI through the
 Cloud Run service accounts and does not require a separate AI API key or
 provider-specific Secret Manager secret.
+
+Firestore composite indexes belong in Terraform, not the Console. If a
+production index was created manually to unblock a deploy, import the
+server-generated index name into state rather than recreating it by hand:
+
+```bash
+INDEX_NAME="$(gcloud firestore indexes composite list \
+  --database="(default)" \
+  --filter="COLLECTION_GROUP:opt_outs_pending_whitelist" \
+  --format="value(name)" | head -n1)"
+
+terraform import google_firestore_index.pending_whitelist_status_detected_at \
+  "$INDEX_NAME"
+```
+
+Manual Console creation is acceptable for exploration or break-glass use, but
+permanent production indexes should live in `infra/main.tf`.
 
 ### First-Deploy Sequence
 

@@ -36,6 +36,50 @@ resource "google_firestore_database" "default" {
   type        = "FIRESTORE_NATIVE"
 }
 
+resource "google_firestore_index" "pending_whitelist_email_status" {
+  project     = var.project_id
+  database    = google_firestore_database.default.name
+  collection  = "opt_outs_pending_whitelist"
+  query_scope = "COLLECTION"
+
+  fields {
+    field_path = "email"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "status"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "__name__"
+    order      = "ASCENDING"
+  }
+}
+
+resource "google_firestore_index" "pending_whitelist_status_detected_at" {
+  project     = var.project_id
+  database    = google_firestore_database.default.name
+  collection  = "opt_outs_pending_whitelist"
+  query_scope = "COLLECTION"
+
+  fields {
+    field_path = "status"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "detected_at"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "__name__"
+    order      = "ASCENDING"
+  }
+}
+
 # --- Service Account ---
 
 resource "google_service_account" "smokescreen" {

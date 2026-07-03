@@ -109,6 +109,12 @@ gcloud services enable \
   cloudresourcemanager.googleapis.com
 ```
 
+Firestore composite indexes are Terraform-managed in `infra/main.tf`, not
+created permanently by hand in the Console. Use the Console only for
+exploration or emergency unblock, then import the resulting index into
+Terraform state if you created it manually, or let Terraform create it on the
+next apply when no index exists yet.
+
 ## Create the Artifact Registry Repository
 
 Create one Docker repository for Smokescreen images:

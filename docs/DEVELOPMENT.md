@@ -93,6 +93,21 @@ If you are touching Terraform, also validate the infrastructure configuration:
 terraform -chdir=infra validate
 ```
 
+## Firestore Indexes
+
+Firestore composite indexes are Terraform-managed in `infra/main.tf`. Any new
+compound query in `src/smokescreen/state/` or `src/smokescreen/jobs/` needs a
+matching `google_firestore_index` resource before it ships.
+
+PR checklist for Firestore changes:
+
+- [ ] Grep the changed query path for multiple `.where(...)` calls or
+      `.where(...).order_by(...)` combinations.
+- [ ] Add or update the matching `google_firestore_index` resource in
+      `infra/main.tf`.
+- [ ] Run `terraform -chdir=infra validate`.
+- [ ] Do not rely on a Console-created index for permanent production use.
+
 ## Semantic Release
 
 Pushes to `main` run semantic-release with Conventional Commits to update
