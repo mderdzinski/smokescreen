@@ -1,3 +1,10 @@
+# [0.22.0](https://github.com/mderdzinski/smokescreen/compare/v0.21.0...v0.22.0) (2026-07-03)
+
+
+### Features
+
+* import CA 2026 data broker registry and scale UI ([8456d22](https://github.com/mderdzinski/smokescreen/commit/8456d22903b88294087f4ffaa752ceed8e29e47a))
+
 # [0.21.0](https://github.com/mderdzinski/smokescreen/compare/v0.20.1...v0.21.0) (2026-07-03)
 
 
