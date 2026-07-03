@@ -3,9 +3,21 @@
 from __future__ import annotations
 
 import enum
-from datetime import datetime
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
+
+
+def utc_now() -> datetime:
+    """Return a timezone-aware UTC timestamp."""
+    return datetime.now(UTC)
+
+
+def as_aware_utc(value: datetime) -> datetime:
+    """Normalize legacy naive datetimes to timezone-aware UTC."""
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 class BrokerStatus(str, enum.Enum):
@@ -84,8 +96,8 @@ class OptOutRecord(BaseModel):
     retries: int = 0
     thread_id: str | None = None
     last_message_id: str | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
     last_completed_at: datetime | None = None
     notes: str = ""
 
@@ -125,7 +137,7 @@ class WhitelistEntry(BaseModel):
     broker_id: str
     email: str
     source: WhitelistSource = WhitelistSource.MANUAL
-    added_at: datetime = Field(default_factory=datetime.utcnow)
+    added_at: datetime = Field(default_factory=utc_now)
 
 
 class PendingWhitelistEntry(BaseModel):
@@ -136,5 +148,5 @@ class PendingWhitelistEntry(BaseModel):
     email: str
     message_subject: str = ""
     message_snippet: str = ""
-    detected_at: datetime = Field(default_factory=datetime.utcnow)
+    detected_at: datetime = Field(default_factory=utc_now)
     status: PendingWhitelistStatus = PendingWhitelistStatus.PENDING

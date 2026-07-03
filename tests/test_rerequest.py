@@ -1,6 +1,7 @@
 """Tests for re-request frequency configuration and logic."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
@@ -48,7 +49,7 @@ def test_check_rerequest_completed_due():
     assert _check_rerequest(record, 60) is True
 
 
-def test_check_rerequest_uses_updated_at_when_no_last_completed():
+def test_check_rerequest_skips_when_no_last_completed():
     record = OptOutRecord(
         broker_id="a",
         status=BrokerStatus.COMPLETED,
@@ -56,7 +57,10 @@ def test_check_rerequest_uses_updated_at_when_no_last_completed():
     )
     # Force updated_at to be old enough
     record.updated_at = datetime.utcnow() - timedelta(days=90)
-    assert _check_rerequest(record, 60) is True
+    with patch("smokescreen.jobs.outreach.log.warning") as warning:
+        assert _check_rerequest(record, 60) is False
+    warning.assert_called_once()
+    assert warning.call_args.args == ("rerequest_missing_last_completed_at",)
 
 
 # --- Integration: outreach re-request ---
@@ -228,7 +232,7 @@ def test_outreach_holds_within_maximum_interval_bound(tmp_path):
 
 def test_sqlite_last_completed_at_persisted(tmp_path):
     store = SQLiteStore(tmp_path / "test.db")
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     record = OptOutRecord(
         broker_id="a", status=BrokerStatus.COMPLETED, last_completed_at=now
     )

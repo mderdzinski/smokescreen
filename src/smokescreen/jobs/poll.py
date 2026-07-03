@@ -22,6 +22,8 @@ from smokescreen.models import (
     OptOutRecord,
     PendingWhitelistEntry,
     ReplyClassification,
+    as_aware_utc,
+    utc_now,
 )
 from smokescreen.state.machine import PINGED_STATE, WAITING_STATES, validate_transition
 from smokescreen.state.store import StateStore
@@ -240,7 +242,7 @@ def _process_thread(
         )
         record.status = BrokerStatus.NEEDS_MANUAL
         record.notes = _missing_classifier_notes(settings)
-        record.updated_at = datetime.utcnow()
+        record.updated_at = utc_now()
         store.upsert(record)
         return True
 
@@ -304,7 +306,7 @@ def _handle_classification(
     gmail: GmailClient,
 ) -> bool:
     """Handle a classified reply. Returns True if action was taken."""
-    now = datetime.utcnow()
+    now = utc_now()
 
     if classification == ReplyClassification.COMPLETED:
         validate_transition(record.status, BrokerStatus.COMPLETED)
@@ -391,7 +393,7 @@ def _handle_info_request(
     gmail: GmailClient,
 ) -> bool:
     """Handle a broker follow-up requesting additional information."""
-    now = datetime.utcnow()
+    now = utc_now()
 
     if record.retries >= settings.max_retries:
         record.status = BrokerStatus.FAILED
@@ -430,7 +432,7 @@ def _handle_info_request(
     validate_transition(record.status, BrokerStatus.FOLLOW_UP_SENT)
     record.status = BrokerStatus.FOLLOW_UP_SENT
     record.retries += 1
-    record.updated_at = datetime.utcnow()
+    record.updated_at = utc_now()
     store.upsert(record)
 
     log.info("poll_follow_up_sent", broker=record.broker_id, retries=record.retries)
@@ -454,7 +456,7 @@ def run_timeout_escalation(
     if timeout_days <= 0:
         return []
 
-    now = now or datetime.utcnow()
+    now = as_aware_utc(now) if now is not None else utc_now()
     processed: list[str] = []
 
     # Ping first-timeout records (waiting state → paired *_PINGED).
@@ -500,7 +502,7 @@ def run_timeout_escalation(
 
 
 def _is_stale(record: OptOutRecord, now: datetime, timeout_days: int) -> bool:
-    return (now - record.updated_at).days >= timeout_days
+    return (now - as_aware_utc(record.updated_at)).days >= timeout_days
 
 
 def _send_silent_ping(

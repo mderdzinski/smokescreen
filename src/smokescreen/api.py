@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import re
 from contextlib import suppress
-from datetime import datetime
 from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
@@ -36,6 +35,8 @@ from smokescreen.models import (
     PendingWhitelistStatus,
     WhitelistEntry,
     WhitelistSource,
+    as_aware_utc,
+    utc_now,
 )
 from smokescreen.state.machine import InvalidTransition, validate_transition
 from smokescreen.state.store import StateStore
@@ -476,7 +477,7 @@ async def reset_optout(broker_id: str):
     record.thread_id = None
     record.last_message_id = None
     record.notes = ""
-    record.updated_at = datetime.utcnow()
+    record.updated_at = utc_now()
     store.upsert(record)
     return {"status": "reset", "broker_id": broker_id}
 
@@ -491,7 +492,7 @@ async def mark_optout_handled(broker_id: str):
         raise HTTPException(400, f"Broker {broker_id} does not need attention")
     with suppress(InvalidTransition):
         validate_transition(record.status, BrokerStatus.COMPLETED)
-    now = datetime.utcnow()
+    now = utc_now()
     record.status = BrokerStatus.COMPLETED
     record.last_completed_at = now
     record.updated_at = now
@@ -611,13 +612,16 @@ async def get_extended_stats():
     avg_completion_hours: float | None = None
     if completed_records:
         durations = [
-            (r.updated_at - r.created_at).total_seconds() / 3600.0
+            (as_aware_utc(r.updated_at) - as_aware_utc(r.created_at)).total_seconds()
+            / 3600.0
             for r in completed_records
         ]
         avg_completion_hours = round(sum(durations) / len(durations), 1)
 
     # Recent activity: last 5 records by updated_at
-    sorted_records = sorted(records, key=lambda r: r.updated_at, reverse=True)[:5]
+    sorted_records = sorted(
+        records, key=lambda r: as_aware_utc(r.updated_at), reverse=True
+    )[:5]
     registry = get_registry()
     for r in sorted_records:
         broker = registry.get(r.broker_id)

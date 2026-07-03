@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import structlog
 
@@ -10,7 +10,7 @@ from smokescreen.brokers.registry import BrokerRegistry
 from smokescreen.config import Settings
 from smokescreen.email.client import GmailClient
 from smokescreen.email.templates import render_initial_opt_out
-from smokescreen.models import BrokerStatus, OptOutRecord
+from smokescreen.models import BrokerStatus, OptOutRecord, as_aware_utc, utc_now
 from smokescreen.state.machine import validate_transition
 from smokescreen.state.store import StateStore
 
@@ -21,8 +21,15 @@ def _check_rerequest(record: OptOutRecord, interval_days: int) -> bool:
     """Return True if a COMPLETED record is due for re-request."""
     if record.status != BrokerStatus.COMPLETED:
         return False
-    ref_time = record.last_completed_at or record.updated_at
-    return datetime.utcnow() - ref_time >= timedelta(days=interval_days)
+    if record.last_completed_at is None:
+        log.warning(
+            "rerequest_missing_last_completed_at",
+            broker=record.broker_id,
+            updated_at=record.updated_at.isoformat(),
+        )
+        return False
+    ref_time = as_aware_utc(record.last_completed_at)
+    return utc_now() - ref_time >= timedelta(days=interval_days)
 
 
 def run_outreach(
@@ -67,14 +74,14 @@ def run_outreach(
             log.info(
                 "rerequest_due",
                 broker=broker.id,
-                last_completed=str(record.last_completed_at or record.updated_at),
+                last_completed=str(record.last_completed_at),
             )
             record.status = BrokerStatus.PENDING
             record.retries = 0
             record.thread_id = None
             record.last_message_id = None
             record.notes = "Re-request after interval"
-            record.updated_at = datetime.utcnow()
+            record.updated_at = utc_now()
             store.upsert(record)
 
         # Only process brokers in PENDING state (or not yet tracked)
@@ -117,7 +124,7 @@ def run_outreach(
         record.status = BrokerStatus.INITIAL_SENT
         record.thread_id = thread_id
         record.last_message_id = message_id
-        record.updated_at = datetime.utcnow()
+        record.updated_at = utc_now()
         store.upsert(record)
 
         processed.append(broker.id)

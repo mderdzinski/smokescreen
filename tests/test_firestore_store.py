@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
@@ -150,7 +150,7 @@ def _mock_anthropic(label: str) -> MagicMock:
 
 def test_firestore_upsert_persists_last_completed_at():
     store = _store()
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
 
     store.upsert(
         OptOutRecord(

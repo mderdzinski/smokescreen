@@ -14,7 +14,9 @@ from smokescreen.models import (
     PendingWhitelistStatus,
     WhitelistEntry,
     WhitelistSource,
+    as_aware_utc,
     parse_broker_status,
+    utc_now,
 )
 
 
@@ -68,11 +70,11 @@ class FirestoreStore:
         self, value: Any, default: datetime | None = None
     ) -> datetime:
         if value is None:
-            return default or datetime.utcnow()
+            return as_aware_utc(default) if default is not None else utc_now()
         if isinstance(value, datetime):
-            return value
+            return as_aware_utc(value)
         if isinstance(value, str):
-            return datetime.fromisoformat(value)
+            return as_aware_utc(datetime.fromisoformat(value))
         return value
 
     def _optional_datetime(self, value: Any) -> datetime | None:
@@ -313,7 +315,7 @@ class FirestoreStore:
         self._broker_selections_ref().set(
             {
                 "enabled_broker_ids": normalized,
-                "updated_at": datetime.utcnow().isoformat(),
+                "updated_at": utc_now().isoformat(),
             }
         )
         return normalized

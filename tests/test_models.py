@@ -1,11 +1,15 @@
 """Tests for domain models."""
 
+from datetime import UTC
+
 from smokescreen.models import (
     Broker,
     BrokerStatus,
     EmailMessage,
     OptOutRecord,
+    PendingWhitelistEntry,
     ReplyClassification,
+    WhitelistEntry,
     parse_broker_status,
 )
 
@@ -21,6 +25,19 @@ def test_opt_out_record_defaults():
     assert record.retries == 0
     assert record.thread_id is None
     assert record.notes == ""
+    assert record.created_at.tzinfo is UTC
+    assert record.updated_at.tzinfo is UTC
+
+
+def test_timestamp_defaults_are_aware_utc():
+    opt_out = OptOutRecord(broker_id="test-broker")
+    whitelist = WhitelistEntry(broker_id="test-broker", email="reply@example.com")
+    pending = PendingWhitelistEntry(email="reply@example.com")
+
+    assert opt_out.created_at.tzinfo is UTC
+    assert opt_out.updated_at.tzinfo is UTC
+    assert whitelist.added_at.tzinfo is UTC
+    assert pending.detected_at.tzinfo is UTC
 
 
 def test_broker_model():

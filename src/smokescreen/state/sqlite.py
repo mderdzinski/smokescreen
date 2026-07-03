@@ -13,7 +13,9 @@ from smokescreen.models import (
     PendingWhitelistStatus,
     WhitelistEntry,
     WhitelistSource,
+    as_aware_utc,
     parse_broker_status,
+    utc_now,
 )
 
 
@@ -83,9 +85,11 @@ class SQLiteStore:
             retries=row["retries"],
             thread_id=row["thread_id"],
             last_message_id=row["last_message_id"],
-            created_at=datetime.fromisoformat(row["created_at"]),
-            updated_at=datetime.fromisoformat(row["updated_at"]),
-            last_completed_at=datetime.fromisoformat(lca) if lca else None,
+            created_at=as_aware_utc(datetime.fromisoformat(row["created_at"])),
+            updated_at=as_aware_utc(datetime.fromisoformat(row["updated_at"])),
+            last_completed_at=(
+                as_aware_utc(datetime.fromisoformat(lca)) if lca else None
+            ),
             notes=row["notes"],
         )
 
@@ -164,7 +168,7 @@ class SQLiteStore:
                 broker_id=r["broker_id"],
                 email=r["email"],
                 source=WhitelistSource(r["source"]),
-                added_at=datetime.fromisoformat(r["added_at"]),
+                added_at=as_aware_utc(datetime.fromisoformat(r["added_at"])),
             )
             for r in rows
         ]
@@ -202,7 +206,7 @@ class SQLiteStore:
                 VALUES (?, ?, 'registry', ?)
                 ON CONFLICT(email) DO NOTHING
                 """,
-                (broker.id, broker.privacy_email, datetime.utcnow().isoformat()),
+                (broker.id, broker.privacy_email, utc_now().isoformat()),
             )
         self._conn.commit()
 
@@ -266,7 +270,7 @@ class SQLiteStore:
             email=row["email"],
             message_subject=row["message_subject"],
             message_snippet=row["message_snippet"],
-            detected_at=datetime.fromisoformat(row["detected_at"]),
+            detected_at=as_aware_utc(datetime.fromisoformat(row["detected_at"])),
             status=PendingWhitelistStatus(row["status"]),
         )
 
@@ -315,7 +319,7 @@ class SQLiteStore:
             normalized.append(broker_id)
         normalized.sort()
 
-        now = datetime.utcnow().isoformat()
+        now = utc_now().isoformat()
         self._conn.execute("DELETE FROM broker_selections")
         self._conn.executemany(
             "INSERT INTO broker_selections (broker_id, updated_at) VALUES (?, ?)",
