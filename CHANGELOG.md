@@ -1,3 +1,10 @@
+# [0.19.0](https://github.com/mderdzinski/smokescreen/compare/v0.18.1...v0.19.0) (2026-07-03)
+
+
+### Features
+
+* **dashboard:** searchable trusted senders and cleaner top toolbar ([f7a11f6](https://github.com/mderdzinski/smokescreen/commit/f7a11f6d9b7bc1366cd48905abf0b62dc85f3377))
+
 ## [0.18.1](https://github.com/mderdzinski/smokescreen/compare/v0.18.0...v0.18.1) (2026-07-03)
 
 
