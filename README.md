@@ -116,7 +116,7 @@ npm --prefix web run build
 4. Download as `credentials.json` in the project root
 5. On first run, a browser window opens for consent. The token is cached to `token.json`
 
-Required scopes: `gmail.send` + `gmail.readonly`
+Required scopes: `gmail.send` + `gmail.modify`
 
 ### Cloud Run
 
@@ -385,7 +385,7 @@ Use the deployment docs for the path that matches your goal:
 
 ## Security
 
-- Gmail scopes restricted to `gmail.send` + `gmail.readonly`
+- Gmail scopes restricted to `gmail.send` + `gmail.modify`
 - Identity documents are never sent to the AI classifier; only email text is used
 - Identity documents are uploaded to a private GCS bucket; the local identity docs directory is deprecated fallback behavior
 - Cloud Run SA has least-privilege IAM roles

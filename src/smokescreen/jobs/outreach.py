@@ -32,6 +32,42 @@ def _check_rerequest(record: OptOutRecord, interval_days: int) -> bool:
     return utc_now() - ref_time >= timedelta(days=interval_days)
 
 
+def _label_outbound_thread(
+    settings: Settings,
+    gmail: GmailClient,
+    *,
+    broker_id: str,
+    thread_id: str,
+) -> None:
+    """Apply the configured poll label without blocking successful sends."""
+    label = settings.poll_label.strip()
+    if not label:
+        return
+    if not thread_id:
+        log.warning(
+            "label_apply_failed",
+            broker=broker_id,
+            thread_id=thread_id,
+            label=label,
+            reason="missing_thread_id",
+        )
+        return
+
+    try:
+        gmail.label_thread(thread_id, label)
+    except Exception as exc:
+        log.warning(
+            "label_apply_failed",
+            broker=broker_id,
+            thread_id=thread_id,
+            label=label,
+            error=str(exc),
+        )
+        return
+
+    log.info("thread_labeled", broker=broker_id, thread_id=thread_id, label=label)
+
+
 def run_outreach(
     settings: Settings,
     registry: BrokerRegistry,
@@ -120,6 +156,12 @@ def run_outreach(
             )
             thread_id = sent.thread_id
             message_id = sent.message_id
+            _label_outbound_thread(
+                settings,
+                gmail,
+                broker_id=broker.id,
+                thread_id=thread_id,
+            )
 
         validate_transition(record.status, BrokerStatus.INITIAL_SENT)
         record.status = BrokerStatus.INITIAL_SENT

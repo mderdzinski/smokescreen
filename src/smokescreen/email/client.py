@@ -23,6 +23,7 @@ class GmailClient:
 
     def __init__(self, credentials) -> None:
         self._service = build("gmail", "v1", credentials=credentials)
+        self._label_ids: dict[str, str] = {}
 
     def send(
         self,
@@ -113,6 +114,57 @@ class GmailClient:
             .execute()
         )
         return [self._parse_message(m) for m in thread.get("messages", [])]
+
+    def label_thread(self, thread_id: str, label_name: str) -> None:
+        """Apply a Gmail label to a thread, creating the label if needed."""
+        label_id = self._label_id(label_name)
+        (
+            self._service.users()
+            .threads()
+            .modify(
+                userId="me",
+                id=thread_id,
+                body={"addLabelIds": [label_id]},
+            )
+            .execute()
+        )
+
+    def _label_id(self, label_name: str) -> str:
+        """Return a cached Gmail label ID, creating the label when missing."""
+        label_name = label_name.strip()
+        if not label_name:
+            raise ValueError("label_name must not be blank")
+        if label_name in self._label_ids:
+            return self._label_ids[label_name]
+
+        result = (
+            self._service.users()
+            .labels()
+            .list(userId="me")
+            .execute()
+        )
+        for label in result.get("labels", []):
+            if label.get("name") == label_name and label.get("id"):
+                label_id = label["id"]
+                self._label_ids[label_name] = label_id
+                return label_id
+
+        created = (
+            self._service.users()
+            .labels()
+            .create(
+                userId="me",
+                body={
+                    "name": label_name,
+                    "labelListVisibility": "labelShow",
+                    "messageListVisibility": "show",
+                },
+            )
+            .execute()
+        )
+        label_id = created["id"]
+        self._label_ids[label_name] = label_id
+        return label_id
 
     def _parse_message(self, msg: dict) -> EmailMessage:
         """Parse a Gmail API message resource into an EmailMessage."""

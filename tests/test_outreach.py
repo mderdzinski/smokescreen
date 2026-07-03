@@ -83,10 +83,84 @@ def test_outreach_sends_email(tmp_path):
 
     assert "test-broker" in processed
     mock_gmail.send.assert_called_once()
+    mock_gmail.label_thread.assert_called_once_with("thread-1", "smokescreen")
 
     record = store.get("test-broker")
     assert record.status == BrokerStatus.INITIAL_SENT
     assert record.thread_id == "thread-1"
+    store.close()
+
+
+def test_outreach_labels_sent_thread_with_configured_poll_label(tmp_path):
+    settings = _make_settings(
+        sqlite_path=tmp_path / "test.db",
+        dry_run=False,
+        poll_label="privacy replies",
+    )
+    broker = Broker(
+        id="test-broker",
+        name="Test Broker",
+        domain="test.com",
+        privacy_email="privacy@test.com",
+    )
+    registry = BrokerRegistry([broker])
+    store = SQLiteStore(settings.sqlite_path)
+    store.set_enabled_brokers(["test-broker"])
+    mock_gmail = MagicMock()
+    mock_gmail.send.return_value = EmailMessage(
+        message_id="msg-1",
+        thread_id="thread-1",
+        sender="test@example.com",
+        to="privacy@test.com",
+        subject="Personal Data Deletion Request - Test User",
+        body="test",
+    )
+
+    processed = run_outreach(settings, registry, store, gmail=mock_gmail)
+
+    assert processed == ["test-broker"]
+    mock_gmail.label_thread.assert_called_once_with("thread-1", "privacy replies")
+    store.close()
+
+
+def test_outreach_label_failure_does_not_fail_send(tmp_path):
+    settings = _make_settings(sqlite_path=tmp_path / "test.db", dry_run=False)
+    broker = Broker(
+        id="test-broker",
+        name="Test Broker",
+        domain="test.com",
+        privacy_email="privacy@test.com",
+    )
+    registry = BrokerRegistry([broker])
+    store = SQLiteStore(settings.sqlite_path)
+    store.set_enabled_brokers(["test-broker"])
+    mock_gmail = MagicMock()
+    mock_gmail.send.return_value = EmailMessage(
+        message_id="msg-1",
+        thread_id="thread-1",
+        sender="test@example.com",
+        to="privacy@test.com",
+        subject="Personal Data Deletion Request - Test User",
+        body="test",
+    )
+    mock_gmail.label_thread.side_effect = RuntimeError("gmail label outage")
+
+    with patch("smokescreen.jobs.outreach.log.warning") as warning:
+        processed = run_outreach(settings, registry, store, gmail=mock_gmail)
+
+    assert processed == ["test-broker"]
+    mock_gmail.send.assert_called_once()
+    mock_gmail.label_thread.assert_called_once_with("thread-1", "smokescreen")
+    warning.assert_called_once()
+    assert warning.call_args.args == ("label_apply_failed",)
+    assert warning.call_args.kwargs["broker"] == "test-broker"
+    assert warning.call_args.kwargs["thread_id"] == "thread-1"
+    assert warning.call_args.kwargs["label"] == "smokescreen"
+    assert warning.call_args.kwargs["error"] == "gmail label outage"
+    record = store.get("test-broker")
+    assert record.status == BrokerStatus.INITIAL_SENT
+    assert record.thread_id == "thread-1"
+    assert record.last_message_id == "msg-1"
     store.close()
 
 

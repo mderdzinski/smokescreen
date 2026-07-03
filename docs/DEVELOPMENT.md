@@ -93,6 +93,32 @@ If you are touching Terraform, also validate the infrastructure configuration:
 terraform -chdir=infra validate
 ```
 
+## Gmail Poll Label Flow
+
+Outreach applies the configured `poll_label` setting, default `smokescreen`, to
+each successfully sent outbound Gmail thread. The Gmail client looks up the
+label ID once, creates the label if it does not already exist, caches the ID for
+later sends in the same process, and applies it with `users.threads.modify`.
+Applying the same label again is safe on retries.
+
+The poll job uses `label:<poll_label>` as its Gmail discovery query before
+processing tracked broker threads. If `poll_label` is blank, label scoping is
+disabled and outreach does not label outbound threads.
+
+Labeling is intentionally best effort. If Gmail accepts the send but label
+application fails, outreach logs `label_apply_failed`, records the email as
+sent, and leaves the opt-out record usable for manual recovery.
+
+Existing outbound threads sent before this behavior was added need manual
+recovery: find the known Gmail thread by broker, subject, or stored `thread_id`,
+apply the configured Gmail label manually, and rerun poll so replies appear in
+the label-scoped search.
+
+Label creation and thread modification require OAuth tokens with
+`https://www.googleapis.com/auth/gmail.modify` in addition to Gmail send
+permission. Re-run the local OAuth flow and refresh deployed token secrets after
+changing scopes.
+
 ## Firestore Indexes
 
 Firestore composite indexes are Terraform-managed in `infra/main.tf`. Any new

@@ -143,7 +143,7 @@ Create the Gmail OAuth app in the Google Cloud Console:
    remains in testing mode.
 4. Add the Gmail scopes used by Smokescreen:
    `https://www.googleapis.com/auth/gmail.send` and
-   `https://www.googleapis.com/auth/gmail.readonly`.
+   `https://www.googleapis.com/auth/gmail.modify`.
 5. Open **APIs & Services > Credentials**.
 6. Create an OAuth client ID with application type **Desktop app**.
 7. Download the client JSON and save it as `credentials.json` in the repository

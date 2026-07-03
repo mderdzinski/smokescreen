@@ -418,6 +418,8 @@ def _handle_info_request(
         if settings.dry_run:
             log.info("dry_run_follow_up_reply", broker=record.broker_id)
         else:
+            # Replies stay in the original Gmail thread, so Gmail preserves the
+            # poll label applied by outreach.
             sent = gmail.send(
                 to=broker_email,
                 subject=f"Re: {latest.subject}",
@@ -524,6 +526,8 @@ def _send_silent_ping(
             from_state=record.status.value,
         )
     else:
+        # Replies stay in the original Gmail thread, so Gmail preserves the
+        # poll label applied by outreach.
         sent = gmail.send(
             to=broker_email,
             subject=f"Re: deletion request for {settings.sender_name}",
