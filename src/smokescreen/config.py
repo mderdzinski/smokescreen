@@ -150,6 +150,16 @@ class Settings(BaseSettings):
         default=False,
         description="If true, don't actually send emails or update state",
     )
+    allow_self_reply: bool = Field(
+        default=False,
+        description=(
+            "TESTING ONLY. When true, disables the sender_email self-reply "
+            "filter in poll.py, letting the operator test the classifier and "
+            "state machine by replying from their own address. Do NOT enable "
+            "in production. Intended for solo end-to-end validation with the "
+            "synthetic testbroker."
+        ),
+    )
     rerequest_interval_days: int = Field(
         default=30,
         ge=7,

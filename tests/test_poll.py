@@ -443,6 +443,107 @@ def test_process_thread_persists_manual_review_reply_details(tmp_path):
     store.close()
 
 
+def test_poll_processes_self_reply_when_bypass_enabled(tmp_path):
+    settings = _settings(tmp_path, allow_self_reply=True)
+    store = SQLiteStore(settings.sqlite_path)
+    record = _record()
+    store.upsert(record)
+    store.add_whitelist(WhitelistEntry(broker_id="labeled", email="me@example.com"))
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="sent-labeled",
+                    thread_id="thread-labeled",
+                    sender="me@example.com",
+                    subject="Opt out request",
+                    body="Please remove me.",
+                ),
+                EmailMessage(
+                    message_id="reply-self",
+                    thread_id="thread-labeled",
+                    sender="me@example.com",
+                    subject="Re: request",
+                    body="We received your request.",
+                ),
+            ]
+        }
+    )
+    anthropic_client = _mock_anthropic("ACKNOWLEDGMENT")
+
+    with patch("smokescreen.jobs.poll.log") as log:
+        processed = _process_thread(
+            settings=settings,
+            record=record,
+            broker_name="Labeled Broker",
+            broker_email="privacy@labeled.example",
+            store=store,
+            gmail=gmail,
+            ai_client=anthropic_client,
+        )
+
+    assert processed is True
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.AWAITING_RESPONSE
+    assert updated.last_message_id == "reply-self"
+    anthropic_client.messages.create.assert_called_once()
+    log.warning.assert_any_call(
+        "self_reply_bypass_active",
+        broker="labeled",
+        sender="me@example.com",
+    )
+    store.close()
+
+
+def test_poll_filters_self_reply_by_default(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    record = _record()
+    store.upsert(record)
+    store.add_whitelist(WhitelistEntry(broker_id="labeled", email="me@example.com"))
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="sent-labeled",
+                    thread_id="thread-labeled",
+                    sender="me@example.com",
+                    subject="Opt out request",
+                    body="Please remove me.",
+                ),
+                EmailMessage(
+                    message_id="reply-self",
+                    thread_id="thread-labeled",
+                    sender="me@example.com",
+                    subject="Re: request",
+                    body="We received your request.",
+                ),
+            ]
+        }
+    )
+    anthropic_client = _mock_anthropic("ACKNOWLEDGMENT")
+
+    with patch("smokescreen.jobs.poll.log") as log:
+        processed = _process_thread(
+            settings=settings,
+            record=record,
+            broker_name="Labeled Broker",
+            broker_email="privacy@labeled.example",
+            store=store,
+            gmail=gmail,
+            ai_client=anthropic_client,
+        )
+
+    assert processed is False
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.INITIAL_SENT
+    assert updated.last_message_id == "sent-labeled"
+    assert store.list_pending_whitelist(PendingWhitelistStatus.PENDING) == []
+    anthropic_client.messages.create.assert_not_called()
+    log.warning.assert_not_called()
+    store.close()
+
+
 def test_process_thread_sends_follow_up_reply_with_attachments(tmp_path):
     identity_dir = tmp_path / "identity"
     identity_dir.mkdir()

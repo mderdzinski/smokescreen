@@ -98,3 +98,9 @@ variable "test_broker_enabled" {
   type        = bool
   default     = true
 }
+
+variable "allow_self_reply" {
+  description = "TESTING ONLY. Allows poll to process replies from sender_email for solo synthetic broker validation. Production deployments must leave this false."
+  type        = bool
+  default     = false
+}

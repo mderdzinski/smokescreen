@@ -288,6 +288,10 @@ resource "google_cloud_run_v2_service" "dashboard" {
         value = tostring(var.test_broker_enabled)
       }
       env {
+        name  = "SMOKESCREEN_ALLOW_SELF_REPLY"
+        value = tostring(var.allow_self_reply)
+      }
+      env {
         name = "SMOKESCREEN_GMAIL_CREDENTIALS_JSON"
         value_source {
           secret_key_ref {
@@ -426,6 +430,10 @@ resource "google_cloud_run_v2_job" "poll_and_reply" {
           value = tostring(var.test_broker_enabled)
         }
         env {
+          name  = "SMOKESCREEN_ALLOW_SELF_REPLY"
+          value = tostring(var.allow_self_reply)
+        }
+        env {
           name = "SMOKESCREEN_GMAIL_CREDENTIALS_JSON"
           value_source {
             secret_key_ref {
@@ -546,6 +554,10 @@ resource "google_cloud_run_v2_job" "outreach" {
         env {
           name  = "SMOKESCREEN_TEST_BROKER_ENABLED"
           value = tostring(var.test_broker_enabled)
+        }
+        env {
+          name  = "SMOKESCREEN_ALLOW_SELF_REPLY"
+          value = tostring(var.allow_self_reply)
         }
         env {
           name = "SMOKESCREEN_GMAIL_CREDENTIALS_JSON"

@@ -135,6 +135,29 @@ Label creation and thread modification require OAuth tokens with
 permission. Re-run the local OAuth flow and refresh deployed token secrets after
 changing scopes.
 
+## End-to-End Synthetic Broker Testing
+
+For solo testing without a second email account, deploy the synthetic broker
+with Terraform and set `allow_self_reply=true` so poll can process replies from
+`SMOKESCREEN_SENDER_EMAIL`:
+
+```bash
+terraform apply \
+  -var="test_broker_email=your.email+testbroker@gmail.com" \
+  -var="allow_self_reply=true"
+```
+
+`allow_self_reply` is manually applied like `test_broker_email`. It is not wired
+into automated CI deploy variables, so auto-deploys reset
+`SMOKESCREEN_ALLOW_SELF_REPLY` to `false`; that safety behavior is deliberate.
+
+The operator must also add their `sender_email` or the exact plus-alias sender
+to Trusted Senders in dashboard Settings. The self-reply bypass only disables
+the sender-email exclusion in poll; it does not bypass Trusted Senders.
+
+Every poll run that uses the bypass for a message logs a WARNING named
+`self_reply_bypass_active`. Do not enable this setting in production.
+
 ## Firestore Indexes
 
 Firestore composite indexes are Terraform-managed in `infra/main.tf`. Any new

@@ -198,12 +198,22 @@ def _process_thread(
 
     # Find the latest message we haven't processed
     sender_email = _sender_address(settings.sender_email)
-    new_messages = [
-        m
-        for m in thread
-        if m.message_id != record.last_message_id
-        and _sender_address(m.sender) != sender_email
-    ]
+    new_messages = []
+    for message in thread:
+        if message.message_id == record.last_message_id:
+            continue
+
+        message_sender = _sender_address(message.sender)
+        if message_sender == sender_email:
+            if not settings.allow_self_reply:
+                continue
+            log.warning(
+                "self_reply_bypass_active",
+                broker=record.broker_id,
+                sender=message_sender,
+            )
+
+        new_messages.append(message)
 
     if not new_messages:
         return False
