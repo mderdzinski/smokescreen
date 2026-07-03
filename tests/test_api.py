@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,11 @@ import smokescreen.api as api_module
 from smokescreen.api import app, init_app
 from smokescreen.brokers.registry import BrokerRegistry
 from smokescreen.config import Settings
+from smokescreen.identity_docs import (
+    IdentityDocument,
+    validate_identity_document_kind,
+    validate_identity_document_upload,
+)
 from smokescreen.models import Broker, BrokerStatus, OptOutRecord
 from smokescreen.state.sqlite import SQLiteStore
 
@@ -30,6 +36,48 @@ def _make_brokers():
             privacy_email="privacy@beenverified.com",
         ),
     ]
+
+
+class FakeIdentityDocumentStore:
+    def __init__(self) -> None:
+        self.documents: dict[str, IdentityDocument] = {
+            "government_id": IdentityDocument(
+                id="government_id",
+                kind="government_id",
+                filename="license.png",
+                size=512,
+                uploaded_at=datetime(2026, 7, 3, 12, 0, tzinfo=UTC),
+            )
+        }
+        self.uploaded_content = b""
+
+    def list_documents(self) -> list[IdentityDocument]:
+        return list(self.documents.values())
+
+    def upload_document(
+        self,
+        *,
+        kind: str,
+        filename: str,
+        content_type: str | None,
+        file_obj,
+    ) -> IdentityDocument:
+        normalized_kind = validate_identity_document_kind(kind)
+        safe_name, _ = validate_identity_document_upload(filename, content_type)
+        self.uploaded_content = file_obj.read()
+        document = IdentityDocument(
+            id=normalized_kind,
+            kind=normalized_kind,
+            filename=safe_name,
+            size=len(self.uploaded_content),
+            uploaded_at=datetime(2026, 7, 3, 13, 0, tzinfo=UTC),
+        )
+        self.documents[normalized_kind] = document
+        return document
+
+    def delete_document(self, kind: str) -> bool:
+        normalized_kind = validate_identity_document_kind(kind)
+        return self.documents.pop(normalized_kind, None) is not None
 
 
 @pytest.fixture
@@ -658,6 +706,9 @@ def test_get_settings(settings_client):
     assert data["rerequest_interval_days_from_env"] is False
     assert data["state_timeout_days"] == 14
     assert data["state_timeout_days_from_env"] is False
+    assert data["identity_bucket_configured"] is False
+    assert data["identity_documents"] == []
+    assert "identity_docs_dir" not in data
     assert "state_backend" not in data
     assert "sqlite_path" not in data
     assert "firestore_project" not in data
@@ -688,6 +739,35 @@ def test_get_settings_reports_gmail_connected_only_when_token_available(
     assert data["gmail_token_available"] is True
     assert data["gmail_connected"] is True
     assert data["gmail_connected_email"] == "test@example.com"
+
+
+def test_get_settings_includes_identity_documents(settings_client, monkeypatch):
+    client, _ = settings_client
+    fake_store = FakeIdentityDocumentStore()
+    monkeypatch.setattr(
+        api_module,
+        "_identity_document_store",
+        lambda settings: fake_store,
+    )
+    api_module._settings = Settings(
+        sender_email="test@example.com",
+        sender_name="Test User",
+        identity_bucket="smokescreen-identity-docs",
+    )
+
+    resp = client.get("/api/settings")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["identity_bucket_configured"] is True
+    assert data["identity_documents"] == [
+        {
+            "id": "government_id",
+            "kind": "government_id",
+            "filename": "license.png",
+            "size": 512,
+            "uploaded_at": "2026-07-03T12:00:00Z",
+        }
+    ]
 
 
 def test_get_advanced_settings(settings_client):
@@ -817,9 +897,7 @@ def test_put_settings_rerequest_interval_days_rejects_out_of_bounds(
     assert not settings_file.exists()
 
 
-def test_put_settings_rerequest_interval_days_env_locked(
-    settings_client, monkeypatch
-):
+def test_put_settings_rerequest_interval_days_env_locked(settings_client, monkeypatch):
     """When SMOKESCREEN_REREQUEST_INTERVAL_DAYS is set, PUT is refused with 409."""
     client, _ = settings_client
     monkeypatch.setenv("SMOKESCREEN_REREQUEST_INTERVAL_DAYS", "90")
@@ -900,6 +978,13 @@ def test_put_settings_rejects_infrastructure_fields(settings_client, field, valu
     assert not settings_file.exists()
 
 
+def test_put_settings_rejects_deprecated_identity_docs_dir(settings_client):
+    client, settings_file = settings_client
+    resp = client.put("/api/settings", json={"identity_docs_dir": "identity/"})
+    assert resp.status_code == 422
+    assert not settings_file.exists()
+
+
 def test_put_settings_restart_not_required(settings_client):
     client, _ = settings_client
     resp = client.put(
@@ -943,6 +1028,77 @@ def test_put_settings_api_key(settings_client):
     resp = client.get("/api/settings")
     assert "sk-new-key-value" not in resp.json()["anthropic_api_key"]
     assert resp.json()["anthropic_api_key"] == "sk-n****lue"
+
+
+def test_identity_document_endpoints_list_upload_and_delete(
+    settings_client, monkeypatch
+):
+    client, _ = settings_client
+    fake_store = FakeIdentityDocumentStore()
+    monkeypatch.setattr(
+        api_module,
+        "_identity_document_store",
+        lambda settings: fake_store,
+    )
+    api_module._settings = Settings(
+        sender_email="test@example.com",
+        sender_name="Test User",
+        identity_bucket="smokescreen-identity-docs",
+    )
+
+    list_resp = client.get("/api/identity-documents")
+    assert list_resp.status_code == 200
+    assert list_resp.json()[0]["filename"] == "license.png"
+
+    upload_resp = client.post(
+        "/api/identity-documents/proof_of_address",
+        files={"file": ("utility.pdf", b"pdf-data", "application/pdf")},
+    )
+    assert upload_resp.status_code == 200
+    assert upload_resp.json()["kind"] == "proof_of_address"
+    assert upload_resp.json()["filename"] == "utility.pdf"
+    assert fake_store.uploaded_content == b"pdf-data"
+
+    delete_resp = client.delete("/api/identity-documents/proof_of_address")
+    assert delete_resp.status_code == 200
+    assert delete_resp.json() == {
+        "status": "deleted",
+        "kind": "proof_of_address",
+    }
+
+
+def test_identity_document_upload_requires_bucket(settings_client):
+    client, _ = settings_client
+    resp = client.post(
+        "/api/identity-documents/government_id",
+        files={"file": ("license.png", b"image", "image/png")},
+    )
+    assert resp.status_code == 503
+    assert "SMOKESCREEN_IDENTITY_BUCKET" in resp.json()["detail"]
+
+
+def test_identity_document_upload_rejects_unsupported_file_type(
+    settings_client, monkeypatch
+):
+    client, _ = settings_client
+    fake_store = FakeIdentityDocumentStore()
+    monkeypatch.setattr(
+        api_module,
+        "_identity_document_store",
+        lambda settings: fake_store,
+    )
+    api_module._settings = Settings(
+        sender_email="test@example.com",
+        sender_name="Test User",
+        identity_bucket="smokescreen-identity-docs",
+    )
+
+    resp = client.post(
+        "/api/identity-documents/government_id",
+        files={"file": ("notes.txt", b"text", "text/plain")},
+    )
+    assert resp.status_code == 400
+    assert "PDF, JPG, or PNG" in resp.json()["detail"]
 
 
 def test_put_settings_merges_with_existing_file(settings_client):

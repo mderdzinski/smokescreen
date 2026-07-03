@@ -21,6 +21,7 @@ dependencies = [
     "fastapi>=0.109.0",
     "python-multipart>=0.0.6",
     "uvicorn[standard]>=0.25.0",
+    "google-cloud-storage>=2.13.0",
 ]
 
 [project.optional-dependencies]

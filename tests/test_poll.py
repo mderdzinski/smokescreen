@@ -1,5 +1,6 @@
 """Tests for polling broker reply threads."""
 
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -436,8 +437,7 @@ def test_process_thread_persists_manual_review_reply_details(tmp_path):
     assert updated.status == BrokerStatus.NEEDS_MANUAL
     assert updated.last_message_id == "reply-labeled"
     assert (
-        updated.notes
-        == "Subject: Portal action required\n\n"
+        updated.notes == "Subject: Portal action required\n\n"
         "Please log in to our privacy portal to finish the opt-out."
     )
     store.close()
@@ -496,6 +496,62 @@ def test_process_thread_sends_follow_up_reply_with_attachments(tmp_path):
     assert updated.status == BrokerStatus.FOLLOW_UP_SENT
     assert updated.retries == 1
     assert updated.last_message_id == "sent-identity"
+    store.close()
+
+
+def test_process_thread_sends_follow_up_reply_with_bucket_attachments(tmp_path):
+    downloaded = tmp_path / "government_id-license.png"
+    downloaded.write_text("front", encoding="utf-8")
+    settings = _settings(
+        tmp_path,
+        identity_bucket="smokescreen-identity-docs",
+    )
+    store = SQLiteStore(settings.sqlite_path)
+    record = _record(status=BrokerStatus.AWAITING_RESPONSE)
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Identity verification",
+                    body="Please send a copy of your ID.",
+                    has_attachments=True,
+                )
+            ]
+        }
+    )
+
+    @contextmanager
+    def fake_identity_attachment_paths(settings_arg):
+        assert settings_arg.identity_bucket == "smokescreen-identity-docs"
+        yield [downloaded]
+
+    with patch(
+        "smokescreen.jobs.poll.identity_attachment_paths",
+        fake_identity_attachment_paths,
+    ):
+        processed = _process_thread(
+            settings=settings,
+            record=record,
+            broker_name="Labeled Broker",
+            broker_email="privacy@labeled.example",
+            store=store,
+            gmail=gmail,
+            ai_client=_mock_anthropic("INFO_REQUEST"),
+        )
+
+    assert processed is True
+    assert len(gmail.sent_messages) == 1
+    sent = gmail.sent_messages[0]
+    assert sent["attachment_paths"] == [downloaded]
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.FOLLOW_UP_SENT
     store.close()
 
 

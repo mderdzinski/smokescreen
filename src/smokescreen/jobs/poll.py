@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from email.utils import parseaddr
-from pathlib import Path
 from typing import Any
 
 import structlog
@@ -16,6 +15,7 @@ from smokescreen.brokers.registry import BrokerRegistry
 from smokescreen.config import Settings
 from smokescreen.email.client import GmailClient
 from smokescreen.email.templates import render_follow_up_response, render_silent_ping
+from smokescreen.identity_docs import identity_attachment_paths
 from smokescreen.models import (
     BrokerStatus,
     EmailMessage,
@@ -377,8 +377,7 @@ def _manual_review_notes(message: EmailMessage) -> str:
     if subject:
         return f"Subject: {subject}"
     return (
-        "Broker reply was classified for manual review, "
-        "but the message body was empty."
+        "Broker reply was classified for manual review, but the message body was empty."
     )
 
 
@@ -408,29 +407,25 @@ def _handle_info_request(
     record.updated_at = now
     store.upsert(record)
 
-    # Attach identity/supporting docs if the operator has any on file.
-    attachment_paths: list[Path] = []
-    if settings.identity_docs_dir.exists():
-        attachment_paths = list(settings.identity_docs_dir.iterdir())
-
     body = render_follow_up_response(
         broker_name=broker_name,
         sender_name=settings.sender_name,
     )
 
-    if settings.dry_run:
-        log.info("dry_run_follow_up_reply", broker=record.broker_id)
-    else:
-        sent = gmail.send(
-            to=broker_email,
-            subject=f"Re: {latest.subject}",
-            body=body,
-            sender=settings.sender_email,
-            sender_name=settings.sender_name,
-            thread_id=record.thread_id,
-            attachment_paths=attachment_paths if attachment_paths else None,
-        )
-        record.last_message_id = sent.message_id
+    with identity_attachment_paths(settings) as attachment_paths:
+        if settings.dry_run:
+            log.info("dry_run_follow_up_reply", broker=record.broker_id)
+        else:
+            sent = gmail.send(
+                to=broker_email,
+                subject=f"Re: {latest.subject}",
+                body=body,
+                sender=settings.sender_email,
+                sender_name=settings.sender_name,
+                thread_id=record.thread_id,
+                attachment_paths=attachment_paths if attachment_paths else None,
+            )
+            record.last_message_id = sent.message_id
 
     validate_transition(record.status, BrokerStatus.FOLLOW_UP_SENT)
     record.status = BrokerStatus.FOLLOW_UP_SENT
@@ -556,9 +551,7 @@ def _escalate_to_needs_manual(
     now: datetime,
 ) -> None:
     validate_transition(record.status, BrokerStatus.NEEDS_MANUAL)
-    record.notes = (
-        f"escalated after two silent periods on {previous_state.value}"
-    )
+    record.notes = f"escalated after two silent periods on {previous_state.value}"
     record.status = BrokerStatus.NEEDS_MANUAL
     record.updated_at = now
     store.upsert(record)

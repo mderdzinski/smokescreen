@@ -90,7 +90,8 @@ Enable the APIs used by Terraform, Cloud Run, Scheduler, Secret Manager,
 Artifact Registry, Gmail OAuth, IAP, Vertex AI Gemini, and Cloud Resource
 Manager. Cloud Resource Manager is required for project-scoped IAM
 operations such as `gcloud iap web get-iam-policy` during deploy
-verification.
+verification. Cloud Storage is required for the Terraform-managed private
+identity document bucket.
 
 ```bash
 gcloud services enable \
@@ -101,6 +102,7 @@ gcloud services enable \
   iap.googleapis.com \
   firestore.googleapis.com \
   secretmanager.googleapis.com \
+  storage.googleapis.com \
   cloudscheduler.googleapis.com \
   aiplatform.googleapis.com \
   gmail.googleapis.com \
@@ -272,6 +274,7 @@ for role in \
   roles/iam.serviceAccountAdmin \
   roles/resourcemanager.projectIamAdmin \
   roles/secretmanager.admin \
+  roles/storage.admin \
   roles/cloudscheduler.admin \
   roles/datastore.owner \
   roles/iap.admin
@@ -297,6 +300,9 @@ Why each role, briefly:
   runtime service accounts (Firestore, Vertex AI, Secret Manager
   accessor).
 - `secretmanager.admin` — create the Secret Manager secret containers.
+- `storage.admin` — create and manage the Terraform-owned private identity
+  document bucket and its bucket-scoped IAM bindings. This is separate from
+  the manually created Terraform state bucket.
 - `cloudscheduler.admin` — create the poll and outreach schedules.
 - `datastore.owner` — create and manage the Firestore database.
 - `iap.admin` — read and write IAP IAM bindings on the dashboard service.

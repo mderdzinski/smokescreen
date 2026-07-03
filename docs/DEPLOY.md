@@ -132,9 +132,10 @@ Terraform provisions:
 - Cloud Run jobs for polling and outreach.
 - Cloud Scheduler jobs for scheduled polling and outreach.
 - Firestore in native mode for deployed state storage.
+- A private, versioned GCS bucket in `us-central1` for identity document uploads.
 - Secret Manager secret containers.
 - Service accounts and IAM bindings for Cloud Run, Scheduler, Firestore, Secret
-  Manager, Vertex AI, and IAP.
+  Manager, Vertex AI, identity-document storage, and IAP.
 
 Gemini is the default reply classifier provider. It uses Vertex AI through the
 Cloud Run service accounts and does not require a separate AI API key or
@@ -243,8 +244,8 @@ require a Gemini API key or Gemini-specific secret.
 With the secret payloads in place, apply the remaining resources with the same
 variables and no `-target`. Terraform should show the remaining roughly 17-19
 resources to add — Cloud Run services and jobs, Cloud Scheduler jobs,
-Firestore, service accounts, IAM bindings, and IAP. Review the plan, then
-approve.
+Firestore, the private identity-document bucket, service accounts, IAM
+bindings, and IAP. Review the plan, then approve.
 
 ```bash
 terraform plan \
@@ -314,6 +315,32 @@ The default Gemini model is `gemini-3.1-flash-lite`. Google Cloud's
 lists `gemini-3.1-flash-lite` as the GA model ID, and the
 [Provisioned Throughput supported-models page](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/provisioned-throughput/supported-models)
 lists it as the latest supported version for Gemini 3.1 Flash-Lite.
+
+## Identity Document Storage
+
+Terraform creates the identity document bucket automatically during the normal
+apply. Unlike the Terraform state bucket documented in
+[SETUP.md](SETUP.md#create-the-terraform-state-bucket), do not create this
+bucket manually.
+
+The bucket is named `${PROJECT_ID}-smokescreen-identity-docs`, lives in the
+same project as the app, and is fixed to `us-central1`. It has uniform
+bucket-level access, object versioning, and public access prevention enabled.
+Google Cloud encrypts the objects at rest. Terraform injects the bucket name as
+`SMOKESCREEN_IDENTITY_BUCKET` into the dashboard service and Cloud Run jobs.
+
+IAM is scoped to the bucket:
+
+- The dashboard service account has `roles/storage.objectAdmin` so the
+  dashboard can upload, replace, list, and remove identity documents.
+- The poll job service account has `roles/storage.objectViewer` so broker
+  identity-verification replies can attach the stored documents.
+
+The older `identity_docs_dir` local-path setting is deprecated. If an old local
+settings file or environment still sets it, Smokescreen logs a warning and uses
+it only as a local fallback when `SMOKESCREEN_IDENTITY_BUCKET` is not set.
+For deployed use, upload Government ID, Proof of address, and optional
+SSN-last-4 documents from the dashboard Settings page after Terraform applies.
 
 ## Verify IAP Dashboard Access
 

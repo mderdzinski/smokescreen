@@ -51,8 +51,9 @@ const settings: FriendlySettings = {
   gmail_connected_email: "",
   gmail_credentials_available: false,
   gmail_token_available: false,
+  identity_bucket_configured: false,
   identity_configured: false,
-  identity_docs_dir: "identity/",
+  identity_documents: [],
   rerequest_interval_days: 30,
   rerequest_interval_days_from_env: false,
   sender_email: "jane@example.com",
@@ -1053,6 +1054,46 @@ describe("SettingsPage", () => {
 
     await user.click(within(rail).getByRole("button", { name: "Cadence" }));
     expect(within(rail).getByRole("button", { name: "Cadence" })).toHaveAttribute("aria-current", "true");
+  });
+
+  it("uploads an identity document from the settings document manager", async () => {
+    const user = userEvent.setup();
+    const uploadedBodies: BodyInit[] = [];
+    mockApi([
+      ...settingsPageRoutes({
+        settingsBody: {
+          ...settings,
+          identity_bucket_configured: true,
+        },
+      }),
+      {
+        assert: (request) => {
+          if (request.init?.body) {
+            uploadedBodies.push(request.init.body);
+          }
+        },
+        body: {
+          filename: "license.png",
+          id: "government_id",
+          kind: "government_id",
+          size: 1200,
+          uploaded_at: "2026-07-03T10:00:00Z",
+        },
+        method: "POST",
+        path: "/api/identity-documents/government_id",
+      },
+    ]);
+
+    renderWithProviders(<SettingsPage />);
+
+    const input = await screen.findByLabelText("Government ID upload");
+    const file = new File(["image"], "license.png", { type: "image/png" });
+    await user.upload(input, file);
+
+    await waitFor(() => {
+      expect(uploadedBodies[0]).toBeInstanceOf(FormData);
+    });
+    expect(await screen.findByText("Identity document uploaded.")).toBeInTheDocument();
   });
 
   it("batches changed fields into one sticky save-bar PUT", async () => {

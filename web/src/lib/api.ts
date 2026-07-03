@@ -95,13 +95,24 @@ export interface OutreachResult {
 
 export type AiProvider = "anthropic" | "gemini";
 
+export type IdentityDocumentKind = "government_id" | "proof_of_address" | "ssn_last4";
+
+export interface IdentityDocument {
+  id: string;
+  kind: IdentityDocumentKind;
+  filename: string;
+  size: number;
+  uploaded_at: string;
+}
+
 export interface FriendlySettings {
   sender_email: string;
   sender_name: string;
-  identity_docs_dir: string;
   anthropic_api_key: string;
   rerequest_interval_days: number;
   state_timeout_days: number;
+  identity_bucket_configured: boolean;
+  identity_documents: IdentityDocument[];
   identity_configured: boolean;
   gmail_token_available: boolean;
   gmail_credentials_available: boolean;
@@ -131,7 +142,7 @@ export interface AdvancedSettings {
 export type SettingsUpdate = Partial<
   Pick<
     FriendlySettings,
-    "sender_email" | "sender_name" | "identity_docs_dir" | "anthropic_api_key" | "rerequest_interval_days" | "state_timeout_days"
+    "sender_email" | "sender_name" | "anthropic_api_key" | "rerequest_interval_days" | "state_timeout_days"
   > &
     AdvancedSettings & {
       gmail_token_json: string;
@@ -236,6 +247,12 @@ function brokerImportForm(input: BrokerImportInput): FormData {
   return form;
 }
 
+function identityDocumentForm(file: File): FormData {
+  const form = new FormData();
+  form.append("file", file);
+  return form;
+}
+
 export interface AppVersion {
   version: string;
 }
@@ -276,6 +293,19 @@ export const api = {
       },
       body: JSON.stringify(settings),
     }),
+  listIdentityDocuments: () => requestJson<IdentityDocument[]>("/api/identity-documents"),
+  uploadIdentityDocument: (kind: IdentityDocumentKind, file: File) =>
+    requestJson<IdentityDocument>(`/api/identity-documents/${encodeURIComponent(kind)}`, {
+      method: "POST",
+      body: identityDocumentForm(file),
+    }),
+  deleteIdentityDocument: (kind: IdentityDocumentKind) =>
+    requestJson<{ status: "deleted"; kind: string }>(
+      `/api/identity-documents/${encodeURIComponent(kind)}`,
+      {
+        method: "DELETE",
+      },
+    ),
   runOutreach: (brokerIds: string[]) =>
     requestJson<OutreachResult>("/api/outreach", jsonRequest("POST", { broker_ids: brokerIds })),
   listOptOuts: (status?: OptOutStatusFilter) => {

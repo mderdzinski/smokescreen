@@ -1,5 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+  type ReactNode,
+} from "react";
 import {
   AlertTriangle,
   Brain,
@@ -8,6 +16,7 @@ import {
   Clock3,
   Circle,
   FileLock2,
+  Inbox,
   KeyRound,
   Mail,
   Plug,
@@ -16,8 +25,10 @@ import {
   Save,
   Settings,
   ShieldCheck,
+  ShieldPlus,
   SlidersHorizontal,
   Sparkles,
+  Trash2,
   UserRound,
 } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -29,7 +40,15 @@ import { Card } from "../components/ui/card";
 import { StatusPill } from "../components/ui/status-pill";
 import { Switch } from "../components/ui/switch";
 import { TextField } from "../components/ui/text-field";
-import { api, type AdvancedSettings, type AiProvider, type FriendlySettings, type SettingsUpdate } from "../lib/api";
+import {
+  api,
+  type AdvancedSettings,
+  type AiProvider,
+  type FriendlySettings,
+  type IdentityDocument,
+  type IdentityDocumentKind,
+  type SettingsUpdate,
+} from "../lib/api";
 import { useAdvancedSettings, useBrokers, usePendingWhitelist, useSettings, useWhitelist } from "../lib/queries";
 import { cn } from "../lib/utils";
 
@@ -63,21 +82,25 @@ type SaveRequest = {
 
 const identityDocSlots = [
   {
-    id: "government-id",
+    kind: "government_id",
     title: "Government ID",
     description: "Driver's license, passport, or state ID.",
   },
   {
-    id: "proof-address",
+    kind: "proof_of_address",
     title: "Proof of address",
     description: "Utility bill or bank statement from the last 90 days.",
   },
   {
-    id: "ssn-last-four",
+    kind: "ssn_last4",
     title: "SSN last 4",
     description: "Optional verifier for brokers that request it.",
   },
-] as const;
+] satisfies Array<{
+  kind: IdentityDocumentKind;
+  title: string;
+  description: string;
+}>;
 
 function draftFromSettings(settings: FriendlySettings, advanced: AdvancedSettings): SettingsDraft {
   return normalizeDraft({
@@ -305,10 +328,29 @@ export function SettingsPage() {
     },
   });
 
+  const uploadIdentityDocumentMutation = useMutation({
+    mutationFn: ({ file, kind }: { file: File; kind: IdentityDocumentKind }) =>
+      api.uploadIdentityDocument(kind, file),
+    onSuccess: async () => {
+      setMessage("Identity document uploaded.");
+      await queryClient.invalidateQueries({ queryKey: ["settings"] });
+    },
+  });
+
+  const deleteIdentityDocumentMutation = useMutation({
+    mutationFn: (kind: IdentityDocumentKind) => api.deleteIdentityDocument(kind),
+    onSuccess: async () => {
+      setMessage("Identity document removed.");
+      await queryClient.invalidateQueries({ queryKey: ["settings"] });
+    },
+  });
+
   function setDraftField<Key extends keyof SettingsDraft>(key: Key, value: SettingsDraft[Key]) {
     setDraft((current) => (current ? { ...current, [key]: value } : current));
     setMessage("");
     saveMutation.reset();
+    uploadIdentityDocumentMutation.reset();
+    deleteIdentityDocumentMutation.reset();
   }
 
   function registerSection(id: SettingsSectionId) {
@@ -408,6 +450,16 @@ export function SettingsPage() {
           title="Settings were not saved"
         />
       ) : null}
+      {uploadIdentityDocumentMutation.error || deleteIdentityDocumentMutation.error ? (
+        <ErrorState
+          description="Smokescreen could not update identity documents. Check the file type and bucket configuration, then try again."
+          onAction={() => {
+            uploadIdentityDocumentMutation.reset();
+            deleteIdentityDocumentMutation.reset();
+          }}
+          title="Identity documents were not updated"
+        />
+      ) : null}
       {message ? <SettingsToast message={message} /> : null}
 
       <div className="grid gap-7 lg:grid-cols-[210px_minmax(0,1fr)]">
@@ -461,7 +513,22 @@ export function SettingsPage() {
                       onChange={(event) => setDraftField("sender_email", event.currentTarget.value)}
                     />
                   </div>
-                  <IdentityDocumentsShell />
+                  <IdentityDocumentsShell
+                    bucketConfigured={Boolean(settings?.identity_bucket_configured)}
+                    deletingKind={
+                      deleteIdentityDocumentMutation.isPending
+                        ? deleteIdentityDocumentMutation.variables
+                        : undefined
+                    }
+                    documents={settings?.identity_documents ?? []}
+                    onDelete={(kind) => deleteIdentityDocumentMutation.mutate(kind)}
+                    onUpload={(kind, file) => uploadIdentityDocumentMutation.mutate({ file, kind })}
+                    uploadingKind={
+                      uploadIdentityDocumentMutation.isPending
+                        ? uploadIdentityDocumentMutation.variables?.kind
+                        : undefined
+                    }
+                  />
                 </Card>
               </SettingsSection>
 
@@ -696,31 +763,198 @@ function SectionHead({
   );
 }
 
-function IdentityDocumentsShell() {
+function IdentityDocumentsShell({
+  bucketConfigured,
+  deletingKind,
+  documents,
+  onDelete,
+  onUpload,
+  uploadingKind,
+}: {
+  bucketConfigured: boolean;
+  deletingKind?: IdentityDocumentKind;
+  documents: IdentityDocument[];
+  onDelete: (kind: IdentityDocumentKind) => void;
+  onUpload: (kind: IdentityDocumentKind, file: File) => void;
+  uploadingKind?: IdentityDocumentKind;
+}) {
+  const documentsByKind = useMemo(
+    () => new Map(documents.map((document) => [document.kind, document])),
+    [documents],
+  );
+
   return (
     <div className="mt-[22px] border-t border-border pt-[18px]">
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <span className="font-display text-base font-semibold text-content-strong">Identity documents</span>
-        <StatusPill label="Encrypted bucket" pulse={false} tone="idle" />
+        <StatusPill
+          label={bucketConfigured ? "Encrypted bucket" : "Bucket not configured"}
+          pulse={false}
+          tone={bucketConfigured ? "idle" : "attention"}
+        />
       </div>
-      <div className="grid gap-3">
+      <p className="max-w-[62ch] text-sm leading-relaxed text-content-muted">
+        Smokescreen stores these encrypted in its secure storage bucket and shares one with a broker only when that broker requires identity verification.
+      </p>
+      <div className="mt-2 grid">
         {identityDocSlots.map((slot) => (
-          <div className="flex items-start gap-3 rounded-sm border border-border bg-surface-sunken p-3" key={slot.id}>
-            <span className="inline-grid h-9 w-9 shrink-0 place-items-center rounded-sm border border-border bg-surface-card text-content-faint">
-              <FileLock2 aria-hidden="true" className="h-4 w-4" />
-            </span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-display text-sm font-semibold text-content-strong">{slot.title}</span>
-                <Badge variant="outline">Optional</Badge>
-              </div>
-              <p className="mt-1 text-sm leading-relaxed text-content-muted">{slot.description}</p>
-            </div>
-          </div>
+          <IdentityDocumentRow
+            bucketConfigured={bucketConfigured}
+            deleting={deletingKind === slot.kind}
+            document={documentsByKind.get(slot.kind)}
+            key={slot.kind}
+            onDelete={() => onDelete(slot.kind)}
+            onUpload={(file) => onUpload(slot.kind, file)}
+            slot={slot}
+            uploading={uploadingKind === slot.kind}
+          />
         ))}
       </div>
     </div>
   );
+}
+
+function IdentityDocumentRow({
+  bucketConfigured,
+  deleting,
+  document,
+  onDelete,
+  onUpload,
+  slot,
+  uploading,
+}: {
+  bucketConfigured: boolean;
+  deleting: boolean;
+  document?: IdentityDocument;
+  onDelete: () => void;
+  onUpload: (file: File) => void;
+  slot: (typeof identityDocSlots)[number];
+  uploading: boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const disabled = !bucketConfigured || uploading || deleting;
+
+  function takeFile(file: File | undefined) {
+    if (!file || disabled) {
+      return;
+    }
+    onUpload(file);
+  }
+
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    takeFile(event.currentTarget.files?.[0]);
+    event.currentTarget.value = "";
+  }
+
+  function handleDrop(event: DragEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    setIsDragging(false);
+    takeFile(event.dataTransfer.files?.[0]);
+  }
+
+  return (
+    <div className="flex gap-[14px] border-t border-border py-[14px]">
+      <span
+        className={cn(
+          "inline-grid h-[38px] w-[38px] flex-none place-items-center rounded-sm border border-border bg-surface-sunken",
+          document ? "text-soft-green" : "text-content-faint",
+        )}
+      >
+        <FileLock2 aria-hidden="true" className="h-[17px] w-[17px]" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-display text-base font-semibold text-content-strong">{slot.title}</span>
+          <Badge variant="outline">Optional</Badge>
+          {document ? <StatusPill label="Uploaded" pulse={false} tone="done" /> : null}
+        </div>
+        <p className="mt-1 text-sm leading-relaxed text-content-muted">{slot.description}</p>
+        <input
+          accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+          aria-label={`${slot.title} upload`}
+          className="hidden"
+          disabled={disabled}
+          onChange={handleFileChange}
+          ref={inputRef}
+          type="file"
+        />
+        {document ? (
+          <div className="mt-[10px] flex items-center gap-3 rounded-sm border border-border bg-surface-sunken px-3 py-[9px]">
+            <Inbox aria-hidden="true" className="h-4 w-4 flex-none text-content-muted" />
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-mono text-sm text-content-strong">{document.filename}</div>
+              <div className="mt-0.5 text-xs text-content-faint">
+                {humanFileSize(document.size)} · uploaded {formatUploadedAt(document.uploaded_at)}
+              </div>
+            </div>
+            <Button disabled={disabled} onClick={() => inputRef.current?.click()} size="sm" type="button" variant="ghost">
+              {uploading ? "Replacing" : "Replace"}
+            </Button>
+            <Button
+              aria-label={`Remove ${slot.title}`}
+              disabled={disabled}
+              iconOnly
+              onClick={onDelete}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              <Trash2 aria-hidden="true" className="h-4 w-4" />
+            </Button>
+          </div>
+        ) : (
+          <button
+            className={cn(
+              "mt-[10px] flex w-full items-center gap-[10px] rounded-sm border border-dashed px-[14px] py-3 text-left transition-[background,border-color] duration-fast ease-standard",
+              disabled
+                ? "cursor-not-allowed border-border bg-fill-neutral text-content-faint"
+                : "cursor-pointer border-[color:var(--border-strong)] text-content-body hover:border-brand hover:bg-fill-olive",
+              isDragging && !disabled && "border-brand bg-fill-olive",
+            )}
+            disabled={disabled}
+            onClick={() => inputRef.current?.click()}
+            onDragLeave={() => setIsDragging(false)}
+            onDragOver={(event) => {
+              event.preventDefault();
+              if (!disabled) {
+                setIsDragging(true);
+              }
+            }}
+            onDrop={handleDrop}
+            type="button"
+          >
+            <ShieldPlus aria-hidden="true" className="h-4 w-4 flex-none text-content-muted" />
+            <span className="text-sm">
+              <span className="font-semibold text-content-strong">{uploading ? "Uploading" : "Upload"}</span> or drop a file - PDF, JPG or PNG
+            </span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function humanFileSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  if (bytes >= 1024) {
+    return `${Math.round(bytes / 1024)} KB`;
+  }
+  return `${bytes} B`;
+}
+
+function formatUploadedAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "recently";
+  }
+  return date.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 function GmailConnectionRow({
