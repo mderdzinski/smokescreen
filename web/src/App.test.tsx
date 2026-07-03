@@ -1,6 +1,7 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useLocation } from "react-router-dom";
 
 import {
   App,
@@ -98,6 +99,12 @@ function optOut(overrides: Partial<OptOutRecord>): OptOutRecord {
 
 function parseJsonBody(request: MockApiRequest): unknown {
   return JSON.parse(String(request.init?.body));
+}
+
+function LocationProbe() {
+  const location = useLocation();
+
+  return <div data-testid="location-path">{location.pathname}</div>;
 }
 
 function mockReducedSmokeOverlay() {
@@ -866,6 +873,51 @@ describe("BrokerRegistryPage", () => {
     await waitFor(() => {
       expect(putBodies).toContainEqual(["acme", "second"]);
     });
+  });
+
+  it("runs outreach from enabled brokers and routes the throw overlay to status", async () => {
+    const user = userEvent.setup();
+    const outreachBodies: unknown[] = [];
+    mockReducedSmokeOverlay();
+    mockApi([
+      { body: [broker, secondBroker], path: "/api/brokers" },
+      { body: { enabled_broker_ids: ["acme", "second"] }, path: "/api/brokers/selections" },
+      {
+        assert: (request) => outreachBodies.push(parseJsonBody(request)),
+        body: { dry_run: false, processed: ["acme", "second"], processed_count: 2, status: "sent" },
+        method: "POST",
+        path: "/api/outreach",
+      },
+    ]);
+
+    renderWithProviders(
+      <>
+        <BrokerRegistryPage />
+        <LocationProbe />
+      </>,
+      { route: "/brokers" },
+    );
+
+    expect(await screen.findByText("Acme Data")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run outreach" }));
+
+    expect(screen.getByRole("dialog", { name: "Sending opt-out requests" })).toBeInTheDocument();
+    await waitFor(() => expect(outreachBodies).toEqual([{ broker_ids: ["acme", "second"] }]));
+    expect(await screen.findByText("Deployment complete")).toBeInTheDocument();
+    expect(screen.getByText(/2 opt-out requests are on their way/)).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Sending opt-out requests" })).not.toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Run outreach" }));
+    expect(await screen.findByText("Deployment complete")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "View status" }));
+
+    expect(screen.getByTestId("location-path")).toHaveTextContent("/");
+    expect(screen.queryByRole("dialog", { name: "Sending opt-out requests" })).not.toBeInTheDocument();
   });
 });
 

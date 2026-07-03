@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { FormEvent, TdHTMLAttributes, ThHTMLAttributes } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Search, Trash2 } from "lucide-react";
+import { Plus, Search, Send, Trash2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 import { api, type Broker, type BrokerInput } from "../lib/api";
 import { useBrokerSelections, useBrokers } from "../lib/queries";
@@ -9,6 +10,7 @@ import { cn } from "../lib/utils";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import { ThrowOverlay } from "../components/ui/motion";
 import { TextField } from "../components/ui/text-field";
 import { ErrorState, LoadingState } from "../components/status-state";
 
@@ -54,13 +56,19 @@ function removeBroker(current: Broker[] | undefined, brokerId: string): Broker[]
 
 export function BrokerRegistryPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const brokersQuery = useBrokers();
   const selectionsQuery = useBrokerSelections();
   const brokers = brokersQuery.data ?? [];
+  const enabledBrokerIdList = selectionsQuery.data?.enabled_broker_ids ?? [];
   const enabledBrokerIds = useMemo(
-    () => new Set(selectionsQuery.data?.enabled_broker_ids ?? []),
-    [selectionsQuery.data?.enabled_broker_ids],
+    () => new Set(enabledBrokerIdList),
+    [enabledBrokerIdList],
   );
+  const enabledBrokerCount = enabledBrokerIdList.length;
+  const [throwOverlayOpen, setThrowOverlayOpen] = useState(false);
+  const [throwOverlayCount, setThrowOverlayCount] = useState(0);
+  const [throwOverlayResolved, setThrowOverlayResolved] = useState(false);
 
   const putSelectionsMutation = useMutation({
     mutationFn: api.putBrokerSelections,
@@ -76,6 +84,19 @@ export function BrokerRegistryPage() {
       : [...current, brokerId];
     putSelectionsMutation.mutate(next);
   }
+
+  const runOutreachMutation = useMutation({
+    mutationFn: api.runOutreach,
+    onSuccess: async () => {
+      setThrowOverlayResolved(true);
+      await invalidateRelatedData();
+    },
+    onError: () => {
+      setThrowOverlayOpen(false);
+      setThrowOverlayResolved(false);
+    },
+  });
+
   const [search, setSearch] = useState("");
   const [form, setForm] = useState<BrokerFormState>(emptyBrokerForm);
   const [formError, setFormError] = useState<string | null>(null);
@@ -162,8 +183,39 @@ export function BrokerRegistryPage() {
     deleteMutation.mutate(brokerId);
   }
 
+  function closeThrowOverlay() {
+    setThrowOverlayOpen(false);
+  }
+
+  function viewStatusFromOverlay() {
+    closeThrowOverlay();
+    navigate("/");
+  }
+
+  function runOutreach() {
+    const brokerIds = [...enabledBrokerIdList];
+
+    if (brokerIds.length === 0 || runOutreachMutation.isPending) {
+      return;
+    }
+
+    setThrowOverlayCount(brokerIds.length);
+    setThrowOverlayResolved(false);
+    setThrowOverlayOpen(true);
+    runOutreachMutation.mutate(brokerIds);
+  }
+
   return (
     <section className="mx-auto grid max-w-container gap-[18px] px-5 py-6 sm:px-6 lg:px-8">
+      {throwOverlayOpen ? (
+        <ThrowOverlay
+          count={throwOverlayCount}
+          resolveWhen={throwOverlayResolved}
+          onClose={closeThrowOverlay}
+          onViewStatus={viewStatusFromOverlay}
+        />
+      ) : null}
+
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <h1 className="font-display text-2xl font-semibold tracking-tight text-content-strong">
@@ -173,7 +225,18 @@ export function BrokerRegistryPage() {
             The data brokers Smokescreen contacts. Add the companies holding your records.
           </p>
         </div>
-        <Badge variant="olive">{brokers.length} brokers</Badge>
+        <div className="flex flex-wrap items-center gap-[10px]">
+          <Badge variant="olive">{brokers.length} brokers</Badge>
+          <Button
+            disabled={enabledBrokerCount === 0 || runOutreachMutation.isPending}
+            onClick={runOutreach}
+            type="button"
+            variant="accent"
+          >
+            <Send />
+            {runOutreachMutation.isPending ? "Running" : "Run outreach"}
+          </Button>
+        </div>
       </div>
 
       {activeError ? (
@@ -183,6 +246,16 @@ export function BrokerRegistryPage() {
           }
           onAction={() => void brokersQuery.refetch()}
           title="Broker registry is unavailable"
+        />
+      ) : null}
+      {runOutreachMutation.error ? (
+        <ErrorState
+          description={
+            runOutreachMutation.error.message ||
+            "Smokescreen could not start outreach. Check Gmail or dry-run settings before trying again."
+          }
+          onAction={() => runOutreachMutation.reset()}
+          title="Outreach did not start"
         />
       ) : null}
 
