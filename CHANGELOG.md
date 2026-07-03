@@ -1,3 +1,10 @@
+# [0.16.0](https://github.com/mderdzinski/smokescreen/compare/v0.15.0...v0.16.0) (2026-07-03)
+
+
+### Features
+
+* add settings AI provider picker ([93894a5](https://github.com/mderdzinski/smokescreen/commit/93894a550a7e998c2d914eb2659ec85c9e21c7a1))
+
 # [0.15.0](https://github.com/mderdzinski/smokescreen/compare/v0.14.0...v0.15.0) (2026-07-03)
 
 
