@@ -1,3 +1,10 @@
+# [0.20.0](https://github.com/mderdzinski/smokescreen/compare/v0.19.1...v0.20.0) (2026-07-03)
+
+
+### Features
+
+* synthetic test broker via env vars for end-to-end testing ([12124d1](https://github.com/mderdzinski/smokescreen/commit/12124d152727d737ce537c36ae3358b7a4e3e974))
+
 ## [0.19.1](https://github.com/mderdzinski/smokescreen/compare/v0.19.0...v0.19.1) (2026-07-03)
 
 
