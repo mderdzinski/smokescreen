@@ -990,15 +990,71 @@ describe("TrustedSendersPage", () => {
 });
 
 describe("SettingsPage", () => {
-  it("saves identity settings and shows the saved state", async () => {
+  const trustedSender: WhitelistEntry = {
+    added_at: "2026-06-20T12:00:00Z",
+    broker_id: "acme",
+    email: "privacy@acme.example",
+    id: 1,
+    source: "registry",
+  };
+  const pendingSender: PendingWhitelistEntry = {
+    broker_id: "acme",
+    detected_at: "2026-06-21T12:00:00Z",
+    email: "unknown@relay.example",
+    id: 7,
+    message_snippet: "Please reply from this address.",
+    message_subject: "Opt-out request",
+    status: "pending",
+  };
+
+  function settingsPageRoutes({
+    advancedBody = advancedSettings,
+    pendingBody = [pendingSender],
+    settingsBody = settings,
+    whitelistBody = [trustedSender],
+  }: {
+    advancedBody?: AdvancedSettings;
+    pendingBody?: PendingWhitelistEntry[];
+    settingsBody?: FriendlySettings;
+    whitelistBody?: WhitelistEntry[];
+  } = {}): Parameters<typeof mockApi>[0] {
+    return [
+      { body: settingsBody, path: "/api/settings" },
+      { body: advancedBody, path: "/api/settings/advanced" },
+      { body: whitelistBody, path: "/api/whitelist" },
+      { body: pendingBody, path: "/api/whitelist/pending" },
+      { body: [broker], path: "/api/brokers" },
+    ];
+  }
+
+  it("renders the redesigned shell with rail badge and no per-card save buttons", async () => {
+    const user = userEvent.setup();
+    mockApi(settingsPageRoutes());
+
+    renderWithProviders(<SettingsPage />);
+
+    expect(await screen.findByLabelText("Full name")).toHaveValue("Jane Doe");
+    const rail = screen.getByRole("navigation", { name: "Settings sections" });
+    const trustedRailItem = within(rail).getByRole("button", { name: /Trusted senders/ });
+    expect(trustedRailItem).toHaveTextContent("1");
+    expect(screen.getByRole("slider", { name: "Re-request cadence" })).toHaveValue("30");
+    expect(screen.getByRole("slider", { name: "Silent-broker timeout" })).toHaveValue("14");
+    expect(screen.queryByRole("button", { name: "Save identity" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save cadence" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save timeout" })).not.toBeInTheDocument();
+
+    await user.click(within(rail).getByRole("button", { name: "Cadence" }));
+    expect(within(rail).getByRole("button", { name: "Cadence" })).toHaveAttribute("aria-current", "true");
+  });
+
+  it("batches changed fields into one sticky save-bar PUT", async () => {
     const user = userEvent.setup();
     const savedBodies: unknown[] = [];
     mockApi([
-      { body: settings, path: "/api/settings" },
-      { body: advancedSettings, path: "/api/settings/advanced" },
+      ...settingsPageRoutes(),
       {
         assert: (request) => savedBodies.push(parseJsonBody(request)),
-        body: { restart_required: false, status: "saved" },
+        body: { restart_required: true, status: "saved" },
         method: "PUT",
         path: "/api/settings",
       },
@@ -1006,28 +1062,23 @@ describe("SettingsPage", () => {
 
     renderWithProviders(<SettingsPage />);
 
-    await screen.findByDisplayValue("Jane Doe");
-    await user.clear(screen.getByLabelText("Sender name"));
-    await user.type(screen.getByLabelText("Sender name"), "Jane Smith");
-    await user.click(screen.getByRole("button", { name: "Save identity" }));
+    const nameInput = await screen.findByLabelText("Full name");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Jane Smith");
+    await user.click(screen.getByRole("button", { name: "Quarterly" }));
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() =>
-      expect(savedBodies).toEqual([
-        {
-          identity_docs_dir: "identity/",
-          sender_email: "jane@example.com",
-          sender_name: "Jane Smith",
-        },
-      ]),
+      expect(savedBodies).toEqual([{ rerequest_interval_days: 90, sender_name: "Jane Smith" }]),
     );
-    expect(await screen.findByText("Saved.")).toBeInTheDocument();
+    expect(await screen.findByText("Saved. Restart Smokescreen to apply every change.")).toBeInTheDocument();
   });
 
-  it("shows an error state when settings fail to save", async () => {
+  it("shows an error state when the sticky save fails", async () => {
     const user = userEvent.setup();
     mockApi([
-      { body: settings, path: "/api/settings" },
-      { body: advancedSettings, path: "/api/settings/advanced" },
+      ...settingsPageRoutes(),
       {
         body: { detail: "settings backend rejected the update" },
         method: "PUT",
@@ -1038,123 +1089,46 @@ describe("SettingsPage", () => {
 
     renderWithProviders(<SettingsPage />);
 
-    await screen.findByDisplayValue("Jane Doe");
-    await user.clear(screen.getByLabelText("Sender name"));
-    await user.type(screen.getByLabelText("Sender name"), "Jane Smith");
-    await user.click(screen.getByRole("button", { name: "Save identity" }));
+    const nameInput = await screen.findByLabelText("Full name");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Jane Smith");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(await screen.findByText("Settings were not saved")).toBeInTheDocument();
   });
 
-  it("renders the re-request cadence field with the persisted friendly value", async () => {
-    mockApi([
-      {
-        body: { ...settings, rerequest_interval_days: 90 },
-        path: "/api/settings",
-      },
-      { body: advancedSettings, path: "/api/settings/advanced" },
-    ]);
-
-    renderWithProviders(<SettingsPage />);
-
-    const input = await screen.findByLabelText(/Re-send deletion requests every/);
-    expect(input).toHaveValue(90);
-    expect(input).toHaveAttribute("min", "7");
-    expect(input).toHaveAttribute("max", "365");
-    expect(
-      screen.getByText(/Days between deletion requests to the same broker/i),
-    ).toBeInTheDocument();
-  });
-
-  it("saves a valid cadence via PUT /api/settings", async () => {
-    const user = userEvent.setup();
-    const savedBodies: unknown[] = [];
-    mockApi([
-      { body: settings, path: "/api/settings" },
-      { body: advancedSettings, path: "/api/settings/advanced" },
-      {
-        assert: (request) => savedBodies.push(parseJsonBody(request)),
-        body: { restart_required: false, status: "saved" },
-        method: "PUT",
-        path: "/api/settings",
-      },
-    ]);
-
-    renderWithProviders(<SettingsPage />);
-
-    const input = await screen.findByLabelText(/Re-send deletion requests every/);
-    await user.clear(input);
-    await user.type(input, "180");
-    await user.click(screen.getByRole("button", { name: "Save cadence" }));
-
-    await waitFor(() =>
-      expect(savedBodies).toContainEqual({ rerequest_interval_days: 180 }),
-    );
-  });
-
-  it("blocks Save cadence and shows an inline error for out-of-bounds values", async () => {
-    const user = userEvent.setup();
-    const savedBodies: unknown[] = [];
-    mockApi([
-      { body: settings, path: "/api/settings" },
-      { body: advancedSettings, path: "/api/settings/advanced" },
-      {
-        assert: (request) => savedBodies.push(parseJsonBody(request)),
-        body: { restart_required: false, status: "saved" },
-        method: "PUT",
-        path: "/api/settings",
-      },
-    ]);
-
-    renderWithProviders(<SettingsPage />);
-
-    const input = await screen.findByLabelText(/Re-send deletion requests every/);
-    await user.clear(input);
-    await user.type(input, "5");
-
-    const saveButton = screen.getByRole("button", { name: "Save cadence" });
-    expect(saveButton).toBeDisabled();
-    expect(input).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByRole("alert")).toHaveTextContent(/between 7 and 365/i);
-
-    await user.click(saveButton);
-    // Nothing PUT — button was disabled and click is a noop for cadence.
-    expect(
-      savedBodies.some(
-        (body) => typeof body === "object" && body !== null && "rerequest_interval_days" in body,
-      ),
-    ).toBe(false);
-  });
-
-  it("locks the cadence field when set from the deployment environment", async () => {
-    mockApi([
-      {
-        body: {
+  it("disables env-locked cadence sliders and keeps their copy visible", async () => {
+    mockApi(
+      settingsPageRoutes({
+        settingsBody: {
           ...settings,
           rerequest_interval_days: 90,
           rerequest_interval_days_from_env: true,
+          state_timeout_days: 30,
+          state_timeout_days_from_env: true,
         },
-        path: "/api/settings",
-      },
-      { body: advancedSettings, path: "/api/settings/advanced" },
-    ]);
+      }),
+    );
 
     renderWithProviders(<SettingsPage />);
 
-    const input = await screen.findByLabelText(/Re-send deletion requests every/);
-    expect(input).toHaveAttribute("readonly");
-    expect(screen.getByRole("button", { name: "Save cadence" })).toBeDisabled();
-    expect(
-      screen.getByText(/set from the deployment environment/i),
-    ).toBeInTheDocument();
+    const rerequestSlider = await screen.findByRole("slider", { name: "Re-request cadence" });
+    const timeoutSlider = screen.getByRole("slider", { name: "Silent-broker timeout" });
+    expect(rerequestSlider).toBeDisabled();
+    expect(rerequestSlider).toHaveAttribute("min", "7");
+    expect(rerequestSlider).toHaveAttribute("max", "365");
+    expect(rerequestSlider).toHaveValue("90");
+    expect(timeoutSlider).toBeDisabled();
+    expect(timeoutSlider).toHaveValue("30");
+    expect(screen.getAllByText("Set by environment")).toHaveLength(2);
+    expect(screen.getByText(/every 90 days - quarterly/i)).toBeInTheDocument();
   });
 
-  it("surfaces the silent-broker timeout as an editable setting", async () => {
+  it("saves advanced fields and dry-run switch through the sticky save bar", async () => {
     const user = userEvent.setup();
     const savedBodies: unknown[] = [];
     mockApi([
-      { body: settings, path: "/api/settings" },
-      { body: advancedSettings, path: "/api/settings/advanced" },
+      ...settingsPageRoutes(),
       {
         assert: (request) => savedBodies.push(parseJsonBody(request)),
         body: { restart_required: false, status: "saved" },
@@ -1165,52 +1139,32 @@ describe("SettingsPage", () => {
 
     renderWithProviders(<SettingsPage />);
 
-    const input = await screen.findByLabelText(/Timeout for silent brokers/);
-    expect(input).toHaveValue(14);
-    await user.clear(input);
-    await user.type(input, "21");
-    await user.click(screen.getByRole("button", { name: "Save timeout" }));
+    await screen.findByLabelText("Full name");
+    await user.click(screen.getByRole("button", { name: /Gmail poll label, retries, and dry run/i }));
+    await user.clear(screen.getByLabelText("Gmail poll label"));
+    await user.type(screen.getByLabelText("Gmail poll label"), "custom-label");
+    await user.click(screen.getByRole("switch", { name: "Dry run" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() =>
-      expect(savedBodies).toContainEqual({ state_timeout_days: 21 }),
+      expect(savedBodies).toEqual([{ dry_run: true, poll_label: "custom-label" }]),
     );
   });
 
-  it("blocks the timeout save when the value is out of bounds", async () => {
+  it("discards unsaved changes from the sticky save bar", async () => {
     const user = userEvent.setup();
-    mockApi([
-      { body: settings, path: "/api/settings" },
-      { body: advancedSettings, path: "/api/settings/advanced" },
-    ]);
+    mockApi(settingsPageRoutes());
 
     renderWithProviders(<SettingsPage />);
 
-    const input = await screen.findByLabelText(/Timeout for silent brokers/);
-    await user.clear(input);
-    await user.type(input, "500");
+    const nameInput = await screen.findByLabelText("Full name");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Jane Smith");
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Discard" }));
 
-    expect(screen.getByRole("button", { name: "Save timeout" })).toBeDisabled();
-    expect(input).toHaveAttribute("aria-invalid", "true");
-  });
-
-  it("locks the timeout field when set from the deployment environment", async () => {
-    mockApi([
-      {
-        body: {
-          ...settings,
-          state_timeout_days: 30,
-          state_timeout_days_from_env: true,
-        },
-        path: "/api/settings",
-      },
-      { body: advancedSettings, path: "/api/settings/advanced" },
-    ]);
-
-    renderWithProviders(<SettingsPage />);
-
-    const input = await screen.findByLabelText(/Timeout for silent brokers/);
-    expect(input).toHaveAttribute("readonly");
-    expect(screen.getByRole("button", { name: "Save timeout" })).toBeDisabled();
+    expect(screen.getByLabelText("Full name")).toHaveValue("Jane Doe");
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
   });
 });
 
