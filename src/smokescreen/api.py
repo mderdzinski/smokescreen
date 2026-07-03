@@ -39,6 +39,10 @@ from smokescreen.models import (
     utc_now,
 )
 from smokescreen.state.machine import InvalidTransition, validate_transition
+from smokescreen.state.selection_size import (
+    broker_selection_size_warning,
+    estimate_broker_selection_document_size_bytes,
+)
 from smokescreen.state.store import StateStore
 from smokescreen.version import get_app_version
 
@@ -152,6 +156,8 @@ class BrokerSelectionsBody(BaseModel):
 
 class BrokerSelectionsResponse(BaseModel):
     enabled_broker_ids: list[str]
+    selection_document_size_bytes: int
+    selection_size_warning: str | None = None
 
 
 GMAIL_CREDENTIALS_REQUIRED_DETAIL = {
@@ -280,9 +286,7 @@ async def create_broker(data: BrokerCreate):
 @app.get("/api/brokers/selections", response_model=BrokerSelectionsResponse)
 async def get_broker_selections() -> BrokerSelectionsResponse:
     """Return the persisted list of broker IDs enabled for outreach."""
-    return BrokerSelectionsResponse(
-        enabled_broker_ids=get_store().list_enabled_brokers()
-    )
+    return _broker_selections_response(get_store().list_enabled_brokers())
 
 
 @app.put("/api/brokers/selections", response_model=BrokerSelectionsResponse)
@@ -304,7 +308,19 @@ async def put_broker_selections(body: BrokerSelectionsBody) -> BrokerSelectionsR
             detail=f"Unknown broker IDs: {', '.join(sorted(set(unknown)))}",
         )
     stored = get_store().set_enabled_brokers(body.enabled_broker_ids)
-    return BrokerSelectionsResponse(enabled_broker_ids=stored)
+    return _broker_selections_response(stored)
+
+
+def _broker_selections_response(
+    enabled_broker_ids: list[str],
+) -> BrokerSelectionsResponse:
+    return BrokerSelectionsResponse(
+        enabled_broker_ids=enabled_broker_ids,
+        selection_document_size_bytes=estimate_broker_selection_document_size_bytes(
+            enabled_broker_ids
+        ),
+        selection_size_warning=broker_selection_size_warning(enabled_broker_ids),
+    )
 
 
 @app.put("/api/brokers/{broker_id}")

@@ -41,6 +41,15 @@ const secondBroker: Broker = {
   privacy_email: "privacy@second.example",
 };
 
+const thirdBroker: Broker = {
+  aliases: [],
+  domain: "third.example",
+  id: "third",
+  name: "Third Broker",
+  notes: "",
+  privacy_email: "privacy@third.example",
+};
+
 const settings: FriendlySettings = {
   ai_provider: "anthropic",
   anthropic_api_key: "",
@@ -112,6 +121,14 @@ function jsonResponse(body: unknown): Response {
       "Content-Type": "application/json",
     },
   });
+}
+
+function brokerSelectionResponse(enabledBrokerIds: string[], warning: string | null = null) {
+  return {
+    enabled_broker_ids: enabledBrokerIds,
+    selection_document_size_bytes: 25 + enabledBrokerIds.join("").length,
+    selection_size_warning: warning,
+  };
 }
 
 function LocationProbe() {
@@ -776,6 +793,118 @@ describe("OnboardingPage", () => {
 });
 
 describe("BrokerRegistryPage", () => {
+  it("filters brokers with a debounced search, match count, and empty state", async () => {
+    const user = userEvent.setup();
+    mockApi([{ body: [broker, secondBroker, thirdBroker], path: "/api/brokers" }]);
+
+    renderWithProviders(<BrokerRegistryPage />);
+
+    expect(await screen.findByText("Acme Data")).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Search brokers"), "second");
+
+    expect(await screen.findByText("1 of 3 matches")).toBeInTheDocument();
+    expect(screen.getByText("Second Broker")).toBeInTheDocument();
+    expect(screen.queryByText("Acme Data")).not.toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("Search brokers"));
+    await user.type(screen.getByLabelText("Search brokers"), "missing broker");
+
+    expect(await screen.findByText("0 of 3 matches")).toBeInTheDocument();
+    expect(screen.getByText("No brokers match that search.")).toBeInTheDocument();
+  });
+
+  it("bulk enables and disables the currently filtered broker set", async () => {
+    const user = userEvent.setup();
+    const putBodies: string[][] = [];
+    mockApi([
+      { body: [broker, secondBroker, thirdBroker], path: "/api/brokers" },
+      { body: brokerSelectionResponse([]), path: "/api/brokers/selections" },
+      {
+        assert: (request) => {
+          const body = parseJsonBody(request) as { enabled_broker_ids: string[] };
+          putBodies.push(body.enabled_broker_ids);
+        },
+        method: "PUT",
+        path: "/api/brokers/selections",
+        respond: (request) => {
+          const body = parseJsonBody(request) as { enabled_broker_ids: string[] };
+          return jsonResponse(brokerSelectionResponse(body.enabled_broker_ids));
+        },
+      },
+    ]);
+
+    renderWithProviders(<BrokerRegistryPage />);
+
+    expect(await screen.findByText("Acme Data")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Search brokers"), "second");
+    await screen.findByText("1 of 3 matches");
+
+    await user.click(screen.getByRole("button", { name: "Enable all" }));
+    await waitFor(() => expect(putBodies).toContainEqual(["second"]));
+
+    await user.click(screen.getByRole("button", { name: "Disable all" }));
+    await waitFor(() => expect(putBodies).toContainEqual([]));
+  });
+
+  it("opens a reset-all confirmation modal and resets only filtered opt-out records", async () => {
+    const user = userEvent.setup();
+    const resetPaths: string[] = [];
+    mockApi([
+      { body: [broker, secondBroker, thirdBroker], path: "/api/brokers" },
+      {
+        body: [
+          optOut({ broker_id: "acme", broker_name: "Acme Data", status: "COMPLETED" }),
+          optOut({ broker_id: "second", broker_name: "Second Broker", status: "FAILED" }),
+        ],
+        path: "/api/optouts",
+      },
+      {
+        assert: (request) => resetPaths.push(request.path),
+        body: { broker_id: "second", status: "reset" },
+        method: "POST",
+        path: "/api/optouts/second/reset",
+      },
+    ]);
+
+    renderWithProviders(<BrokerRegistryPage />);
+
+    expect(await screen.findByText("Acme Data")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Search brokers"), "second");
+    await screen.findByText("1 of 3 matches");
+
+    await user.click(screen.getByRole("button", { name: "Reset all" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Reset 1 brokers?" });
+    expect(dialog).toHaveTextContent(
+      "This will reset opt-out records for 1 brokers back to PENDING. Active outreach and completion state will be lost. Continue?",
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: "Confirm reset" }));
+
+    await waitFor(() => expect(resetPaths).toEqual(["/api/optouts/second/reset"]));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Reset 1 brokers?" })).not.toBeInTheDocument());
+  });
+
+  it("shows a warning when persisted broker selections approach Firestore limits", async () => {
+    mockApi([
+      { body: [broker], path: "/api/brokers" },
+      {
+        body: brokerSelectionResponse(
+          ["acme"],
+          "Broker selection document is 512,000 bytes, approaching the 1 MiB Firestore document limit.",
+        ),
+        path: "/api/brokers/selections",
+      },
+    ]);
+
+    renderWithProviders(<BrokerRegistryPage />);
+
+    expect(await screen.findByTestId("broker-selection-size-warning")).toHaveTextContent(
+      "Broker selection document is 512,000 bytes",
+    );
+  });
+
   it("shows reset only for broker rows with opt-out records", async () => {
     mockApi([
       { body: [broker, secondBroker], path: "/api/brokers" },
@@ -930,8 +1059,8 @@ describe("BrokerRegistryPage", () => {
     expect(screen.getByText("0 of 2 enabled")).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Search brokers"), "privacy@second.example");
-    expect(screen.getByText("Second Broker")).toBeInTheDocument();
-    expect(screen.queryByText("Acme Data")).not.toBeInTheDocument();
+    expect(await screen.findByText("Second Broker")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Acme Data")).not.toBeInTheDocument());
 
     await user.clear(screen.getByLabelText("Search brokers"));
     await user.type(screen.getByLabelText("Broker name"), " New Broker ");

@@ -93,6 +93,22 @@ If you are touching Terraform, also validate the infrastructure configuration:
 terraform -chdir=infra validate
 ```
 
+## Refresh the Broker Registry
+
+The bundled broker registry lives at
+`src/smokescreen/brokers/brokers.yaml`. To regenerate it from a California
+Attorney General data broker registry CSV, keep the CSV as a local ignored input
+and run:
+
+```bash
+uv run python scripts/import_ca_registry.py "/path/to/California Data Broker Registry 2026.csv"
+```
+
+The importer requires a primary contact email for each row, derives deterministic
+broker IDs from broker names, reports skipped missing-email rows and duplicate
+slug resolutions, and preserves hand-curated brokers that are not represented in
+the CSV. The CSV itself should not be committed.
+
 ## Gmail Poll Label Flow
 
 Outreach applies the configured `poll_label` setting, default `smokescreen`, to

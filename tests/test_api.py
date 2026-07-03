@@ -620,7 +620,10 @@ def test_reject_pending_not_found(client):
 def test_get_broker_selections_defaults_to_empty(client):
     resp = client.get("/api/brokers/selections")
     assert resp.status_code == 200
-    assert resp.json() == {"enabled_broker_ids": []}
+    data = resp.json()
+    assert data["enabled_broker_ids"] == []
+    assert data["selection_document_size_bytes"] > 0
+    assert data["selection_size_warning"] is None
 
 
 def test_put_broker_selections_persists_normalized_list(client):
@@ -629,11 +632,14 @@ def test_put_broker_selections_persists_normalized_list(client):
         json={"enabled_broker_ids": ["spokeo", "spokeo", "beenverified"]},
     )
     assert resp.status_code == 200
-    assert resp.json() == {"enabled_broker_ids": ["beenverified", "spokeo"]}
+    data = resp.json()
+    assert data["enabled_broker_ids"] == ["beenverified", "spokeo"]
+    assert data["selection_document_size_bytes"] > 0
+    assert data["selection_size_warning"] is None
 
     # Subsequent GET returns the same normalized list.
     get_resp = client.get("/api/brokers/selections")
-    assert get_resp.json() == {"enabled_broker_ids": ["beenverified", "spokeo"]}
+    assert get_resp.json()["enabled_broker_ids"] == ["beenverified", "spokeo"]
 
 
 def test_put_broker_selections_rejects_unknown_broker(client):
@@ -646,7 +652,7 @@ def test_put_broker_selections_rejects_unknown_broker(client):
 
     # The rejection must not partially apply.
     get_resp = client.get("/api/brokers/selections")
-    assert get_resp.json() == {"enabled_broker_ids": []}
+    assert get_resp.json()["enabled_broker_ids"] == []
 
 
 def test_put_broker_selections_accepts_empty_list(client):
@@ -659,7 +665,7 @@ def test_put_broker_selections_accepts_empty_list(client):
         json={"enabled_broker_ids": []},
     )
     assert resp.status_code == 200
-    assert resp.json() == {"enabled_broker_ids": []}
+    assert resp.json()["enabled_broker_ids"] == []
 
 
 # --- Settings endpoints ---

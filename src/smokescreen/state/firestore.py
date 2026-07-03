@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+import structlog
 from google.cloud import firestore
 
 from smokescreen.models import (
@@ -18,6 +19,13 @@ from smokescreen.models import (
     parse_broker_status,
     utc_now,
 )
+from smokescreen.state.selection_size import (
+    broker_selection_document,
+    broker_selection_size_warning,
+    estimate_broker_selection_document_size_bytes,
+)
+
+log = structlog.get_logger()
 
 
 class FirestoreStore:
@@ -312,10 +320,18 @@ class FirestoreStore:
             normalized.append(broker_id)
         normalized.sort()
 
+        updated_at = utc_now().isoformat()
+        warning = broker_selection_size_warning(normalized, updated_at)
+        if warning:
+            log.warning(
+                "broker_selections_size_warning",
+                message=warning,
+                size_bytes=estimate_broker_selection_document_size_bytes(
+                    normalized, updated_at
+                ),
+            )
+
         self._broker_selections_ref().set(
-            {
-                "enabled_broker_ids": normalized,
-                "updated_at": utc_now().isoformat(),
-            }
+            broker_selection_document(normalized, updated_at)
         )
         return normalized

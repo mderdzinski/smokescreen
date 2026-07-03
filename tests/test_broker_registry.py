@@ -20,8 +20,8 @@ def test_get_by_id():
     registry = BrokerRegistry.from_yaml()
     broker = registry.get("spokeo")
     assert broker is not None
-    assert broker.name == "Spokeo"
-    assert broker.privacy_email == "privacy@spokeo.com"
+    assert broker.name == "Spokeo, Inc."
+    assert broker.privacy_email == "jmatthes@spokeo.com"
 
 
 def test_get_by_domain():

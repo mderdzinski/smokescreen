@@ -259,6 +259,8 @@ export interface AppVersion {
 
 export interface BrokerSelections {
   enabled_broker_ids: string[];
+  selection_document_size_bytes: number;
+  selection_size_warning: string | null;
 }
 
 export const api = {

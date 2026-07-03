@@ -56,7 +56,14 @@ export function renderWithProviders(ui: ReactElement, options: RenderWithProvide
 // version, etc.) they don't care about.
 const DEFAULT_ROUTES: MockApiRoute[] = [
   { body: [], path: "/api/brokers" },
-  { body: { enabled_broker_ids: [] }, path: "/api/brokers/selections" },
+  {
+    body: {
+      enabled_broker_ids: [],
+      selection_document_size_bytes: 25,
+      selection_size_warning: null,
+    },
+    path: "/api/brokers/selections",
+  },
   { body: [], path: "/api/optouts" },
   { body: [], path: "/api/whitelist" },
   { body: [], path: "/api/whitelist/pending" },
