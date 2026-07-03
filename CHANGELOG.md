@@ -1,3 +1,10 @@
+# [0.12.0](https://github.com/mderdzinski/smokescreen/compare/v0.11.1...v0.12.0) (2026-07-03)
+
+
+### Features
+
+* wire brokers outreach throw overlay ([0833d09](https://github.com/mderdzinski/smokescreen/commit/0833d09497bf332a588d940c3618c6e214e58885))
+
 ## [0.11.1](https://github.com/mderdzinski/smokescreen/compare/v0.11.0...v0.11.1) (2026-07-03)
 
 
