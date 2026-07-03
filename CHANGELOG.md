@@ -1,3 +1,10 @@
+## [0.18.1](https://github.com/mderdzinski/smokescreen/compare/v0.18.0...v0.18.1) (2026-07-03)
+
+
+### Bug Fixes
+
+* **infra:** manage Firestore composite indexes in Terraform ([67c35ee](https://github.com/mderdzinski/smokescreen/commit/67c35ee54f31af3bd65d22459f079b6c2c77abcf))
+
 # [0.18.0](https://github.com/mderdzinski/smokescreen/compare/v0.17.0...v0.18.0) (2026-07-03)
 
 
