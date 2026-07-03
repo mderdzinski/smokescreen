@@ -1,3 +1,10 @@
+## [0.19.1](https://github.com/mderdzinski/smokescreen/compare/v0.19.0...v0.19.1) (2026-07-03)
+
+
+### Bug Fixes
+
+* harden re-request cadence with aware UTC ([de27fe7](https://github.com/mderdzinski/smokescreen/commit/de27fe78e39e363f42f7dce616e152f791b8ca5d))
+
 # [0.19.0](https://github.com/mderdzinski/smokescreen/compare/v0.18.1...v0.19.0) (2026-07-03)
 
 
