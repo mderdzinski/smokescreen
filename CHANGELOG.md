@@ -1,3 +1,10 @@
+# [0.11.0](https://github.com/mderdzinski/smokescreen/compare/v0.10.0...v0.11.0) (2026-07-03)
+
+
+### Features
+
+* add shared switch primitive ([078ca65](https://github.com/mderdzinski/smokescreen/commit/078ca65fc58c8a7c795be99cb12795b8dc7aa968))
+
 # [0.10.0](https://github.com/mderdzinski/smokescreen/compare/v0.9.0...v0.10.0) (2026-07-03)
 
 
