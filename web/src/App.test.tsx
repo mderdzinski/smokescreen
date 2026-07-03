@@ -164,11 +164,14 @@ describe("App", () => {
 
     renderWithProviders(<App />);
 
-    expect(screen.getByRole("link", { name: "Status" })).toHaveAttribute("href", "/");
-    expect(screen.getByRole("link", { name: "Setup" })).toHaveAttribute("href", "/setup");
-    expect(screen.getByRole("link", { name: "Brokers" })).toHaveAttribute("href", "/brokers");
-    expect(screen.getByRole("link", { name: /Needs Attention/ })).toHaveAttribute("href", "/needs-attention");
-    expect(screen.getByRole("link", { name: "Status" })).toHaveAttribute("aria-current", "page");
+    const primaryNav = screen.getByRole("navigation", { name: "Primary" });
+    expect(within(primaryNav).getAllByRole("link")).toHaveLength(4);
+    expect(within(primaryNav).getByRole("link", { name: "Status" })).toHaveAttribute("href", "/");
+    expect(within(primaryNav).getByRole("link", { name: "Brokers" })).toHaveAttribute("href", "/brokers");
+    expect(within(primaryNav).getByRole("link", { name: /Needs Attention/ })).toHaveAttribute("href", "/needs-attention");
+    expect(within(primaryNav).getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings");
+    expect(within(primaryNav).queryByRole("link", { name: "Setup" })).not.toBeInTheDocument();
+    expect(within(primaryNav).getByRole("link", { name: "Status" })).toHaveAttribute("aria-current", "page");
     expect(await screen.findByText("2")).toHaveClass("ss-badge-live");
   });
 
@@ -211,15 +214,16 @@ describe("App", () => {
       { body: { version: "0.1.0" }, path: "/api/version" },
     ]);
 
-    renderWithProviders(<App />, { route: "/setup" });
+    renderWithProviders(<App />, { route: "/settings" });
 
     const statusTab = screen.getByRole("link", { name: "Status" });
-    const setupTab = screen.getByRole("link", { name: "Setup" });
+    const settingsTab = screen.getByRole("link", { name: "Settings" });
 
     expect(statusTab).not.toHaveAttribute("aria-current");
     expect(statusTab.querySelector("[data-ss-active-tab-rule='true']")).toBeNull();
-    expect(setupTab).toHaveAttribute("aria-current", "page");
-    expect(setupTab.querySelector("[data-ss-active-tab-rule='true']")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Setup" })).not.toBeInTheDocument();
+    expect(settingsTab).toHaveAttribute("aria-current", "page");
+    expect(settingsTab.querySelector("[data-ss-active-tab-rule='true']")).toBeInTheDocument();
   });
 
   it("shows a sign-out button linking to the signed-out route and surfaces the operator email", async () => {

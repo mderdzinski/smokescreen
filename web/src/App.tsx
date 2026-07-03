@@ -197,9 +197,9 @@ function formatUpdatedAgo(value: string): string {
 
 const appTabs = [
   { id: "status", label: "Status", to: "/" },
-  { id: "setup", label: "Setup", to: "/setup" },
   { id: "brokers", label: "Brokers", to: "/brokers" },
   { id: "attention", label: "Needs Attention", to: "/needs-attention", showAttentionCount: true },
+  { id: "settings", label: "Settings", to: "/settings" },
 ] as const;
 
 function AppNavLink({
