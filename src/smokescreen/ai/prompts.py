@@ -8,8 +8,10 @@ Classify the reply into exactly one category:
 
 - ACKNOWLEDGMENT: The broker acknowledges receipt and says they will process \
 the request.
-- IDENTITY_REQUEST: The broker asks for identity verification documents \
-(ID, proof of address, etc).
+- INFO_REQUEST: The broker asks for additional information before proceeding. \
+This includes identity or address verification (ID, proof of address, phone \
+verification), account numbers, previous email addresses, or any other \
+follow-up data needed to locate or confirm the request.
 - COMPLETED: The broker confirms the data has been deleted or the opt-out is complete.
 - REJECTED: The broker refuses the request (not applicable, not a valid request, etc).
 - NEEDS_MANUAL: The reply is confusing, contains a portal link to complete manually, \
@@ -42,6 +44,6 @@ Their message:
 
 Our sender name: {sender_name}
 
-Compose an appropriate reply. If the classification is IDENTITY_REQUEST, \
-mention that identity documents are attached (they will be attached separately). \
-Keep it under 200 words."""
+Compose an appropriate reply. If the classification is INFO_REQUEST, \
+note that any documents on file are attached separately and confirm we can \
+supply anything else they need to proceed. Keep it under 200 words."""

@@ -730,6 +730,7 @@ ENV_CONTROLLED_FIELDS: tuple[str, ...] = (
     "gemini_project",
     "gemini_location",
     "rerequest_interval_days",
+    "state_timeout_days",
 )
 
 
@@ -748,6 +749,7 @@ FRIENDLY_SETTINGS_FIELDS: tuple[str, ...] = (
     "anthropic_api_key",
     "identity_docs_dir",
     "rerequest_interval_days",
+    "state_timeout_days",
 )
 
 ADVANCED_SETTINGS_FIELDS: tuple[str, ...] = (
@@ -780,6 +782,7 @@ class SettingsUpdate(BaseModel):
     poll_label: str | None = None
     dry_run: bool | None = None
     rerequest_interval_days: int | None = None
+    state_timeout_days: int | None = None
 
 
 def _settings_response(
@@ -816,6 +819,7 @@ def _settings_response(
         data["rerequest_interval_days_from_env"] = _field_from_env(
             "rerequest_interval_days"
         )
+        data["state_timeout_days_from_env"] = _field_from_env("state_timeout_days")
         data["ai_provider"] = settings.ai_provider
         data["anthropic_key_from_secret"] = _field_from_env("anthropic_api_key")
         data["gmail_configured"] = (

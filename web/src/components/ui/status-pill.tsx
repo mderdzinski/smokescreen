@@ -5,9 +5,13 @@ import { cn } from "../../lib/utils";
 export type BrokerStatus =
   | "PENDING"
   | "INITIAL_SENT"
+  | "INITIAL_SENT_PINGED"
   | "AWAITING_RESPONSE"
-  | "IDENTITY_REQUESTED"
-  | "IDENTITY_SENT"
+  | "AWAITING_RESPONSE_PINGED"
+  | "INFO_REQUESTED"
+  | "INFO_REQUESTED_PINGED"
+  | "FOLLOW_UP_SENT"
+  | "FOLLOW_UP_SENT_PINGED"
   | "COMPLETED"
   | "REJECTED"
   | "NEEDS_MANUAL"
@@ -18,9 +22,13 @@ type StatusTone = "working" | "done" | "attention" | "idle";
 export const BROKER_STATUS_DISPLAY: Record<BrokerStatus, { tone: StatusTone; label: string }> = {
   PENDING: { tone: "working", label: "Queued" },
   INITIAL_SENT: { tone: "working", label: "Request sent" },
+  INITIAL_SENT_PINGED: { tone: "working", label: "Pinged" },
   AWAITING_RESPONSE: { tone: "working", label: "Awaiting broker" },
-  IDENTITY_REQUESTED: { tone: "working", label: "ID requested" },
-  IDENTITY_SENT: { tone: "working", label: "ID sent" },
+  AWAITING_RESPONSE_PINGED: { tone: "working", label: "Pinged" },
+  INFO_REQUESTED: { tone: "working", label: "Info requested" },
+  INFO_REQUESTED_PINGED: { tone: "working", label: "Pinged" },
+  FOLLOW_UP_SENT: { tone: "working", label: "Follow-up sent" },
+  FOLLOW_UP_SENT_PINGED: { tone: "working", label: "Pinged" },
   COMPLETED: { tone: "done", label: "Removed" },
   REJECTED: { tone: "attention", label: "Blocked" },
   NEEDS_MANUAL: { tone: "attention", label: "Review" },

@@ -76,9 +76,13 @@ interface BrokerStatusCopy {
 const brokerStatusGroup: Record<BrokerStatus, BrokerStatusGroup> = {
   PENDING: "working",
   INITIAL_SENT: "working",
+  INITIAL_SENT_PINGED: "working",
   AWAITING_RESPONSE: "working",
-  IDENTITY_REQUESTED: "working",
-  IDENTITY_SENT: "working",
+  AWAITING_RESPONSE_PINGED: "working",
+  INFO_REQUESTED: "working",
+  INFO_REQUESTED_PINGED: "working",
+  FOLLOW_UP_SENT: "working",
+  FOLLOW_UP_SENT_PINGED: "working",
   COMPLETED: "done",
   REJECTED: "attention",
   NEEDS_MANUAL: "attention",
@@ -96,20 +100,40 @@ const brokerStatusCopy: Record<BrokerStatus, BrokerStatusCopy> = {
     label: "Request sent",
     description: "The broker has the opt-out request.",
   },
+  INITIAL_SENT_PINGED: {
+    group: brokerStatusGroup.INITIAL_SENT_PINGED,
+    label: "Pinged after initial send",
+    description: "Smokescreen sent a status-check ping after a silent period.",
+  },
   AWAITING_RESPONSE: {
     group: brokerStatusGroup.AWAITING_RESPONSE,
     label: "Waiting on broker",
     description: "Smokescreen is watching for the broker's reply.",
   },
-  IDENTITY_REQUESTED: {
-    group: brokerStatusGroup.IDENTITY_REQUESTED,
-    label: "Identity requested",
-    description: "The broker asked for identity details before continuing.",
+  AWAITING_RESPONSE_PINGED: {
+    group: brokerStatusGroup.AWAITING_RESPONSE_PINGED,
+    label: "Pinged waiting broker",
+    description: "Smokescreen sent a status-check ping after a silent period.",
   },
-  IDENTITY_SENT: {
-    group: brokerStatusGroup.IDENTITY_SENT,
-    label: "Identity sent",
-    description: "Smokescreen sent the requested identity details.",
+  INFO_REQUESTED: {
+    group: brokerStatusGroup.INFO_REQUESTED,
+    label: "Info requested",
+    description: "The broker asked for additional information before continuing.",
+  },
+  INFO_REQUESTED_PINGED: {
+    group: brokerStatusGroup.INFO_REQUESTED_PINGED,
+    label: "Pinged after info request",
+    description: "Smokescreen pinged after a silent info-request period.",
+  },
+  FOLLOW_UP_SENT: {
+    group: brokerStatusGroup.FOLLOW_UP_SENT,
+    label: "Follow-up sent",
+    description: "Smokescreen sent the requested follow-up information.",
+  },
+  FOLLOW_UP_SENT_PINGED: {
+    group: brokerStatusGroup.FOLLOW_UP_SENT_PINGED,
+    label: "Pinged after follow-up",
+    description: "Smokescreen pinged after the follow-up went unanswered.",
   },
   COMPLETED: {
     group: brokerStatusGroup.COMPLETED,
@@ -590,7 +614,10 @@ type AdvancedForm = {
 
 const REREQUEST_INTERVAL_MIN_DAYS = 7;
 const REREQUEST_INTERVAL_MAX_DAYS = 365;
-const REREQUEST_INTERVAL_DEFAULT_DAYS = 60;
+const REREQUEST_INTERVAL_DEFAULT_DAYS = 30;
+const STATE_TIMEOUT_MIN_DAYS = 1;
+const STATE_TIMEOUT_MAX_DAYS = 90;
+const STATE_TIMEOUT_DEFAULT_DAYS = 14;
 
 const emptyIdentityForm: IdentityForm = {
   sender_name: "",
@@ -620,6 +647,21 @@ function validateRerequestInterval(raw: string): string | null {
   return null;
 }
 
+function validateStateTimeout(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") {
+    return "Enter a number of days.";
+  }
+  const value = Number(trimmed);
+  if (!Number.isFinite(value) || !Number.isInteger(value)) {
+    return "Enter a whole number of days.";
+  }
+  if (value < STATE_TIMEOUT_MIN_DAYS || value > STATE_TIMEOUT_MAX_DAYS) {
+    return `Choose a value between ${STATE_TIMEOUT_MIN_DAYS} and ${STATE_TIMEOUT_MAX_DAYS} days.`;
+  }
+  return null;
+}
+
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const settingsQuery = useSettings();
@@ -632,9 +674,12 @@ export function SettingsPage() {
   const [rerequestIntervalInput, setRerequestIntervalInput] = useState(
     String(REREQUEST_INTERVAL_DEFAULT_DAYS),
   );
+  const [stateTimeoutInput, setStateTimeoutInput] = useState(String(STATE_TIMEOUT_DEFAULT_DAYS));
   const [message, setMessage] = useState("");
   const rerequestIntervalError = validateRerequestInterval(rerequestIntervalInput);
   const rerequestIntervalLocked = Boolean(settings?.rerequest_interval_days_from_env);
+  const stateTimeoutError = validateStateTimeout(stateTimeoutInput);
+  const stateTimeoutLocked = Boolean(settings?.state_timeout_days_from_env);
   const error = settingsQuery.error ?? advancedQuery.error;
   const settingsLoading = (settingsQuery.isLoading && !settings) || (advancedQuery.isLoading && !advancedSettings);
   const retrySettings = () => {
@@ -661,6 +706,7 @@ export function SettingsPage() {
         identity_docs_dir: settings.identity_docs_dir,
       });
       setRerequestIntervalInput(String(settings.rerequest_interval_days));
+      setStateTimeoutInput(String(settings.state_timeout_days));
     }
   }, [settings]);
 
@@ -723,6 +769,16 @@ export function SettingsPage() {
     }
     updateMutation.mutate({
       rerequest_interval_days: Number(rerequestIntervalInput),
+    });
+  }
+
+  function saveStateTimeout(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (stateTimeoutError) {
+      return;
+    }
+    updateMutation.mutate({
+      state_timeout_days: Number(stateTimeoutInput),
     });
   }
 
@@ -881,7 +937,8 @@ export function SettingsPage() {
                   can re-add your info after deletion; periodic re-requests keep
                   them honest. Lower values send more email; higher values may let
                   stale data linger. Allowed: {REREQUEST_INTERVAL_MIN_DAYS}–
-                  {REREQUEST_INTERVAL_MAX_DAYS} days. Default: {REREQUEST_INTERVAL_DEFAULT_DAYS} days.
+                  {REREQUEST_INTERVAL_MAX_DAYS} days. Default: monthly
+                  ({REREQUEST_INTERVAL_DEFAULT_DAYS} days).
                   {rerequestIntervalLocked ? (
                     <>
                       {" "}
@@ -903,6 +960,52 @@ export function SettingsPage() {
             >
               <Save className="h-4 w-4" />
               Save cadence
+            </Button>
+          </form>
+        </SettingsCard>
+
+        <SettingsCard
+          icon={<Clock3 className="h-5 w-5" />}
+          title="Silent-broker timeout"
+          description="How long to wait for a broker reply before smokescreen sends a follow-up ping."
+        >
+          <form className="grid gap-4" onSubmit={saveStateTimeout}>
+            <SettingsInput
+              label="Timeout for silent brokers"
+              type="number"
+              min={STATE_TIMEOUT_MIN_DAYS}
+              max={STATE_TIMEOUT_MAX_DAYS}
+              value={stateTimeoutInput}
+              onChange={setStateTimeoutInput}
+              error={stateTimeoutError}
+              readOnly={stateTimeoutLocked}
+              hint={
+                <>
+                  After this many days without a response, smokescreen sends a
+                  polite follow-up. After a second silent period, the record is
+                  flagged for human review. Allowed: {STATE_TIMEOUT_MIN_DAYS}–
+                  {STATE_TIMEOUT_MAX_DAYS} days. Default: {STATE_TIMEOUT_DEFAULT_DAYS} days.
+                  {stateTimeoutLocked ? (
+                    <>
+                      {" "}
+                      This value is set from the deployment environment
+                      (SMOKESCREEN_STATE_TIMEOUT_DAYS) and cannot be edited
+                      from the dashboard.
+                    </>
+                  ) : null}
+                </>
+              }
+            />
+            <Button
+              type="submit"
+              disabled={
+                Boolean(stateTimeoutError) ||
+                stateTimeoutLocked ||
+                updateMutation.isPending
+              }
+            >
+              <Save className="h-4 w-4" />
+              Save timeout
             </Button>
           </form>
         </SettingsCard>

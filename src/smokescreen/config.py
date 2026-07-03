@@ -141,12 +141,22 @@ class Settings(BaseSettings):
         description="If true, don't actually send emails or update state",
     )
     rerequest_interval_days: int = Field(
-        default=60,
+        default=30,
         ge=7,
         le=365,
         description=(
             "Days after completion before re-sending a deletion request. "
             "Must be between 7 and 365."
+        ),
+    )
+    state_timeout_days: int = Field(
+        default=14,
+        ge=1,
+        le=90,
+        description=(
+            "Days a waiting broker record can sit without a state change "
+            "before smokescreen pings the broker. A second silent period of "
+            "the same length escalates the record to NEEDS_MANUAL."
         ),
     )
 

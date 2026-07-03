@@ -13,20 +13,52 @@ class BrokerStatus(str, enum.Enum):
 
     PENDING = "PENDING"
     INITIAL_SENT = "INITIAL_SENT"
+    INITIAL_SENT_PINGED = "INITIAL_SENT_PINGED"
     AWAITING_RESPONSE = "AWAITING_RESPONSE"
-    IDENTITY_REQUESTED = "IDENTITY_REQUESTED"
-    IDENTITY_SENT = "IDENTITY_SENT"
+    AWAITING_RESPONSE_PINGED = "AWAITING_RESPONSE_PINGED"
+    INFO_REQUESTED = "INFO_REQUESTED"
+    INFO_REQUESTED_PINGED = "INFO_REQUESTED_PINGED"
+    FOLLOW_UP_SENT = "FOLLOW_UP_SENT"
+    FOLLOW_UP_SENT_PINGED = "FOLLOW_UP_SENT_PINGED"
     COMPLETED = "COMPLETED"
     REJECTED = "REJECTED"
     FAILED = "FAILED"
     NEEDS_MANUAL = "NEEDS_MANUAL"
 
 
+# Legacy stored status values → current BrokerStatus, for read-time
+# backwards compatibility on local/dev stores that predate sm-aa1.
+LEGACY_STATUS_ALIASES: dict[str, BrokerStatus] = {
+    "IDENTITY_REQUESTED": BrokerStatus.INFO_REQUESTED,
+    "IDENTITY_SENT": BrokerStatus.FOLLOW_UP_SENT,
+}
+
+
+def parse_broker_status(raw: str) -> BrokerStatus:
+    """Coerce a stored status string into a BrokerStatus.
+
+    Applies read-time compatibility for renamed states; logs a warning when
+    a legacy value is coerced so operators know old data is being migrated
+    in flight.
+    """
+    if raw in LEGACY_STATUS_ALIASES:
+        mapped = LEGACY_STATUS_ALIASES[raw]
+        import structlog
+
+        structlog.get_logger().warning(
+            "broker_status_legacy_alias",
+            stored=raw,
+            mapped_to=mapped.value,
+        )
+        return mapped
+    return BrokerStatus(raw)
+
+
 class ReplyClassification(str, enum.Enum):
     """Classification of a broker's email reply."""
 
     ACKNOWLEDGMENT = "ACKNOWLEDGMENT"
-    IDENTITY_REQUEST = "IDENTITY_REQUEST"
+    INFO_REQUEST = "INFO_REQUEST"
     COMPLETED = "COMPLETED"
     REJECTED = "REJECTED"
     NEEDS_MANUAL = "NEEDS_MANUAL"

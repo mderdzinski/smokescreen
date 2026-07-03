@@ -2,8 +2,9 @@
 
 from smokescreen.email.templates import (
     render_follow_up,
-    render_identity_response,
+    render_follow_up_response,
     render_initial_opt_out,
+    render_silent_ping,
 )
 
 
@@ -19,14 +20,14 @@ def test_initial_opt_out_template():
     assert "deletion" in result.lower()
 
 
-def test_identity_response_template():
-    result = render_identity_response(
+def test_follow_up_response_template():
+    result = render_follow_up_response(
         broker_name="Spokeo",
         sender_name="John Doe",
     )
     assert "Spokeo" in result
     assert "John Doe" in result
-    assert "identity" in result.lower() or "verification" in result.lower()
+    assert "additional information" in result.lower()
 
 
 def test_follow_up_template():
@@ -38,3 +39,10 @@ def test_follow_up_template():
     assert "Spokeo" in result
     assert "2024-01-15" in result
     assert "follow" in result.lower()
+
+
+def test_silent_ping_template():
+    result = render_silent_ping(broker_name="Spokeo", sender_name="John Doe")
+    assert "Spokeo" in result
+    assert "John Doe" in result
+    assert "follow" in result.lower() or "status" in result.lower()

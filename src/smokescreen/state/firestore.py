@@ -14,6 +14,7 @@ from smokescreen.models import (
     PendingWhitelistStatus,
     WhitelistEntry,
     WhitelistSource,
+    parse_broker_status,
 )
 
 
@@ -82,7 +83,7 @@ class FirestoreStore:
     def _doc_to_record(self, broker_id: str, data: dict) -> OptOutRecord:
         return OptOutRecord(
             broker_id=broker_id,
-            status=BrokerStatus(data["status"]),
+            status=parse_broker_status(data["status"]),
             retries=data.get("retries", 0),
             thread_id=data.get("thread_id"),
             last_message_id=data.get("last_message_id"),

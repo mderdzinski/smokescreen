@@ -56,10 +56,21 @@ variable "dashboard_allowed_user" {
 variable "rerequest_interval_days" {
   description = "Days between deletion re-requests to the same broker. Must be between 7 and 365."
   type        = number
-  default     = 60
+  default     = 30
 
   validation {
     condition     = var.rerequest_interval_days >= 7 && var.rerequest_interval_days <= 365
     error_message = "rerequest_interval_days must be between 7 and 365."
+  }
+}
+
+variable "state_timeout_days" {
+  description = "Days a waiting broker record can stall before smokescreen pings; a second silent period escalates it to human review."
+  type        = number
+  default     = 14
+
+  validation {
+    condition     = var.state_timeout_days >= 1 && var.state_timeout_days <= 90
+    error_message = "state_timeout_days must be between 1 and 90."
   }
 }

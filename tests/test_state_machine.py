@@ -9,11 +9,11 @@ from smokescreen.state.machine import InvalidTransition, validate_transition
 def test_valid_transitions():
     validate_transition(BrokerStatus.PENDING, BrokerStatus.INITIAL_SENT)
     validate_transition(BrokerStatus.INITIAL_SENT, BrokerStatus.AWAITING_RESPONSE)
-    validate_transition(BrokerStatus.INITIAL_SENT, BrokerStatus.IDENTITY_REQUESTED)
+    validate_transition(BrokerStatus.INITIAL_SENT, BrokerStatus.INFO_REQUESTED)
     validate_transition(BrokerStatus.AWAITING_RESPONSE, BrokerStatus.COMPLETED)
-    validate_transition(BrokerStatus.AWAITING_RESPONSE, BrokerStatus.IDENTITY_REQUESTED)
-    validate_transition(BrokerStatus.IDENTITY_REQUESTED, BrokerStatus.IDENTITY_SENT)
-    validate_transition(BrokerStatus.IDENTITY_SENT, BrokerStatus.AWAITING_RESPONSE)
+    validate_transition(BrokerStatus.AWAITING_RESPONSE, BrokerStatus.INFO_REQUESTED)
+    validate_transition(BrokerStatus.INFO_REQUESTED, BrokerStatus.FOLLOW_UP_SENT)
+    validate_transition(BrokerStatus.FOLLOW_UP_SENT, BrokerStatus.AWAITING_RESPONSE)
 
 
 def test_invalid_transition_pending_to_completed():
@@ -45,9 +45,46 @@ def test_needs_manual_can_reset():
     validate_transition(BrokerStatus.NEEDS_MANUAL, BrokerStatus.COMPLETED)
 
 
+def test_pinged_transitions():
+    """Every waiting state can transition to its paired pinged variant, and
+    every pinged variant can escalate to NEEDS_MANUAL."""
+    validate_transition(
+        BrokerStatus.INITIAL_SENT, BrokerStatus.INITIAL_SENT_PINGED
+    )
+    validate_transition(
+        BrokerStatus.AWAITING_RESPONSE, BrokerStatus.AWAITING_RESPONSE_PINGED
+    )
+    validate_transition(
+        BrokerStatus.INFO_REQUESTED, BrokerStatus.INFO_REQUESTED_PINGED
+    )
+    validate_transition(
+        BrokerStatus.FOLLOW_UP_SENT, BrokerStatus.FOLLOW_UP_SENT_PINGED
+    )
+
+    validate_transition(BrokerStatus.INITIAL_SENT_PINGED, BrokerStatus.NEEDS_MANUAL)
+    validate_transition(
+        BrokerStatus.AWAITING_RESPONSE_PINGED, BrokerStatus.NEEDS_MANUAL
+    )
+    validate_transition(BrokerStatus.INFO_REQUESTED_PINGED, BrokerStatus.NEEDS_MANUAL)
+    validate_transition(BrokerStatus.FOLLOW_UP_SENT_PINGED, BrokerStatus.NEEDS_MANUAL)
+
+
+def test_pinged_states_cannot_double_ping():
+    """A pinged state has no transition back to itself; escalation is
+    NEEDS_MANUAL, not another ping."""
+    with pytest.raises(InvalidTransition):
+        validate_transition(
+            BrokerStatus.INITIAL_SENT_PINGED, BrokerStatus.INITIAL_SENT_PINGED
+        )
+
+
 def test_any_active_state_can_fail():
     validate_transition(BrokerStatus.PENDING, BrokerStatus.FAILED)
     validate_transition(BrokerStatus.INITIAL_SENT, BrokerStatus.FAILED)
+    validate_transition(BrokerStatus.INITIAL_SENT_PINGED, BrokerStatus.FAILED)
     validate_transition(BrokerStatus.AWAITING_RESPONSE, BrokerStatus.FAILED)
-    validate_transition(BrokerStatus.IDENTITY_REQUESTED, BrokerStatus.FAILED)
-    validate_transition(BrokerStatus.IDENTITY_SENT, BrokerStatus.FAILED)
+    validate_transition(BrokerStatus.AWAITING_RESPONSE_PINGED, BrokerStatus.FAILED)
+    validate_transition(BrokerStatus.INFO_REQUESTED, BrokerStatus.FAILED)
+    validate_transition(BrokerStatus.INFO_REQUESTED_PINGED, BrokerStatus.FAILED)
+    validate_transition(BrokerStatus.FOLLOW_UP_SENT, BrokerStatus.FAILED)
+    validate_transition(BrokerStatus.FOLLOW_UP_SENT_PINGED, BrokerStatus.FAILED)

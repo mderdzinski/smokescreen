@@ -6,6 +6,7 @@ from smokescreen.models import (
     EmailMessage,
     OptOutRecord,
     ReplyClassification,
+    parse_broker_status,
 )
 
 
@@ -41,4 +42,30 @@ def test_email_message_defaults():
 
 def test_reply_classification_values():
     assert ReplyClassification.ACKNOWLEDGMENT.value == "ACKNOWLEDGMENT"
-    assert ReplyClassification.IDENTITY_REQUEST.value == "IDENTITY_REQUEST"
+    assert ReplyClassification.INFO_REQUEST.value == "INFO_REQUEST"
+
+
+def test_parse_broker_status_current_names():
+    assert parse_broker_status("INITIAL_SENT") is BrokerStatus.INITIAL_SENT
+    assert parse_broker_status("INFO_REQUESTED") is BrokerStatus.INFO_REQUESTED
+    assert parse_broker_status("FOLLOW_UP_SENT") is BrokerStatus.FOLLOW_UP_SENT
+    assert (
+        parse_broker_status("INFO_REQUESTED_PINGED")
+        is BrokerStatus.INFO_REQUESTED_PINGED
+    )
+
+
+def test_parse_broker_status_legacy_identity_aliases():
+    """Old records with IDENTITY_* names get remapped at read time."""
+    assert parse_broker_status("IDENTITY_REQUESTED") is BrokerStatus.INFO_REQUESTED
+    assert parse_broker_status("IDENTITY_SENT") is BrokerStatus.FOLLOW_UP_SENT
+
+
+def test_parse_broker_status_new_pinged_states_exist():
+    for name in (
+        "INITIAL_SENT_PINGED",
+        "AWAITING_RESPONSE_PINGED",
+        "INFO_REQUESTED_PINGED",
+        "FOLLOW_UP_SENT_PINGED",
+    ):
+        assert BrokerStatus(name).value == name

@@ -194,6 +194,10 @@ resource "google_cloud_run_v2_service" "dashboard" {
         value = tostring(var.rerequest_interval_days)
       }
       env {
+        name  = "SMOKESCREEN_STATE_TIMEOUT_DAYS"
+        value = tostring(var.state_timeout_days)
+      }
+      env {
         name = "SMOKESCREEN_GMAIL_CREDENTIALS_JSON"
         value_source {
           secret_key_ref {
@@ -308,6 +312,10 @@ resource "google_cloud_run_v2_job" "poll_and_reply" {
           value = tostring(var.rerequest_interval_days)
         }
         env {
+          name  = "SMOKESCREEN_STATE_TIMEOUT_DAYS"
+          value = tostring(var.state_timeout_days)
+        }
+        env {
           name = "SMOKESCREEN_GMAIL_CREDENTIALS_JSON"
           value_source {
             secret_key_ref {
@@ -404,6 +412,10 @@ resource "google_cloud_run_v2_job" "outreach" {
         env {
           name  = "SMOKESCREEN_REREQUEST_INTERVAL_DAYS"
           value = tostring(var.rerequest_interval_days)
+        }
+        env {
+          name  = "SMOKESCREEN_STATE_TIMEOUT_DAYS"
+          value = tostring(var.state_timeout_days)
         }
         env {
           name = "SMOKESCREEN_GMAIL_CREDENTIALS_JSON"

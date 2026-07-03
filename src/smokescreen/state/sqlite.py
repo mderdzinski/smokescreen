@@ -13,6 +13,7 @@ from smokescreen.models import (
     PendingWhitelistStatus,
     WhitelistEntry,
     WhitelistSource,
+    parse_broker_status,
 )
 
 
@@ -78,7 +79,7 @@ class SQLiteStore:
         lca = row["last_completed_at"]
         return OptOutRecord(
             broker_id=row["broker_id"],
-            status=BrokerStatus(row["status"]),
+            status=parse_broker_status(row["status"]),
             retries=row["retries"],
             thread_id=row["thread_id"],
             last_message_id=row["last_message_id"],

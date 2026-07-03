@@ -139,7 +139,8 @@ def test_opt_out_record_last_completed_at_default():
 
 def test_settings_rerequest_interval_default():
     s = Settings(sender_email="t@t.com", sender_name="T")
-    assert s.rerequest_interval_days == 60
+    # sm-aa1: product default is now monthly (30 days).
+    assert s.rerequest_interval_days == 30
 
 
 def test_settings_rerequest_interval_custom():
@@ -248,3 +249,55 @@ def test_sqlite_last_completed_at_null(tmp_path):
     fetched = store.get("a")
     assert fetched.last_completed_at is None
     store.close()
+
+
+# --- state_timeout_days config (sm-aa1) ---
+
+
+def test_settings_state_timeout_default_is_14_days():
+    s = Settings(sender_email="t@t.com", sender_name="T")
+    assert s.state_timeout_days == 14
+
+
+@pytest.mark.parametrize("value", [1, 14, 90])
+def test_settings_state_timeout_accepts_boundary(value):
+    s = Settings(sender_email="t@t.com", sender_name="T", state_timeout_days=value)
+    assert s.state_timeout_days == value
+
+
+@pytest.mark.parametrize("value", [0, -1, 91, 365])
+def test_settings_state_timeout_rejects_out_of_bounds(value):
+    with pytest.raises(ValidationError):
+        Settings(sender_email="t@t.com", sender_name="T", state_timeout_days=value)
+
+
+# --- Legacy stored status round-trip (sm-aa1) ---
+
+
+def test_sqlite_reads_legacy_identity_status(tmp_path):
+    """A stored record with the pre-sm-aa1 IDENTITY_SENT status value is
+    surfaced to callers as FOLLOW_UP_SENT so the machinery keeps working."""
+    import sqlite3
+
+    store = SQLiteStore(tmp_path / "legacy.db")
+    # Bypass the enum coercion path by writing the legacy value directly.
+    now = datetime.utcnow().isoformat()
+    store._conn.execute(
+        """
+        INSERT INTO opt_outs (
+            broker_id, status, retries, thread_id, last_message_id,
+            created_at, updated_at, last_completed_at, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("legacy", "IDENTITY_SENT", 0, None, None, now, now, None, ""),
+    )
+    store._conn.commit()
+
+    fetched = store.get("legacy")
+    assert fetched is not None
+    assert fetched.status == BrokerStatus.FOLLOW_UP_SENT
+    store.close()
+
+    # sqlite3 imported above to sanity-check sqlite3 stays intact; unused
+    # otherwise, so keep it referenced to avoid a ruff warning.
+    del sqlite3

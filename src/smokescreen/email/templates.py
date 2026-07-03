@@ -33,18 +33,31 @@ Sincerely,
 {{ sender_name }}
 """)
 
-IDENTITY_RESPONSE = _env.from_string("""\
+FOLLOW_UP_RESPONSE = _env.from_string("""\
 Dear {{ broker_name }} Privacy Team,
 
-Thank you for your response. As requested, I am providing identity verification \
-documentation to proceed with my data deletion request.
+Thank you for your response. As requested, I am providing the additional \
+information needed to proceed with my data deletion request.
 
-Please find the attached identity document(s). I trust this satisfies your \
-verification requirements.
+Any documents you asked for are attached. If you require anything further, \
+please let me know and I will supply it promptly.
 
 I look forward to confirmation that my data has been removed.
 
 Sincerely,
+{{ sender_name }}
+""")
+
+SILENT_PING = _env.from_string("""\
+Dear {{ broker_name }} Privacy Team,
+
+I am following up on my earlier data deletion request. I have not yet heard \
+back and wanted to make sure the request was received.
+
+Could you please confirm the current status? If there is anything additional \
+you need from me to proceed, please let me know.
+
+Thank you,
 {{ sender_name }}
 """)
 
@@ -72,8 +85,15 @@ def render_initial_opt_out(
     )
 
 
-def render_identity_response(broker_name: str, sender_name: str) -> str:
-    return IDENTITY_RESPONSE.render(
+def render_follow_up_response(broker_name: str, sender_name: str) -> str:
+    return FOLLOW_UP_RESPONSE.render(
+        broker_name=broker_name,
+        sender_name=sender_name,
+    )
+
+
+def render_silent_ping(broker_name: str, sender_name: str) -> str:
+    return SILENT_PING.render(
         broker_name=broker_name,
         sender_name=sender_name,
     )

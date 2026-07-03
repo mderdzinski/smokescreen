@@ -652,9 +652,12 @@ def test_get_settings(settings_client):
     assert data["gmail_credentials_available"] is False
     assert data["gmail_connected"] is False
     assert data["gmail_connected_email"] == ""
-    # rerequest_interval_days is now a friendly setting (sm-274)
-    assert data["rerequest_interval_days"] == 60
+    # rerequest_interval_days is now a friendly setting (sm-274); the default
+    # changed to 30 days / monthly (sm-aa1).
+    assert data["rerequest_interval_days"] == 30
     assert data["rerequest_interval_days_from_env"] is False
+    assert data["state_timeout_days"] == 14
+    assert data["state_timeout_days_from_env"] is False
     assert "state_backend" not in data
     assert "sqlite_path" not in data
     assert "firestore_project" not in data

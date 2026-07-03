@@ -15,7 +15,7 @@ from smokescreen.ai.classifier import classify_reply, classify_reply_gemini
 from smokescreen.brokers.registry import BrokerRegistry
 from smokescreen.config import Settings
 from smokescreen.email.client import GmailClient
-from smokescreen.email.templates import render_identity_response
+from smokescreen.email.templates import render_follow_up_response, render_silent_ping
 from smokescreen.models import (
     BrokerStatus,
     EmailMessage,
@@ -23,16 +23,22 @@ from smokescreen.models import (
     PendingWhitelistEntry,
     ReplyClassification,
 )
-from smokescreen.state.machine import validate_transition
+from smokescreen.state.machine import PINGED_STATE, WAITING_STATES, validate_transition
 from smokescreen.state.store import StateStore
 
 log = structlog.get_logger()
 
-# States that expect incoming replies
+# States that expect incoming replies (including their pinged variants and
+# the follow-up-sent state that expects a broker response after we replied).
 _ACTIVE_STATES = {
     BrokerStatus.INITIAL_SENT,
+    BrokerStatus.INITIAL_SENT_PINGED,
     BrokerStatus.AWAITING_RESPONSE,
-    BrokerStatus.IDENTITY_SENT,
+    BrokerStatus.AWAITING_RESPONSE_PINGED,
+    BrokerStatus.FOLLOW_UP_SENT,
+    BrokerStatus.FOLLOW_UP_SENT_PINGED,
+    BrokerStatus.INFO_REQUESTED,
+    BrokerStatus.INFO_REQUESTED_PINGED,
 }
 
 
@@ -52,6 +58,9 @@ def run_poll(
 
     if not active_records:
         log.info("poll_no_active_records")
+        # Even with no live thread state, timeout escalation may still be
+        # relevant if pinged records aged past a second window.
+        run_timeout_escalation(settings, registry, store, gmail)
         return []
 
     if gmail is None and not settings.dry_run:
@@ -96,6 +105,11 @@ def run_poll(
         )
         if result:
             processed.append(record.broker_id)
+
+    # Idempotent timeout sweep: run after regular reply processing so that a
+    # broker whose reply landed in the same poll doesn't get a ping in the
+    # same run (its updated_at just moved).
+    processed.extend(run_timeout_escalation(settings, registry, store, gmail))
 
     return processed
 
@@ -337,8 +351,8 @@ def _handle_classification(
         log.info("poll_ack_awaiting", broker=record.broker_id)
         return True
 
-    if classification == ReplyClassification.IDENTITY_REQUEST:
-        return _handle_identity_request(
+    if classification == ReplyClassification.INFO_REQUEST:
+        return _handle_info_request(
             settings=settings,
             record=record,
             broker_name=broker_name,
@@ -368,7 +382,7 @@ def _manual_review_notes(message: EmailMessage) -> str:
     )
 
 
-def _handle_identity_request(
+def _handle_info_request(
     settings: Settings,
     record: OptOutRecord,
     broker_name: str,
@@ -377,7 +391,7 @@ def _handle_identity_request(
     store: StateStore,
     gmail: GmailClient,
 ) -> bool:
-    """Handle an identity verification request from a broker."""
+    """Handle a broker follow-up requesting additional information."""
     now = datetime.utcnow()
 
     if record.retries >= settings.max_retries:
@@ -388,24 +402,24 @@ def _handle_identity_request(
         log.warning("poll_max_retries", broker=record.broker_id)
         return True
 
-    validate_transition(record.status, BrokerStatus.IDENTITY_REQUESTED)
-    record.status = BrokerStatus.IDENTITY_REQUESTED
+    validate_transition(record.status, BrokerStatus.INFO_REQUESTED)
+    record.status = BrokerStatus.INFO_REQUESTED
     record.last_message_id = latest.message_id
     record.updated_at = now
     store.upsert(record)
 
-    # Gather identity docs
+    # Attach identity/supporting docs if the operator has any on file.
     attachment_paths: list[Path] = []
     if settings.identity_docs_dir.exists():
         attachment_paths = list(settings.identity_docs_dir.iterdir())
 
-    body = render_identity_response(
+    body = render_follow_up_response(
         broker_name=broker_name,
         sender_name=settings.sender_name,
     )
 
     if settings.dry_run:
-        log.info("dry_run_identity_reply", broker=record.broker_id)
+        log.info("dry_run_follow_up_reply", broker=record.broker_id)
     else:
         sent = gmail.send(
             to=broker_email,
@@ -418,11 +432,138 @@ def _handle_identity_request(
         )
         record.last_message_id = sent.message_id
 
-    validate_transition(record.status, BrokerStatus.IDENTITY_SENT)
-    record.status = BrokerStatus.IDENTITY_SENT
+    validate_transition(record.status, BrokerStatus.FOLLOW_UP_SENT)
+    record.status = BrokerStatus.FOLLOW_UP_SENT
     record.retries += 1
     record.updated_at = datetime.utcnow()
     store.upsert(record)
 
-    log.info("poll_identity_sent", broker=record.broker_id, retries=record.retries)
+    log.info("poll_follow_up_sent", broker=record.broker_id, retries=record.retries)
     return True
+
+
+def run_timeout_escalation(
+    settings: Settings,
+    registry: BrokerRegistry,
+    store: StateStore,
+    gmail: GmailClient | None,
+    now: datetime | None = None,
+) -> list[str]:
+    """Ping silent brokers and escalate ones that stayed silent again.
+
+    Idempotent: acts only on records whose ``updated_at`` has aged past
+    ``state_timeout_days``. A single normal state transition inside the same
+    window resets the timer via ``updated_at``.
+    """
+    timeout_days = settings.state_timeout_days
+    if timeout_days <= 0:
+        return []
+
+    now = now or datetime.utcnow()
+    processed: list[str] = []
+
+    # Ping first-timeout records (waiting state → paired *_PINGED).
+    for status in WAITING_STATES:
+        for record in store.list_by_status(status):
+            if not _is_stale(record, now, timeout_days):
+                continue
+            broker = registry.get(record.broker_id)
+            if broker is None:
+                log.warning("timeout_unknown_broker", broker_id=record.broker_id)
+                continue
+            _send_silent_ping(
+                settings=settings,
+                record=record,
+                broker_name=broker.name,
+                broker_email=broker.privacy_email,
+                gmail=gmail,
+                store=store,
+                now=now,
+            )
+            processed.append(record.broker_id)
+
+    # Escalate second-timeout records (*_PINGED → NEEDS_MANUAL).
+    for waiting_state, pinged_state in PINGED_STATE.items():
+        for record in store.list_by_status(pinged_state):
+            if not _is_stale(record, now, timeout_days):
+                continue
+            _escalate_to_needs_manual(
+                record=record,
+                previous_state=waiting_state,
+                store=store,
+                now=now,
+            )
+            processed.append(record.broker_id)
+
+    if processed:
+        log.info(
+            "poll_timeout_processed",
+            count=len(processed),
+            timeout_days=timeout_days,
+        )
+    return processed
+
+
+def _is_stale(record: OptOutRecord, now: datetime, timeout_days: int) -> bool:
+    return (now - record.updated_at).days >= timeout_days
+
+
+def _send_silent_ping(
+    settings: Settings,
+    record: OptOutRecord,
+    broker_name: str,
+    broker_email: str,
+    gmail: GmailClient | None,
+    store: StateStore,
+    now: datetime,
+) -> None:
+    """Send a friendly status-check ping and transition to the paired state."""
+    body = render_silent_ping(broker_name=broker_name, sender_name=settings.sender_name)
+
+    if settings.dry_run or gmail is None:
+        log.info(
+            "dry_run_silent_ping",
+            broker=record.broker_id,
+            from_state=record.status.value,
+        )
+    else:
+        sent = gmail.send(
+            to=broker_email,
+            subject=f"Re: deletion request for {settings.sender_name}",
+            body=body,
+            sender=settings.sender_email,
+            sender_name=settings.sender_name,
+            thread_id=record.thread_id,
+        )
+        record.last_message_id = sent.message_id
+
+    next_status = PINGED_STATE[record.status]
+    validate_transition(record.status, next_status)
+    record.status = next_status
+    record.updated_at = now
+    store.upsert(record)
+    log.info(
+        "poll_silent_ping_sent",
+        broker=record.broker_id,
+        new_state=next_status.value,
+    )
+
+
+def _escalate_to_needs_manual(
+    record: OptOutRecord,
+    previous_state: BrokerStatus,
+    store: StateStore,
+    now: datetime,
+) -> None:
+    validate_transition(record.status, BrokerStatus.NEEDS_MANUAL)
+    record.notes = (
+        f"escalated after two silent periods on {previous_state.value}"
+    )
+    record.status = BrokerStatus.NEEDS_MANUAL
+    record.updated_at = now
+    store.upsert(record)
+    log.warning(
+        "poll_timeout_escalated",
+        broker=record.broker_id,
+        previous_state=previous_state.value,
+    )

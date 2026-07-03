@@ -3,9 +3,13 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 export type BrokerStatus =
   | "PENDING"
   | "INITIAL_SENT"
+  | "INITIAL_SENT_PINGED"
   | "AWAITING_RESPONSE"
-  | "IDENTITY_REQUESTED"
-  | "IDENTITY_SENT"
+  | "AWAITING_RESPONSE_PINGED"
+  | "INFO_REQUESTED"
+  | "INFO_REQUESTED_PINGED"
+  | "FOLLOW_UP_SENT"
+  | "FOLLOW_UP_SENT_PINGED"
   | "COMPLETED"
   | "REJECTED"
   | "NEEDS_MANUAL"
@@ -97,6 +101,7 @@ export interface FriendlySettings {
   identity_docs_dir: string;
   anthropic_api_key: string;
   rerequest_interval_days: number;
+  state_timeout_days: number;
   identity_configured: boolean;
   gmail_token_available: boolean;
   gmail_credentials_available: boolean;
@@ -105,6 +110,7 @@ export interface FriendlySettings {
   sender_email_from_env: boolean;
   sender_name_from_env: boolean;
   rerequest_interval_days_from_env: boolean;
+  state_timeout_days_from_env: boolean;
   ai_provider: AiProvider;
   anthropic_key_from_secret: boolean;
   gmail_configured: boolean;
@@ -121,7 +127,7 @@ export interface AdvancedSettings {
 export type SettingsUpdate = Partial<
   Pick<
     FriendlySettings,
-    "sender_email" | "sender_name" | "identity_docs_dir" | "anthropic_api_key" | "rerequest_interval_days"
+    "sender_email" | "sender_name" | "identity_docs_dir" | "anthropic_api_key" | "rerequest_interval_days" | "state_timeout_days"
   > &
     AdvancedSettings & {
       gmail_token_json: string;

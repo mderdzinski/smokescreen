@@ -32,8 +32,8 @@ def test_classify_acknowledgment():
     assert result == ReplyClassification.ACKNOWLEDGMENT
 
 
-def test_classify_identity_request():
-    client = _mock_client("IDENTITY_REQUEST")
+def test_classify_info_request():
+    client = _mock_client("INFO_REQUEST")
     result = classify_reply(
         client,
         "claude-sonnet-4-20250514",
@@ -41,7 +41,7 @@ def test_classify_identity_request():
         "Verification",
         "Please send ID.",
     )
-    assert result == ReplyClassification.IDENTITY_REQUEST
+    assert result == ReplyClassification.INFO_REQUEST
 
 
 def test_classify_completed():

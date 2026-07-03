@@ -52,12 +52,14 @@ const settings: FriendlySettings = {
   gmail_token_available: false,
   identity_configured: false,
   identity_docs_dir: "identity/",
-  rerequest_interval_days: 60,
+  rerequest_interval_days: 30,
   rerequest_interval_days_from_env: false,
   sender_email: "jane@example.com",
   sender_email_from_env: false,
   sender_name: "Jane Doe",
   sender_name_from_env: false,
+  state_timeout_days: 14,
+  state_timeout_days_from_env: false,
 };
 
 const advancedSettings: AdvancedSettings = {
@@ -350,8 +352,8 @@ describe("OverviewPage", () => {
             AWAITING_RESPONSE: 1,
             COMPLETED: 1,
             FAILED: 1,
-            IDENTITY_REQUESTED: 1,
-            IDENTITY_SENT: 1,
+            INFO_REQUESTED: 1,
+            FOLLOW_UP_SENT: 1,
             INITIAL_SENT: 1,
             PENDING: 1,
             REJECTED: 1,
@@ -367,8 +369,8 @@ describe("OverviewPage", () => {
           optOut({ broker_id: "queued", broker_name: "Queued Broker", status: "PENDING" }),
           optOut({ broker_id: "sent", broker_name: "Sent Broker", status: "INITIAL_SENT" }),
           optOut({ broker_id: "awaiting", broker_name: "Awaiting Broker", status: "AWAITING_RESPONSE" }),
-          optOut({ broker_id: "id-requested", broker_name: "ID Request Broker", status: "IDENTITY_REQUESTED" }),
-          optOut({ broker_id: "id-sent", broker_name: "ID Sent Broker", status: "IDENTITY_SENT" }),
+          optOut({ broker_id: "id-requested", broker_name: "Info Request Broker", status: "INFO_REQUESTED" }),
+          optOut({ broker_id: "id-sent", broker_name: "Follow Up Broker", status: "FOLLOW_UP_SENT" }),
           optOut({ broker_id: "done", broker_name: "Done Broker", status: "COMPLETED" }),
           optOut({ broker_id: "rejected", broker_name: "Rejected Broker", status: "REJECTED" }),
           optOut({ broker_id: "failed", broker_name: "Failed Broker", status: "FAILED" }),
@@ -387,11 +389,47 @@ describe("OverviewPage", () => {
     expect(within(workingColumn).getByText("Queued Broker")).toBeInTheDocument();
     expect(within(workingColumn).getByText("Sent Broker")).toBeInTheDocument();
     expect(within(workingColumn).getByText("Awaiting Broker")).toBeInTheDocument();
-    expect(within(workingColumn).getByText("ID Request Broker")).toBeInTheDocument();
-    expect(within(workingColumn).getByText("ID Sent Broker")).toBeInTheDocument();
+    expect(within(workingColumn).getByText("Info Request Broker")).toBeInTheDocument();
+    expect(within(workingColumn).getByText("Follow Up Broker")).toBeInTheDocument();
     expect(within(doneColumn).getByText("Done Broker")).toBeInTheDocument();
     expect(within(attentionColumn).getByText("Rejected Broker")).toBeInTheDocument();
     expect(within(attentionColumn).getByText("Failed Broker")).toBeInTheDocument();
+  });
+
+  it("keeps pinged brokers in the working column", async () => {
+    mockApi([
+      {
+        body: {
+          ...emptyStats,
+          by_status: {
+            INITIAL_SENT_PINGED: 1,
+            AWAITING_RESPONSE_PINGED: 1,
+            INFO_REQUESTED_PINGED: 1,
+            FOLLOW_UP_SENT_PINGED: 1,
+          },
+          total: 4,
+        },
+        path: "/api/stats/extended",
+      },
+      {
+        body: [
+          optOut({ broker_id: "a", broker_name: "Initial Pinged", status: "INITIAL_SENT_PINGED" }),
+          optOut({ broker_id: "b", broker_name: "Awaiting Pinged", status: "AWAITING_RESPONSE_PINGED" }),
+          optOut({ broker_id: "c", broker_name: "Info Pinged", status: "INFO_REQUESTED_PINGED" }),
+          optOut({ broker_id: "d", broker_name: "Follow Pinged", status: "FOLLOW_UP_SENT_PINGED" }),
+        ],
+        path: "/api/optouts",
+      },
+    ]);
+
+    renderWithProviders(<OverviewPage />);
+
+    expect(await screen.findByText("Initial Pinged")).toBeInTheDocument();
+    const workingColumn = screen.getByRole("heading", { name: "Working" }).closest("section") as HTMLElement;
+    expect(within(workingColumn).getByText("Initial Pinged")).toBeInTheDocument();
+    expect(within(workingColumn).getByText("Awaiting Pinged")).toBeInTheDocument();
+    expect(within(workingColumn).getByText("Info Pinged")).toBeInTheDocument();
+    expect(within(workingColumn).getByText("Follow Pinged")).toBeInTheDocument();
   });
 });
 
@@ -1042,6 +1080,70 @@ describe("SettingsPage", () => {
     expect(
       screen.getByText(/set from the deployment environment/i),
     ).toBeInTheDocument();
+  });
+
+  it("surfaces the silent-broker timeout as an editable setting", async () => {
+    const user = userEvent.setup();
+    const savedBodies: unknown[] = [];
+    mockApi([
+      { body: settings, path: "/api/settings" },
+      { body: advancedSettings, path: "/api/settings/advanced" },
+      {
+        assert: (request) => savedBodies.push(parseJsonBody(request)),
+        body: { restart_required: false, status: "saved" },
+        method: "PUT",
+        path: "/api/settings",
+      },
+    ]);
+
+    renderWithProviders(<SettingsPage />);
+
+    const input = await screen.findByLabelText(/Timeout for silent brokers/);
+    expect(input).toHaveValue(14);
+    await user.clear(input);
+    await user.type(input, "21");
+    await user.click(screen.getByRole("button", { name: "Save timeout" }));
+
+    await waitFor(() =>
+      expect(savedBodies).toContainEqual({ state_timeout_days: 21 }),
+    );
+  });
+
+  it("blocks the timeout save when the value is out of bounds", async () => {
+    const user = userEvent.setup();
+    mockApi([
+      { body: settings, path: "/api/settings" },
+      { body: advancedSettings, path: "/api/settings/advanced" },
+    ]);
+
+    renderWithProviders(<SettingsPage />);
+
+    const input = await screen.findByLabelText(/Timeout for silent brokers/);
+    await user.clear(input);
+    await user.type(input, "500");
+
+    expect(screen.getByRole("button", { name: "Save timeout" })).toBeDisabled();
+    expect(input).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("locks the timeout field when set from the deployment environment", async () => {
+    mockApi([
+      {
+        body: {
+          ...settings,
+          state_timeout_days: 30,
+          state_timeout_days_from_env: true,
+        },
+        path: "/api/settings",
+      },
+      { body: advancedSettings, path: "/api/settings/advanced" },
+    ]);
+
+    renderWithProviders(<SettingsPage />);
+
+    const input = await screen.findByLabelText(/Timeout for silent brokers/);
+    expect(input).toHaveAttribute("readonly");
+    expect(screen.getByRole("button", { name: "Save timeout" })).toBeDisabled();
   });
 });
 

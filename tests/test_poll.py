@@ -1,10 +1,16 @@
 """Tests for polling broker reply threads."""
 
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 from smokescreen.brokers.registry import BrokerRegistry
 from smokescreen.config import Settings
-from smokescreen.jobs.poll import _poll_label_query, _process_thread, run_poll
+from smokescreen.jobs.poll import (
+    _poll_label_query,
+    _process_thread,
+    run_poll,
+    run_timeout_escalation,
+)
 from smokescreen.models import (
     Broker,
     BrokerStatus,
@@ -423,7 +429,7 @@ def test_process_thread_persists_manual_review_reply_details(tmp_path):
     store.close()
 
 
-def test_process_thread_sends_identity_reply_with_attachments(tmp_path):
+def test_process_thread_sends_follow_up_reply_with_attachments(tmp_path):
     identity_dir = tmp_path / "identity"
     identity_dir.mkdir()
     front = identity_dir / "license-front.txt"
@@ -459,7 +465,7 @@ def test_process_thread_sends_identity_reply_with_attachments(tmp_path):
         broker_email="privacy@labeled.example",
         store=store,
         gmail=gmail,
-        ai_client=_mock_anthropic("IDENTITY_REQUEST"),
+        ai_client=_mock_anthropic("INFO_REQUEST"),
     )
 
     assert processed is True
@@ -473,13 +479,13 @@ def test_process_thread_sends_identity_reply_with_attachments(tmp_path):
         "license-back.txt",
     }
     updated = store.get("labeled")
-    assert updated.status == BrokerStatus.IDENTITY_SENT
+    assert updated.status == BrokerStatus.FOLLOW_UP_SENT
     assert updated.retries == 1
     assert updated.last_message_id == "sent-identity"
     store.close()
 
 
-def test_run_poll_handles_first_reply_identity_request(tmp_path):
+def test_run_poll_handles_first_reply_info_request(tmp_path):
     settings = _settings(
         tmp_path,
         anthropic_api_key="test-key",
@@ -520,12 +526,12 @@ def test_run_poll_handles_first_reply_identity_request(tmp_path):
     )
 
     with patch("smokescreen.jobs.poll.Anthropic") as anthropic:
-        anthropic.return_value = _mock_anthropic("IDENTITY_REQUEST")
+        anthropic.return_value = _mock_anthropic("INFO_REQUEST")
         processed = run_poll(settings, _registry(), store, gmail=gmail)
 
     assert processed == ["labeled"]
     updated = store.get("labeled")
-    assert updated.status == BrokerStatus.IDENTITY_SENT
+    assert updated.status == BrokerStatus.FOLLOW_UP_SENT
     assert updated.retries == 1
     assert updated.last_message_id == "alpha-vendor"
     assert gmail.sent_messages == []
@@ -656,4 +662,130 @@ def test_process_thread_accepts_display_name_from_header(tmp_path):
     assert processed is True
     assert store.get("labeled").status == BrokerStatus.NEEDS_MANUAL
     assert store.list_pending_whitelist(PendingWhitelistStatus.PENDING) == []
+    store.close()
+
+
+# --- Timeout escalation (sm-aa1) ---
+
+
+def _seed_record(
+    store: SQLiteStore,
+    *,
+    broker_id: str,
+    status: BrokerStatus,
+    days_ago: int,
+) -> None:
+    now = datetime.utcnow()
+    stale = now - timedelta(days=days_ago)
+    store.upsert(
+        OptOutRecord(
+            broker_id=broker_id,
+            status=status,
+            thread_id=f"thread-{broker_id}",
+            last_message_id=f"msg-{broker_id}",
+            created_at=stale,
+            updated_at=stale,
+        )
+    )
+
+
+def test_timeout_escalation_pings_stale_waiting_record(tmp_path):
+    """After state_timeout_days without a state change, waiting records get
+    pinged and transition to their paired *_PINGED state."""
+    settings = _settings(tmp_path, dry_run=True, state_timeout_days=14)
+    store = SQLiteStore(settings.sqlite_path)
+    _seed_record(
+        store,
+        broker_id="labeled",
+        status=BrokerStatus.AWAITING_RESPONSE,
+        days_ago=15,
+    )
+
+    processed = run_timeout_escalation(settings, _registry(), store, gmail=None)
+
+    assert processed == ["labeled"]
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.AWAITING_RESPONSE_PINGED
+    store.close()
+
+
+def test_timeout_escalation_is_idempotent_within_window(tmp_path):
+    """A second sweep inside the same timeout window does not ping again or
+    escalate — updated_at moved forward on the first sweep."""
+    settings = _settings(tmp_path, dry_run=True, state_timeout_days=14)
+    store = SQLiteStore(settings.sqlite_path)
+    _seed_record(
+        store,
+        broker_id="labeled",
+        status=BrokerStatus.AWAITING_RESPONSE,
+        days_ago=20,
+    )
+
+    first = run_timeout_escalation(settings, _registry(), store, gmail=None)
+    second = run_timeout_escalation(settings, _registry(), store, gmail=None)
+
+    assert first == ["labeled"]
+    assert second == []  # no work left this window
+    assert store.get("labeled").status == BrokerStatus.AWAITING_RESPONSE_PINGED
+    store.close()
+
+
+def test_timeout_escalation_second_strike_moves_to_needs_manual(tmp_path):
+    """After a second silent window on a pinged state, escalate."""
+    settings = _settings(tmp_path, dry_run=True, state_timeout_days=14)
+    store = SQLiteStore(settings.sqlite_path)
+    _seed_record(
+        store,
+        broker_id="labeled",
+        status=BrokerStatus.AWAITING_RESPONSE_PINGED,
+        days_ago=15,
+    )
+
+    processed = run_timeout_escalation(settings, _registry(), store, gmail=None)
+
+    assert processed == ["labeled"]
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.NEEDS_MANUAL
+    assert "AWAITING_RESPONSE" in updated.notes
+    store.close()
+
+
+def test_timeout_escalation_leaves_fresh_records_alone(tmp_path):
+    """Records that had a state transition inside the window aren't touched."""
+    settings = _settings(tmp_path, dry_run=True, state_timeout_days=14)
+    store = SQLiteStore(settings.sqlite_path)
+    _seed_record(
+        store,
+        broker_id="labeled",
+        status=BrokerStatus.INITIAL_SENT,
+        days_ago=3,
+    )
+
+    processed = run_timeout_escalation(settings, _registry(), store, gmail=None)
+
+    assert processed == []
+    assert store.get("labeled").status == BrokerStatus.INITIAL_SENT
+    store.close()
+
+
+def test_timeout_escalation_sends_ping_email_when_not_dry_run(tmp_path):
+    """The ping path sends a live email via gmail.send when dry_run is off."""
+    settings = _settings(tmp_path, dry_run=False, state_timeout_days=14)
+    store = SQLiteStore(settings.sqlite_path)
+    _seed_record(
+        store,
+        broker_id="labeled",
+        status=BrokerStatus.INITIAL_SENT,
+        days_ago=20,
+    )
+    gmail = FakeGmail()
+
+    processed = run_timeout_escalation(settings, _registry(), store, gmail=gmail)
+
+    assert processed == ["labeled"]
+    assert len(gmail.sent_messages) == 1
+    sent = gmail.sent_messages[0]
+    assert sent["to"] == "privacy@labeled.example"
+    assert "deletion request" in sent["subject"].lower()
+    assert store.get("labeled").status == BrokerStatus.INITIAL_SENT_PINGED
     store.close()
