@@ -106,6 +106,14 @@ function parseJsonBody(request: MockApiRequest): unknown {
   return JSON.parse(String(request.init?.body));
 }
 
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
 function LocationProbe() {
   const location = useLocation();
 
@@ -768,6 +776,111 @@ describe("OnboardingPage", () => {
 });
 
 describe("BrokerRegistryPage", () => {
+  it("shows reset only for broker rows with opt-out records", async () => {
+    mockApi([
+      { body: [broker, secondBroker], path: "/api/brokers" },
+      {
+        body: [optOut({ broker_id: "acme", broker_name: "Acme Data", status: "COMPLETED" })],
+        path: "/api/optouts",
+      },
+    ]);
+
+    renderWithProviders(<BrokerRegistryPage />);
+
+    const acmeRow = (await screen.findByText("Acme Data")).closest("tr");
+    const secondRow = screen.getByText("Second Broker").closest("tr");
+    expect(acmeRow).not.toBeNull();
+    expect(secondRow).not.toBeNull();
+    expect(within(acmeRow as HTMLTableRowElement).getByRole("button", { name: "Reset opt-out for Acme Data" }))
+      .toBeInTheDocument();
+    expect(within(acmeRow as HTMLTableRowElement).getByText("Removed")).toBeInTheDocument();
+    expect(
+      within(secondRow as HTMLTableRowElement).queryByRole("button", { name: "Reset opt-out for Second Broker" }),
+    ).not.toBeInTheDocument();
+    expect(within(secondRow as HTMLTableRowElement).getByText("No record")).toBeInTheDocument();
+  });
+
+  it("requires confirmation before resetting and refreshes broker data on success", async () => {
+    const user = userEvent.setup();
+    let resetRequests = 0;
+    const brokerLoads: MockApiRequest[] = [];
+    const optOutLoads: MockApiRequest[] = [];
+    mockApi([
+      {
+        assert: (request) => brokerLoads.push(request),
+        body: [broker, secondBroker],
+        path: "/api/brokers",
+      },
+      {
+        assert: (request) => optOutLoads.push(request),
+        path: "/api/optouts",
+        respond: () =>
+          jsonResponse([
+            optOut({
+              broker_id: "acme",
+              broker_name: "Acme Data",
+              status: resetRequests > 0 ? "PENDING" : "COMPLETED",
+            }),
+          ]),
+      },
+      {
+        assert: () => {
+          resetRequests += 1;
+        },
+        body: { broker_id: "acme", status: "reset" },
+        method: "POST",
+        path: "/api/optouts/acme/reset",
+      },
+    ]);
+
+    renderWithProviders(<BrokerRegistryPage />);
+
+    await user.click(await screen.findByRole("button", { name: "Reset opt-out for Acme Data" }));
+
+    expect(resetRequests).toBe(0);
+    expect(screen.getByRole("button", { name: "Confirm reset for Acme Data" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Confirm reset for Acme Data" }));
+
+    await waitFor(() => expect(resetRequests).toBe(1));
+    await waitFor(() => expect(brokerLoads.length).toBeGreaterThan(1));
+    await waitFor(() => expect(optOutLoads.length).toBeGreaterThan(1));
+    expect(await screen.findByText("Queued")).toBeInTheDocument();
+  });
+
+  it("shows row loading state while reset is pending", async () => {
+    const user = userEvent.setup();
+    let resolveReset!: (response: Response) => void;
+    const pendingReset = new Promise<Response>((resolve) => {
+      resolveReset = resolve;
+    });
+    mockApi([
+      { body: [broker], path: "/api/brokers" },
+      {
+        body: [optOut({ broker_id: "acme", broker_name: "Acme Data", status: "COMPLETED" })],
+        path: "/api/optouts",
+      },
+      {
+        method: "POST",
+        path: "/api/optouts/acme/reset",
+        respond: () => pendingReset,
+      },
+    ]);
+
+    renderWithProviders(<BrokerRegistryPage />);
+
+    await user.click(await screen.findByRole("button", { name: "Reset opt-out for Acme Data" }));
+    await user.click(screen.getByRole("button", { name: "Confirm reset for Acme Data" }));
+
+    expect(await screen.findByRole("button", { name: "Resetting opt-out for Acme Data" })).toBeDisabled();
+
+    resolveReset(jsonResponse({ broker_id: "acme", status: "reset" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Reset opt-out for Acme Data" })).toBeInTheDocument(),
+    );
+  });
+
   it("shows missing broker details as inline field feedback", async () => {
     const user = userEvent.setup();
     mockApi([{ body: [broker], path: "/api/brokers" }]);

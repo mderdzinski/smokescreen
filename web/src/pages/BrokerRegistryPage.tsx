@@ -1,16 +1,17 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { FormEvent, TdHTMLAttributes, ThHTMLAttributes } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Plus, Search, Send, Trash2 } from "lucide-react";
+import { AlertTriangle, Plus, RotateCcw, Search, Send, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { api, type Broker, type BrokerInput } from "../lib/api";
-import { useBrokerSelections, useBrokers } from "../lib/queries";
+import { useBrokerSelections, useBrokers, useOptOuts } from "../lib/queries";
 import { cn } from "../lib/utils";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { ThrowOverlay } from "../components/ui/motion";
+import { StatusPill } from "../components/ui/status-pill";
 import { Switch } from "../components/ui/switch";
 import { TextField } from "../components/ui/text-field";
 import { ErrorState, LoadingState } from "../components/status-state";
@@ -24,6 +25,7 @@ const emptyBrokerForm: BrokerFormState = {
   name: "",
   domain: "",
 };
+const RESET_CONFIRMATION_WINDOW_MS = 3000;
 
 function brokerMatchesSearch(broker: Broker, query: string): boolean {
   const text = [broker.name, broker.domain, broker.privacy_email].join(" ").toLowerCase();
@@ -60,7 +62,12 @@ export function BrokerRegistryPage() {
   const navigate = useNavigate();
   const brokersQuery = useBrokers();
   const selectionsQuery = useBrokerSelections();
+  const optOutsQuery = useOptOuts();
   const brokers = brokersQuery.data ?? [];
+  const optOutRecordsByBrokerId = useMemo(
+    () => new Map((optOutsQuery.data ?? []).map((record) => [record.broker_id, record])),
+    [optOutsQuery.data],
+  );
   const enabledBrokerIdList = selectionsQuery.data?.enabled_broker_ids ?? [];
   const enabledBrokerIds = useMemo(() => new Set(enabledBrokerIdList), [enabledBrokerIdList]);
   const enabledBrokers = useMemo(
@@ -72,6 +79,16 @@ export function BrokerRegistryPage() {
   const [throwOverlayOpen, setThrowOverlayOpen] = useState(false);
   const [throwOverlayCount, setThrowOverlayCount] = useState(0);
   const [throwOverlayResolved, setThrowOverlayResolved] = useState(false);
+  const [confirmingResetBrokerId, setConfirmingResetBrokerId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!confirmingResetBrokerId) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setConfirmingResetBrokerId(null), RESET_CONFIRMATION_WINDOW_MS);
+    return () => window.clearTimeout(timer);
+  }, [confirmingResetBrokerId]);
 
   const putSelectionsMutation = useMutation({
     mutationFn: api.putBrokerSelections,
@@ -140,6 +157,14 @@ export function BrokerRegistryPage() {
     ]);
   };
 
+  const refreshAfterReset = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["brokers"] }),
+      queryClient.invalidateQueries({ queryKey: ["opt-outs"] }),
+      queryClient.invalidateQueries({ queryKey: ["extended-stats"] }),
+    ]);
+  };
+
   const createMutation = useMutation({
     mutationFn: api.createBroker,
     onSuccess: async (createdBroker) => {
@@ -161,9 +186,15 @@ export function BrokerRegistryPage() {
     },
   });
 
+  const resetMutation = useMutation({
+    mutationFn: api.resetOptOut,
+    onSuccess: refreshAfterReset,
+  });
+
   const activeError =
     brokersQuery.error?.message ??
     selectionsQuery.error?.message ??
+    optOutsQuery.error?.message ??
     putSelectionsMutation.error?.message ??
     createMutation.error?.message ??
     deleteMutation.error?.message;
@@ -189,6 +220,21 @@ export function BrokerRegistryPage() {
 
   function deleteBroker(brokerId: string) {
     deleteMutation.mutate(brokerId);
+  }
+
+  function resetBroker(brokerId: string) {
+    if (resetMutation.isPending) {
+      return;
+    }
+
+    if (confirmingResetBrokerId === brokerId) {
+      setConfirmingResetBrokerId(null);
+      resetMutation.mutate(brokerId);
+      return;
+    }
+
+    resetMutation.reset();
+    setConfirmingResetBrokerId(brokerId);
   }
 
   function closeThrowOverlay() {
@@ -268,6 +314,13 @@ export function BrokerRegistryPage() {
           title="Outreach did not start"
         />
       ) : null}
+      {resetMutation.error ? (
+        <ErrorState
+          description={resetMutation.error.message || "Smokescreen could not reset that broker."}
+          onAction={() => resetMutation.reset()}
+          title="Request was not reset"
+        />
+      ) : null}
       {showNoBrokersEnabled ? (
         <div
           className="flex items-start gap-3 rounded-sm border border-bd-rust border-l-2 border-l-rust-500 bg-fill-rust px-4 py-[14px]"
@@ -335,22 +388,26 @@ export function BrokerRegistryPage() {
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] border-collapse" aria-label="Broker registry">
+            <table className="w-full min-w-[860px] border-collapse" aria-label="Broker registry">
               <thead className="bg-surface-sunken">
                 <tr>
                   <TableHeader>Broker</TableHeader>
                   <TableHeader>Privacy contact</TableHeader>
                   <TableHeader>Aliases</TableHeader>
                   <TableHeader>Outreach</TableHeader>
+                  <TableHeader>Status</TableHeader>
                   <TableHeader className="text-right">Actions</TableHeader>
                 </tr>
               </thead>
               <tbody>
                 {filteredBrokers.map((broker) => {
                   const enabled = enabledBrokerIds.has(broker.id);
+                  const optOutRecord = optOutRecordsByBrokerId.get(broker.id);
                   const pending =
                     putSelectionsMutation.isPending &&
                     putSelectionsMutation.variables?.includes(broker.id) !== enabled;
+                  const resetPending = resetMutation.isPending && resetMutation.variables === broker.id;
+                  const resetConfirming = confirmingResetBrokerId === broker.id;
                   return (
                     <tr key={broker.id} className={cn(broker.id === justAddedId && "ss-rowin")}>
                       <TableCell>
@@ -396,25 +453,54 @@ export function BrokerRegistryPage() {
                           </span>
                         </span>
                       </TableCell>
+                      <TableCell>
+                        {optOutRecord ? (
+                          <StatusPill status={optOutRecord.status} />
+                        ) : (
+                          <span className="text-content-faint">No record</span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          aria-label={`Delete ${broker.name}`}
-                          disabled={deleteMutation.isPending && deleteMutation.variables === broker.id}
-                          iconOnly
-                          onClick={() => deleteBroker(broker.id)}
-                          size="sm"
-                          type="button"
-                          variant="ghost"
-                        >
-                          <Trash2 />
-                        </Button>
+                        <div className="flex justify-end gap-2">
+                          {optOutRecord ? (
+                            <Button
+                              aria-label={
+                                resetPending
+                                  ? `Resetting opt-out for ${broker.name}`
+                                  : resetConfirming
+                                    ? `Confirm reset for ${broker.name}`
+                                    : `Reset opt-out for ${broker.name}`
+                              }
+                              className="min-w-[128px]"
+                              disabled={resetMutation.isPending}
+                              onClick={() => resetBroker(broker.id)}
+                              size="sm"
+                              type="button"
+                              variant={resetConfirming ? "danger" : "outline"}
+                            >
+                              <RotateCcw />
+                              {resetPending ? "Resetting" : resetConfirming ? "Confirm reset?" : "Reset"}
+                            </Button>
+                          ) : null}
+                          <Button
+                            aria-label={`Delete ${broker.name}`}
+                            disabled={deleteMutation.isPending && deleteMutation.variables === broker.id}
+                            iconOnly
+                            onClick={() => deleteBroker(broker.id)}
+                            size="sm"
+                            type="button"
+                            variant="ghost"
+                          >
+                            <Trash2 />
+                          </Button>
+                        </div>
                       </TableCell>
                     </tr>
                   );
                 })}
                 {filteredBrokers.length === 0 ? (
                   <tr>
-                    <TableCell className="text-center text-content-muted" colSpan={5}>
+                    <TableCell className="text-center text-content-muted" colSpan={6}>
                       No brokers found.
                     </TableCell>
                   </tr>

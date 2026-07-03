@@ -57,6 +57,7 @@ export function renderWithProviders(ui: ReactElement, options: RenderWithProvide
 const DEFAULT_ROUTES: MockApiRoute[] = [
   { body: [], path: "/api/brokers" },
   { body: { enabled_broker_ids: [] }, path: "/api/brokers/selections" },
+  { body: [], path: "/api/optouts" },
   { body: [], path: "/api/whitelist" },
   { body: [], path: "/api/whitelist/pending" },
 ];
