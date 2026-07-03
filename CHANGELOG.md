@@ -1,3 +1,10 @@
+# [0.17.0](https://github.com/mderdzinski/smokescreen/compare/v0.16.0...v0.17.0) (2026-07-03)
+
+
+### Features
+
+* T3a identity-documents change ([37bef26](https://github.com/mderdzinski/smokescreen/commit/37bef269c4449189b982a52fe796c2af48fac808))
+
 # [0.16.0](https://github.com/mderdzinski/smokescreen/compare/v0.15.0...v0.16.0) (2026-07-03)
 
 
