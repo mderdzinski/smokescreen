@@ -1,3 +1,10 @@
+# [0.23.0](https://github.com/mderdzinski/smokescreen/compare/v0.22.0...v0.23.0) (2026-07-03)
+
+
+### Features
+
+* **dev:** SMOKESCREEN_ALLOW_SELF_REPLY testing bypass for solo end-to-end validation ([e18bc1b](https://github.com/mderdzinski/smokescreen/commit/e18bc1bcb65376ef0dc4ba79baa9ab78ce102583))
+
 # [0.22.0](https://github.com/mderdzinski/smokescreen/compare/v0.21.0...v0.22.0) (2026-07-03)
 
 
