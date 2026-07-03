@@ -1,6 +1,6 @@
 [project]
 name = "smokescreen"
-version = "0.13.0"
+version = "0.14.0"
 description = "Data broker opt-out automation"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -61,7 +61,7 @@ quote-style = "double"
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.13.0"
+version = "0.14.0"
 tag_format = "v$version"
 
 [tool.pytest.ini_options]

@@ -1,3 +1,10 @@
+# [0.14.0](https://github.com/mderdzinski/smokescreen/compare/v0.13.0...v0.14.0) (2026-07-03)
+
+
+### Features
+
+* redesign settings shell ([466e1a3](https://github.com/mderdzinski/smokescreen/commit/466e1a3f99c2ce203e91328b80fc5125476ad586))
+
 # [0.13.0](https://github.com/mderdzinski/smokescreen/compare/v0.12.0...v0.13.0) (2026-07-03)
 
 
