@@ -1,3 +1,10 @@
+# [0.13.0](https://github.com/mderdzinski/smokescreen/compare/v0.12.0...v0.13.0) (2026-07-03)
+
+
+### Features
+
+* add broker outreach switches (sm-r4p.6) ([170ae06](https://github.com/mderdzinski/smokescreen/commit/170ae06b4e5d82b26edfe8ced408775b7dc24dd6))
+
 # [0.12.0](https://github.com/mderdzinski/smokescreen/compare/v0.11.1...v0.12.0) (2026-07-03)
 
 
