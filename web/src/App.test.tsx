@@ -806,7 +806,7 @@ describe("BrokerRegistryPage", () => {
     renderWithProviders(<BrokerRegistryPage />);
 
     expect(await screen.findByText("Acme Data")).toBeInTheDocument();
-    expect(screen.getByText("2 brokers")).toBeInTheDocument();
+    expect(screen.getByText("0 of 2 enabled")).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Search brokers"), "privacy@second.example");
     expect(screen.getByText("Second Broker")).toBeInTheDocument();
@@ -832,16 +832,28 @@ describe("BrokerRegistryPage", () => {
     const tableRows = within(screen.getByRole("table", { name: "Broker registry" })).getAllByRole("row");
     expect(tableRows[1]).toHaveTextContent("New Broker");
     expect(screen.getByText("New Broker").closest("tr")).toHaveClass("ss-rowin");
-    expect(screen.getByText("3 brokers")).toBeInTheDocument();
+    expect(screen.getByText("0 of 3 enabled")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Delete Acme Data" }));
 
     await waitFor(() => expect(deletedIds).toEqual(["acme"]));
     expect(screen.queryByText("Acme Data")).not.toBeInTheDocument();
-    expect(screen.getByText("2 brokers")).toBeInTheDocument();
+    expect(screen.getByText("0 of 2 enabled")).toBeInTheDocument();
   });
 
-  it("shows Enabled/Disabled per broker and persists toggles to the server", async () => {
+  it("shows the enabled count, warns at zero enabled, and disables outreach", async () => {
+    mockApi([{ body: [broker, secondBroker], path: "/api/brokers" }]);
+
+    renderWithProviders(<BrokerRegistryPage />);
+
+    expect(await screen.findByText("0 of 2 enabled")).toBeInTheDocument();
+    expect(screen.getByTestId("brokers-no-enabled-warning")).toHaveTextContent(
+      "No brokers enabled — outreach won't run",
+    );
+    expect(screen.getByRole("button", { name: "Run outreach" })).toBeDisabled();
+  });
+
+  it("shows Switch toggles per broker and persists toggles to the server", async () => {
     const user = userEvent.setup();
     const putBodies: string[][] = [];
     mockApi([
@@ -862,11 +874,14 @@ describe("BrokerRegistryPage", () => {
 
     const acmeToggle = await screen.findByTestId("broker-enabled-toggle-acme");
     const secondToggle = await screen.findByTestId("broker-enabled-toggle-second");
-    expect(acmeToggle).toHaveTextContent(/Enabled/);
-    expect(acmeToggle).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("1 of 2 enabled")).toBeInTheDocument();
+    expect(acmeToggle).toHaveAttribute("role", "switch");
+    expect(acmeToggle).toHaveAttribute("aria-checked", "true");
+    expect(acmeToggle.closest("td")).toHaveTextContent("On");
     // New brokers are disabled by default until explicitly enabled.
-    expect(secondToggle).toHaveTextContent(/Disabled/);
-    expect(secondToggle).toHaveAttribute("aria-pressed", "false");
+    expect(secondToggle).toHaveAttribute("role", "switch");
+    expect(secondToggle).toHaveAttribute("aria-checked", "false");
+    expect(secondToggle.closest("td")).toHaveTextContent("Off");
 
     await user.click(secondToggle);
 

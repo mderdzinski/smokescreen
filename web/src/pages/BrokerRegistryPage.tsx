@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { FormEvent, TdHTMLAttributes, ThHTMLAttributes } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Search, Send, Trash2 } from "lucide-react";
+import { AlertTriangle, Plus, Search, Send, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { api, type Broker, type BrokerInput } from "../lib/api";
@@ -11,6 +11,7 @@ import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { ThrowOverlay } from "../components/ui/motion";
+import { Switch } from "../components/ui/switch";
 import { TextField } from "../components/ui/text-field";
 import { ErrorState, LoadingState } from "../components/status-state";
 
@@ -61,11 +62,13 @@ export function BrokerRegistryPage() {
   const selectionsQuery = useBrokerSelections();
   const brokers = brokersQuery.data ?? [];
   const enabledBrokerIdList = selectionsQuery.data?.enabled_broker_ids ?? [];
-  const enabledBrokerIds = useMemo(
-    () => new Set(enabledBrokerIdList),
-    [enabledBrokerIdList],
+  const enabledBrokerIds = useMemo(() => new Set(enabledBrokerIdList), [enabledBrokerIdList]);
+  const enabledBrokers = useMemo(
+    () => brokers.filter((broker) => enabledBrokerIds.has(broker.id)),
+    [brokers, enabledBrokerIds],
   );
-  const enabledBrokerCount = enabledBrokerIdList.length;
+  const enabledBrokerCount = enabledBrokers.length;
+  const showNoBrokersEnabled = brokersQuery.isSuccess && selectionsQuery.isSuccess && enabledBrokerCount === 0;
   const [throwOverlayOpen, setThrowOverlayOpen] = useState(false);
   const [throwOverlayCount, setThrowOverlayCount] = useState(0);
   const [throwOverlayResolved, setThrowOverlayResolved] = useState(false);
@@ -158,7 +161,12 @@ export function BrokerRegistryPage() {
     },
   });
 
-  const activeError = brokersQuery.error?.message ?? createMutation.error?.message ?? deleteMutation.error?.message;
+  const activeError =
+    brokersQuery.error?.message ??
+    selectionsQuery.error?.message ??
+    putSelectionsMutation.error?.message ??
+    createMutation.error?.message ??
+    deleteMutation.error?.message;
   const brokerNameError = formError && !form.name.trim();
   const domainError = formError && !form.domain.trim();
 
@@ -193,7 +201,7 @@ export function BrokerRegistryPage() {
   }
 
   function runOutreach() {
-    const brokerIds = [...enabledBrokerIdList];
+    const brokerIds = enabledBrokers.map((broker) => broker.id);
 
     if (brokerIds.length === 0 || runOutreachMutation.isPending) {
       return;
@@ -226,7 +234,9 @@ export function BrokerRegistryPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-[10px]">
-          <Badge variant="olive">{brokers.length} brokers</Badge>
+          <Badge dot variant={enabledBrokerCount > 0 ? "olive" : "neutral"}>
+            {enabledBrokerCount} of {brokers.length} enabled
+          </Badge>
           <Button
             disabled={enabledBrokerCount === 0 || runOutreachMutation.isPending}
             onClick={runOutreach}
@@ -257,6 +267,26 @@ export function BrokerRegistryPage() {
           onAction={() => runOutreachMutation.reset()}
           title="Outreach did not start"
         />
+      ) : null}
+      {showNoBrokersEnabled ? (
+        <div
+          className="flex items-start gap-3 rounded-sm border border-bd-rust border-l-2 border-l-rust-500 bg-fill-rust px-4 py-[14px]"
+          data-testid="brokers-no-enabled-warning"
+        >
+          <AlertTriangle
+            aria-hidden="true"
+            className="mt-px h-[18px] w-[18px] flex-none text-soft-rust"
+          />
+          <div>
+            <div className="font-display text-sm font-semibold text-content-strong">
+              No brokers enabled — outreach won't run
+            </div>
+            <p className="mt-[3px] max-w-[64ch] text-sm leading-normal text-content-body">
+              Scheduled outreach only contacts brokers you've switched on below. Enable at least one to let
+              Smokescreen send opt-out requests.
+            </p>
+          </div>
+        </div>
       ) : null}
 
       <Card pad>
@@ -344,22 +374,27 @@ export function BrokerRegistryPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Button
-                          aria-label={
-                            enabled
-                              ? `Disable outreach for ${broker.name}`
-                              : `Enable outreach for ${broker.name}`
-                          }
-                          aria-pressed={enabled}
-                          data-testid={`broker-enabled-toggle-${broker.id}`}
-                          disabled={pending}
-                          onClick={() => toggleEnabled(broker.id)}
-                          size="sm"
-                          type="button"
-                          variant={enabled ? "primary" : "outline"}
-                        >
-                          {enabled ? "Enabled" : "Disabled"}
-                        </Button>
+                        <span className="inline-flex items-center gap-[9px]">
+                          <Switch
+                            aria-label={
+                              enabled
+                                ? `Disable outreach for ${broker.name}`
+                                : `Enable outreach for ${broker.name}`
+                            }
+                            checked={enabled}
+                            data-testid={`broker-enabled-toggle-${broker.id}`}
+                            disabled={pending}
+                            onChange={() => toggleEnabled(broker.id)}
+                          />
+                          <span
+                            className={cn(
+                              "font-mono text-2xs font-semibold uppercase tracking-label",
+                              enabled ? "text-brand-strong" : "text-content-faint",
+                            )}
+                          >
+                            {enabled ? "On" : "Off"}
+                          </span>
+                        </span>
                       </TableCell>
                       <TableCell className="text-right">
                         <Button
