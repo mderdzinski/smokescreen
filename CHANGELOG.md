@@ -1,3 +1,10 @@
+# [0.15.0](https://github.com/mderdzinski/smokescreen/compare/v0.14.0...v0.15.0) (2026-07-03)
+
+
+### Features
+
+* replace setup nav with settings ([2836109](https://github.com/mderdzinski/smokescreen/commit/283610986632e205c3636ec53b947bbb7c9edfb6))
+
 # [0.14.0](https://github.com/mderdzinski/smokescreen/compare/v0.13.0...v0.14.0) (2026-07-03)
 
 
