@@ -1,3 +1,10 @@
+## [0.11.1](https://github.com/mderdzinski/smokescreen/compare/v0.11.0...v0.11.1) (2026-07-03)
+
+
+### Bug Fixes
+
+* align global motion CSS ([e7d9276](https://github.com/mderdzinski/smokescreen/commit/e7d92762c8069fc98ee5c42b5455fca6f6c25107))
+
 # [0.11.0](https://github.com/mderdzinski/smokescreen/compare/v0.10.0...v0.11.0) (2026-07-03)
 
 
