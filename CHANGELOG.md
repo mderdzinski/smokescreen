@@ -1,3 +1,10 @@
+# [0.21.0](https://github.com/mderdzinski/smokescreen/compare/v0.20.1...v0.21.0) (2026-07-03)
+
+
+### Features
+
+* **dashboard:** per-broker reset action on Brokers page ([7d47f6d](https://github.com/mderdzinski/smokescreen/commit/7d47f6db40dbb677239ff300f482b59586805827))
+
 ## [0.20.1](https://github.com/mderdzinski/smokescreen/compare/v0.20.0...v0.20.1) (2026-07-03)
 
 
