@@ -543,6 +543,10 @@ scope problems:
   Cross-reference the failing resource against the role list in
   [SETUP.md](SETUP.md#grant-deploy-roles-to-the-ci-service-account) and
   add the missing role to the CI service account.
+- GCS bucket creation failure → if the missing permission is
+  `storage.buckets.create`, existing deployers may need to add project-level
+  `roles/storage.admin` to the CI service account, then rerun the failed
+  workflow with `gh run rerun --failed WORKFLOW_ID` or trigger a fresh release.
 - Secret access failure on Cloud Run → the payload was never populated
   for that project. First deploys still need the manual Phase 2 secret
   population step; the deploy job does not populate secrets.

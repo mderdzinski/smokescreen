@@ -300,9 +300,10 @@ Why each role, briefly:
   runtime service accounts (Firestore, Vertex AI, Secret Manager
   accessor).
 - `secretmanager.admin` — create the Secret Manager secret containers.
-- `storage.admin` — create and manage the Terraform-owned private identity
-  document bucket and its bucket-scoped IAM bindings. This is separate from
-  the manually created Terraform state bucket.
+- `storage.admin` — create and manage Terraform-owned GCS buckets, including
+  the private identity document bucket added in v0.17.0, and their
+  bucket-scoped IAM bindings. This must be project-level because Terraform
+  calls `storage.buckets.create` before any bucket-scoped IAM can exist.
 - `cloudscheduler.admin` — create the poll and outreach schedules.
 - `datastore.owner` — create and manage the Firestore database.
 - `iap.admin` — read and write IAP IAM bindings on the dashboard service.
@@ -313,13 +314,36 @@ Why each role, briefly:
   fails on first `terraform apply` with `Error 403: The caller does not
   have permission` on the dashboard IAP IAM binding.
 - `storage.objectAdmin` on the tfstate bucket — read and write state; do
-  not grant this project-wide.
+  not grant this project-wide. This bucket-scoped role only covers objects
+  inside the manually created Terraform state bucket; it cannot create new
+  buckets or manage Terraform-created bucket IAM.
+
+> **Existing deployers and v0.17.0 storage buckets.** If you completed setup
+> before v0.17.0, your CI service account may not have project-level
+> `roles/storage.admin` yet. A release can then fail during `terraform apply`
+> with a permission error on `storage.buckets.create`, including while creating
+> `google_storage_bucket.identity_documents`. Grant the missing role:
+>
+> ```bash
+> gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+>   --member=serviceAccount:YOUR_CI_SA_EMAIL \
+>   --role=roles/storage.admin
+> ```
+>
+> Then rerun the failed release workflow with
+> `gh run rerun --failed WORKFLOW_ID`, or trigger a fresh release.
 
 > **Migrating from an earlier version of these docs.** If you previously
 > granted `roles/iap.settingsAdmin`, add `roles/iap.admin` on top —
 > `terraform apply` will start succeeding on the IAP binding. You can
 > also revoke `roles/iap.settingsAdmin` afterwards (it is not required
 > by the current `infra/main.tf`), but leaving it is harmless.
+
+> **Future Terraform-managed resources.** New Terraform changes that add GCS
+> buckets, Cloud Run services, Firestore resources, or similar new resource
+> types may require additional CI service account roles. When `terraform apply`
+> fails with permission denied, inspect the missing permission in the error,
+> grant the narrow role needed for that resource type, and rerun the deploy.
 
 ### Set GitHub Actions repository variables
 
