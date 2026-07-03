@@ -390,6 +390,49 @@ through IAP and see the Smokescreen dashboard. A different Google account should
 be denied unless you explicitly change `dashboard_allowed_user` and re-apply
 Terraform.
 
+## End-to-End Testing With a Synthetic Broker
+
+Use layered testing before enabling real broker outreach:
+
+1. **Local dry-run.** Run `uv run smokescreen --dry-run outreach` locally to
+   inspect composed emails without sending them.
+2. **Synthetic broker.** Set `SMOKESCREEN_TEST_BROKER_EMAIL` locally, or set the
+   Terraform `test_broker_email` variable during deploy, to a controlled address
+   such as a Gmail plus alias: `your.email+testbroker@gmail.com`. Trigger
+   outreach, then reply from a second account with different response patterns
+   to exercise classifier output, state-machine transitions, follow-up replies,
+   and dashboard state changes.
+3. **Real-broker canary.** Enable one real broker at a time in the dashboard's
+   persisted broker selections and verify the full request, poll, classify, and
+   reply loop.
+4. **Full rollout.** Expand broker selections only after the canary path behaves
+   as expected.
+
+For deployed testing, pass the synthetic broker settings with the rest of your
+Terraform variables:
+
+```bash
+terraform apply \
+  -var="project_id=${PROJECT_ID}" \
+  -var="region=${REGION}" \
+  -var="sender_email=${DEPLOYER_EMAIL}" \
+  -var="sender_name=${DEPLOYER_NAME}" \
+  -var="dashboard_allowed_user=${DEPLOYER_EMAIL}" \
+  -var="image=${IMAGE}" \
+  -var="test_broker_email=your.email+testbroker@gmail.com"
+```
+
+Optional overrides are available when you want a non-default registry identity
+or want the broker visible but not automatically enabled for outreach:
+
+```bash
+  -var="test_broker_id=testbroker" \
+  -var="test_broker_name=Test Broker" \
+  -var="test_broker_enabled=false"
+```
+
+Leave `test_broker_email` empty to omit the synthetic broker entirely.
+
 ## Verify Scheduled Polling
 
 Check the configured polling schedule:

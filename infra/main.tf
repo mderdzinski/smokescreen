@@ -272,6 +272,22 @@ resource "google_cloud_run_v2_service" "dashboard" {
         value = google_storage_bucket.identity_documents.name
       }
       env {
+        name  = "SMOKESCREEN_TEST_BROKER_ID"
+        value = var.test_broker_id
+      }
+      env {
+        name  = "SMOKESCREEN_TEST_BROKER_NAME"
+        value = var.test_broker_name
+      }
+      env {
+        name  = "SMOKESCREEN_TEST_BROKER_EMAIL"
+        value = var.test_broker_email
+      }
+      env {
+        name  = "SMOKESCREEN_TEST_BROKER_ENABLED"
+        value = tostring(var.test_broker_enabled)
+      }
+      env {
         name = "SMOKESCREEN_GMAIL_CREDENTIALS_JSON"
         value_source {
           secret_key_ref {
@@ -394,6 +410,22 @@ resource "google_cloud_run_v2_job" "poll_and_reply" {
           value = google_storage_bucket.identity_documents.name
         }
         env {
+          name  = "SMOKESCREEN_TEST_BROKER_ID"
+          value = var.test_broker_id
+        }
+        env {
+          name  = "SMOKESCREEN_TEST_BROKER_NAME"
+          value = var.test_broker_name
+        }
+        env {
+          name  = "SMOKESCREEN_TEST_BROKER_EMAIL"
+          value = var.test_broker_email
+        }
+        env {
+          name  = "SMOKESCREEN_TEST_BROKER_ENABLED"
+          value = tostring(var.test_broker_enabled)
+        }
+        env {
           name = "SMOKESCREEN_GMAIL_CREDENTIALS_JSON"
           value_source {
             secret_key_ref {
@@ -498,6 +530,22 @@ resource "google_cloud_run_v2_job" "outreach" {
         env {
           name  = "SMOKESCREEN_IDENTITY_BUCKET"
           value = google_storage_bucket.identity_documents.name
+        }
+        env {
+          name  = "SMOKESCREEN_TEST_BROKER_ID"
+          value = var.test_broker_id
+        }
+        env {
+          name  = "SMOKESCREEN_TEST_BROKER_NAME"
+          value = var.test_broker_name
+        }
+        env {
+          name  = "SMOKESCREEN_TEST_BROKER_EMAIL"
+          value = var.test_broker_email
+        }
+        env {
+          name  = "SMOKESCREEN_TEST_BROKER_ENABLED"
+          value = tostring(var.test_broker_enabled)
         }
         env {
           name = "SMOKESCREEN_GMAIL_CREDENTIALS_JSON"

@@ -57,6 +57,7 @@ def run_outreach(
 
     if enforce_selections:
         enabled = set(store.list_enabled_brokers())
+        enabled.update(registry.default_enabled_ids())
         if not enabled:
             log.warning("no_brokers_enabled_outreach_skipped")
             return processed

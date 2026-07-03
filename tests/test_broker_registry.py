@@ -1,6 +1,12 @@
 """Tests for the broker registry."""
 
-from smokescreen.brokers.registry import BrokerRegistry
+from smokescreen.brokers.registry import (
+    TEST_BROKER_EMAIL_ENV,
+    TEST_BROKER_ENABLED_ENV,
+    TEST_BROKER_ID_ENV,
+    TEST_BROKER_NAME_ENV,
+    BrokerRegistry,
+)
 from smokescreen.models import Broker
 
 
@@ -98,3 +104,75 @@ def test_delete_removes_domain_and_alias_indexes():
     assert registry.get("example") is None
     assert registry.get_by_domain("example.com") is None
     assert registry.get_by_domain("alias.example.com") is None
+
+
+def test_synthetic_test_broker_registered(monkeypatch):
+    monkeypatch.setenv(TEST_BROKER_EMAIL_ENV, "operator+testbroker@gmail.com")
+    monkeypatch.delenv(TEST_BROKER_ID_ENV, raising=False)
+    monkeypatch.delenv(TEST_BROKER_NAME_ENV, raising=False)
+    monkeypatch.delenv(TEST_BROKER_ENABLED_ENV, raising=False)
+
+    registry = BrokerRegistry.from_yaml()
+
+    broker = registry.get("testbroker")
+    assert broker is not None
+    assert broker.name == "Test Broker"
+    assert broker.privacy_email == "operator+testbroker@gmail.com"
+    assert broker.domain == "gmail.com"
+    assert broker.notes == "Synthetic test broker for end-to-end validation."
+    assert broker in registry.all()
+    assert registry.default_enabled_ids() == ["testbroker"]
+
+    monkeypatch.delenv(TEST_BROKER_EMAIL_ENV)
+    registry = BrokerRegistry.from_yaml()
+
+    assert registry.get("testbroker") is None
+    assert "testbroker" not in registry.ids()
+
+
+def test_synthetic_test_broker_uses_configured_identity(monkeypatch):
+    monkeypatch.setenv(TEST_BROKER_EMAIL_ENV, "privacy@example.test")
+    monkeypatch.setenv(TEST_BROKER_ID_ENV, "qa-broker")
+    monkeypatch.setenv(TEST_BROKER_NAME_ENV, "QA Broker")
+
+    registry = BrokerRegistry.from_yaml()
+
+    broker = registry.get("qa-broker")
+    assert broker is not None
+    assert broker.name == "QA Broker"
+    assert broker.domain == "example.test"
+    assert broker.privacy_email == "privacy@example.test"
+
+
+def test_synthetic_test_broker_enabled_false_stays_selectable(monkeypatch):
+    monkeypatch.setenv(TEST_BROKER_EMAIL_ENV, "privacy@example.test")
+    monkeypatch.setenv(TEST_BROKER_ENABLED_ENV, "false")
+
+    registry = BrokerRegistry.from_yaml()
+
+    assert registry.get("testbroker") is not None
+    assert "testbroker" in registry.ids()
+    assert registry.default_enabled_ids() == []
+
+
+def test_synthetic_test_broker_does_not_overwrite_yaml_id(tmp_path, monkeypatch):
+    brokers_yaml = tmp_path / "brokers.yaml"
+    brokers_yaml.write_text(
+        """
+brokers:
+  - id: testbroker
+    name: Real YAML Broker
+    domain: real.example
+    privacy_email: privacy@real.example
+""".lstrip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(TEST_BROKER_EMAIL_ENV, "privacy@example.test")
+
+    registry = BrokerRegistry.from_yaml(brokers_yaml)
+
+    broker = registry.get("testbroker")
+    assert broker is not None
+    assert broker.name == "Real YAML Broker"
+    assert broker.privacy_email == "privacy@real.example"
+    assert registry.default_enabled_ids() == []

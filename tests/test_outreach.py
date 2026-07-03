@@ -3,7 +3,11 @@
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
-from smokescreen.brokers.registry import BrokerRegistry
+from smokescreen.brokers.registry import (
+    TEST_BROKER_EMAIL_ENV,
+    TEST_BROKER_ENABLED_ENV,
+    BrokerRegistry,
+)
 from smokescreen.config import Settings
 from smokescreen.jobs.outreach import run_outreach
 from smokescreen.models import Broker, BrokerStatus, EmailMessage, OptOutRecord
@@ -83,6 +87,38 @@ def test_outreach_sends_email(tmp_path):
     record = store.get("test-broker")
     assert record.status == BrokerStatus.INITIAL_SENT
     assert record.thread_id == "thread-1"
+    store.close()
+
+
+def test_synthetic_broker_enabled_by_default_for_outreach(tmp_path, monkeypatch):
+    monkeypatch.setenv(TEST_BROKER_EMAIL_ENV, "operator+testbroker@gmail.com")
+    monkeypatch.delenv(TEST_BROKER_ENABLED_ENV, raising=False)
+    settings = _make_settings(sqlite_path=tmp_path / "test.db")
+    registry = BrokerRegistry.from_yaml()
+    store = SQLiteStore(settings.sqlite_path)
+
+    processed = run_outreach(settings, registry, store, gmail=None)
+
+    assert processed == ["testbroker"]
+    record = store.get("testbroker")
+    assert record is not None
+    assert record.status == BrokerStatus.INITIAL_SENT
+    store.close()
+
+
+def test_synthetic_broker_enabled_false_requires_selection(tmp_path, monkeypatch):
+    monkeypatch.setenv(TEST_BROKER_EMAIL_ENV, "operator+testbroker@gmail.com")
+    monkeypatch.setenv(TEST_BROKER_ENABLED_ENV, "false")
+    settings = _make_settings(sqlite_path=tmp_path / "test.db")
+    registry = BrokerRegistry.from_yaml()
+    store = SQLiteStore(settings.sqlite_path)
+
+    assert run_outreach(settings, registry, store, gmail=None) == []
+
+    store.set_enabled_brokers(["testbroker"])
+    processed = run_outreach(settings, registry, store, gmail=None)
+
+    assert processed == ["testbroker"]
     store.close()
 
 

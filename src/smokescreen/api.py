@@ -544,7 +544,9 @@ async def run_outreach_endpoint(request: OutreachRequest):
 
     from smokescreen.jobs.outreach import run_outreach
 
-    selected_registry = BrokerRegistry(selected_brokers)
+    selected_registry = (
+        registry if request.broker_ids is None else BrokerRegistry(selected_brokers)
+    )
     # Explicit broker_ids (used by the onboarding "Send first batch" flow)
     # bypasses the persisted enable-gate for that one-shot send; the
     # scheduled outreach path still gates on selections.

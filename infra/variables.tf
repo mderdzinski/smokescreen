@@ -74,3 +74,27 @@ variable "state_timeout_days" {
     error_message = "state_timeout_days must be between 1 and 90."
   }
 }
+
+variable "test_broker_id" {
+  description = "Runtime synthetic test broker ID registered when test_broker_email is set."
+  type        = string
+  default     = "testbroker"
+}
+
+variable "test_broker_name" {
+  description = "Runtime synthetic test broker display name registered when test_broker_email is set."
+  type        = string
+  default     = "Test Broker"
+}
+
+variable "test_broker_email" {
+  description = "Runtime synthetic test broker privacy email. Leave empty to disable synthetic broker registration."
+  type        = string
+  default     = ""
+}
+
+variable "test_broker_enabled" {
+  description = "Whether the runtime synthetic test broker is enabled for outreach by default."
+  type        = bool
+  default     = true
+}
