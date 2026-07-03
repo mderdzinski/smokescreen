@@ -1,3 +1,10 @@
+# [0.10.0](https://github.com/mderdzinski/smokescreen/compare/v0.9.0...v0.10.0) (2026-07-03)
+
+
+### Features
+
+* generalize broker states and add timeout escalation (sm-aa1) ([7c9b718](https://github.com/mderdzinski/smokescreen/commit/7c9b718c168782e10c1ecf73683c76b428fccf2c))
+
 # [0.9.0](https://github.com/mderdzinski/smokescreen/compare/v0.8.0...v0.9.0) (2026-07-02)
 
 
