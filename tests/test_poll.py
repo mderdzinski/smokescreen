@@ -65,6 +65,7 @@ def _settings(tmp_path, **kwargs) -> Settings:
         "sqlite_path": tmp_path / "test.db",
         "sender_email": "me@example.com",
         "sender_name": "Test User",
+        "ai_provider": "anthropic",
         "dry_run": False,
     }
     data.update(kwargs)
@@ -262,25 +263,38 @@ def test_poll_label_query_quotes_labels_with_spaces():
     assert _poll_label_query("privacy replies") == 'label:"privacy replies"'
 
 
-def test_run_poll_defaults_to_anthropic_provider(tmp_path):
-    settings = _settings(tmp_path, anthropic_api_key="test-key", poll_label="")
+def test_run_poll_defaults_to_gemini_provider(tmp_path):
+    settings = Settings(
+        sqlite_path=tmp_path / "test.db",
+        sender_email="me@example.com",
+        sender_name="Test User",
+        dry_run=False,
+        gemini_project="vertex-project",
+        gemini_location="global",
+        poll_label="",
+    )
     store = SQLiteStore(settings.sqlite_path)
     _seed_labeled_reply(store)
     gmail = _labeled_reply_gmail()
-    anthropic_client = _mock_anthropic("ACKNOWLEDGMENT")
+    gemini_classifier = _mock_gemini("ACKNOWLEDGMENT")
 
     with (
         patch("smokescreen.jobs.poll.Anthropic") as anthropic,
         patch("smokescreen.jobs.poll.genai.Client") as gemini_client,
     ):
-        anthropic.return_value = anthropic_client
+        gemini_client.return_value = gemini_classifier
         processed = run_poll(settings, _registry(), store, gmail=gmail)
 
     assert processed == ["labeled"]
-    anthropic.assert_called_once_with(api_key="test-key")
-    gemini_client.assert_not_called()
-    assert anthropic_client.messages.create.call_args.kwargs["model"] == (
-        "claude-sonnet-4-20250514"
+    anthropic.assert_not_called()
+    gemini_client.assert_called_once_with(
+        vertexai=True,
+        project="vertex-project",
+        location="global",
+    )
+    assert (
+        gemini_classifier.models.generate_content.call_args.kwargs["model"]
+        == "gemini-3.1-flash-lite"
     )
     store.close()
 

@@ -118,10 +118,14 @@ export interface FriendlySettings {
 }
 
 export interface AdvancedSettings {
+  ai_provider: AiProvider;
   poll_label: string;
   max_retries: number;
   dry_run: boolean;
   anthropic_model: string;
+  gemini_model: string;
+  gemini_project: string;
+  gemini_location: string;
 }
 
 export type SettingsUpdate = Partial<

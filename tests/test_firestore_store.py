@@ -317,6 +317,7 @@ def test_poll_adds_pending_whitelist_for_firestore_store():
         settings=Settings(
             sender_email="me@example.com",
             sender_name="Me",
+            ai_provider="anthropic",
             dry_run=True,
         ),
         record=record,
@@ -360,6 +361,7 @@ def test_poll_updates_firestore_record_for_completed_reply():
         settings=Settings(
             sender_email="me@example.com",
             sender_name="Me",
+            ai_provider="anthropic",
             dry_run=True,
         ),
         record=record,

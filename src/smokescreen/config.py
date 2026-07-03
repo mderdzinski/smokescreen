@@ -67,9 +67,9 @@ class Settings(BaseSettings):
         description="Full legal name for opt-out requests",
     )
 
-    # Claude API
+    # AI provider
     ai_provider: Literal["anthropic", "gemini"] = Field(
-        default="anthropic",
+        default="gemini",
         description="AI provider for reply classification: 'anthropic' or 'gemini'",
     )
     anthropic_api_key: str = Field(default="", description="Anthropic API key")

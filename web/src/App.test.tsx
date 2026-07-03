@@ -64,8 +64,12 @@ const settings: FriendlySettings = {
 };
 
 const advancedSettings: AdvancedSettings = {
+  ai_provider: "anthropic",
   anthropic_model: "claude-sonnet-4-20250514",
   dry_run: false,
+  gemini_location: "global",
+  gemini_model: "gemini-3.1-flash-lite",
+  gemini_project: "",
   max_retries: 5,
   poll_label: "smokescreen",
 };
@@ -1099,6 +1103,85 @@ describe("SettingsPage", () => {
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(await screen.findByText("Settings were not saved")).toBeInTheDocument();
+  });
+
+  it("shows Gemini as the active default provider and saves its model fields without an API key", async () => {
+    const user = userEvent.setup();
+    const savedBodies: unknown[] = [];
+    mockApi([
+      ...settingsPageRoutes({
+        advancedBody: { ...advancedSettings, ai_provider: "gemini", gemini_project: "smokescreen-prod" },
+        settingsBody: { ...settings, ai_provider: "gemini", gemini_model: "gemini-3.1-flash-lite" },
+      }),
+      {
+        assert: (request) => savedBodies.push(parseJsonBody(request)),
+        body: { restart_required: false, status: "saved" },
+        method: "PUT",
+        path: "/api/settings",
+      },
+    ]);
+
+    renderWithProviders(<SettingsPage />);
+
+    expect(await screen.findAllByText("Active · Vertex AI")).toHaveLength(2);
+    expect(screen.queryByLabelText("Anthropic API key")).not.toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("GCP project"));
+    await user.type(screen.getByLabelText("GCP project"), "vertex-prod");
+    await user.clear(screen.getByLabelText("Gemini model"));
+    await user.type(screen.getByLabelText("Gemini model"), "gemini-2.5-flash");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() =>
+      expect(savedBodies).toEqual([
+        {
+          gemini_model: "gemini-2.5-flash",
+          gemini_project: "vertex-prod",
+        },
+      ]),
+    );
+  });
+
+  it("reveals Claude key and model fields and saves Claude opt-in settings", async () => {
+    const user = userEvent.setup();
+    const savedBodies: unknown[] = [];
+    mockApi([
+      ...settingsPageRoutes({
+        advancedBody: { ...advancedSettings, ai_provider: "gemini" },
+        settingsBody: { ...settings, ai_provider: "gemini", anthropic_api_key: "" },
+      }),
+      {
+        assert: (request) => savedBodies.push(parseJsonBody(request)),
+        body: { restart_required: false, status: "saved" },
+        method: "PUT",
+        path: "/api/settings",
+      },
+    ]);
+
+    renderWithProviders(<SettingsPage />);
+
+    expect(await screen.findAllByText("Active · Vertex AI")).toHaveLength(2);
+    await user.click(screen.getByRole("button", { name: /Claude/ }));
+
+    expect(screen.getAllByText("Key required")).toHaveLength(2);
+    expect(screen.getByLabelText("Anthropic API key")).toHaveValue("");
+    expect(screen.getByLabelText("Claude model")).toHaveValue("claude-sonnet-4-20250514");
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+
+    await user.type(screen.getByLabelText("Anthropic API key"), "sk-ant-test");
+    await user.clear(screen.getByLabelText("Claude model"));
+    await user.type(screen.getByLabelText("Claude model"), "claude-opus-test");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() =>
+      expect(savedBodies).toEqual([
+        {
+          ai_provider: "anthropic",
+          anthropic_api_key: "sk-ant-test",
+          anthropic_model: "claude-opus-test",
+        },
+      ]),
+    );
   });
 
   it("disables env-locked cadence sliders and keeps their copy visible", async () => {

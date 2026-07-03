@@ -6,7 +6,9 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock3,
+  Circle,
   FileLock2,
+  KeyRound,
   Mail,
   Plug,
   RefreshCcw,
@@ -15,6 +17,7 @@ import {
   Settings,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   UserRound,
 } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -26,7 +29,7 @@ import { Card } from "../components/ui/card";
 import { StatusPill } from "../components/ui/status-pill";
 import { Switch } from "../components/ui/switch";
 import { TextField } from "../components/ui/text-field";
-import { api, type AdvancedSettings, type FriendlySettings, type SettingsUpdate } from "../lib/api";
+import { api, type AdvancedSettings, type AiProvider, type FriendlySettings, type SettingsUpdate } from "../lib/api";
 import { useAdvancedSettings, useBrokers, usePendingWhitelist, useSettings, useWhitelist } from "../lib/queries";
 import { cn } from "../lib/utils";
 
@@ -46,6 +49,11 @@ type SettingsDraft = {
   poll_label: string;
   max_retries: number;
   dry_run: boolean;
+  ai_provider: AiProvider;
+  anthropic_api_key: string;
+  anthropic_model: string;
+  gemini_model: string;
+  gemini_project: string;
 };
 
 type SaveRequest = {
@@ -75,6 +83,11 @@ function draftFromSettings(settings: FriendlySettings, advanced: AdvancedSetting
   return normalizeDraft({
     dry_run: advanced.dry_run,
     gmail_connected: settings.gmail_connected,
+    ai_provider: settings.ai_provider ?? advanced.ai_provider ?? "gemini",
+    anthropic_api_key: "",
+    anthropic_model: advanced.anthropic_model ?? "claude-sonnet-4-20250514",
+    gemini_model: settings.gemini_model || advanced.gemini_model || "gemini-3.1-flash-lite",
+    gemini_project: advanced.gemini_project ?? "",
     max_retries: advanced.max_retries,
     poll_label: advanced.poll_label,
     rerequest_interval_days: settings.rerequest_interval_days,
@@ -88,6 +101,10 @@ function normalizeDraft(draft: SettingsDraft): SettingsDraft {
   return {
     ...draft,
     max_retries: Math.max(0, Math.trunc(Number.isFinite(draft.max_retries) ? draft.max_retries : 0)),
+    anthropic_api_key: (draft.anthropic_api_key ?? "").trim(),
+    anthropic_model: (draft.anthropic_model ?? "").trim(),
+    gemini_model: (draft.gemini_model ?? "").trim(),
+    gemini_project: (draft.gemini_project ?? "").trim(),
     poll_label: draft.poll_label.trim(),
     rerequest_interval_days: clampInteger(
       draft.rerequest_interval_days,
@@ -166,12 +183,27 @@ function buildSettingsPayload(
   if (next.dry_run !== saved.dry_run) {
     payload.dry_run = next.dry_run;
   }
+  if (next.ai_provider !== saved.ai_provider) {
+    payload.ai_provider = next.ai_provider;
+  }
+  if (next.gemini_model !== saved.gemini_model) {
+    payload.gemini_model = next.gemini_model;
+  }
+  if (next.gemini_project !== saved.gemini_project) {
+    payload.gemini_project = next.gemini_project;
+  }
+  if (next.anthropic_model !== saved.anthropic_model) {
+    payload.anthropic_model = next.anthropic_model;
+  }
+  if (next.anthropic_api_key) {
+    payload.anthropic_api_key = next.anthropic_api_key;
+  }
   if (saved.gmail_connected && !next.gmail_connected) {
     payload.gmail_token_json = "";
     payload.gmail_credentials_json = "";
   }
 
-  return { payload, snapshot: next };
+  return { payload, snapshot: { ...next, anthropic_api_key: "" } };
 }
 
 function payloadHasChanges(payload: SettingsUpdate): boolean {
@@ -233,7 +265,7 @@ export function SettingsPage() {
 
   const saveMutation = useMutation({
     mutationFn: ({ payload }: SaveRequest) => api.updateSettings(payload),
-    onSuccess: async (result, { snapshot }) => {
+    onSuccess: async (result, { payload, snapshot }) => {
       setDraft(snapshot);
       setSavedDraft(snapshot);
       setMessage(result.restart_required ? "Saved. Restart Smokescreen to apply every change." : "Saved.");
@@ -242,6 +274,9 @@ export function SettingsPage() {
           ? {
               ...current,
               gmail_connected: snapshot.gmail_connected,
+              ai_provider: snapshot.ai_provider,
+              anthropic_api_key: payload.anthropic_api_key ? "stored" : current.anthropic_api_key,
+              gemini_model: snapshot.gemini_model,
               rerequest_interval_days: snapshot.rerequest_interval_days,
               sender_email: snapshot.sender_email,
               sender_name: snapshot.sender_name,
@@ -253,7 +288,11 @@ export function SettingsPage() {
         current
           ? {
               ...current,
+              ai_provider: snapshot.ai_provider,
+              anthropic_model: snapshot.anthropic_model,
               dry_run: snapshot.dry_run,
+              gemini_model: snapshot.gemini_model,
+              gemini_project: snapshot.gemini_project,
               max_retries: snapshot.max_retries,
               poll_label: snapshot.poll_label,
             }
@@ -318,7 +357,16 @@ export function SettingsPage() {
   const loadError = settingsQuery.error ?? advancedQuery.error;
   const pendingCount = pendingWhitelistQuery.data?.length ?? 0;
   const dirty = !sameDraft(savedDraft, draft);
-  const canSave = Boolean(draft && savedDraft && dirty && !saveMutation.isPending);
+  const hasAnthropicKey = Boolean(settings?.anthropic_key_from_secret || settings?.anthropic_api_key);
+  const providerReady = Boolean(
+    !draft ||
+      !savedDraft ||
+      draft.ai_provider !== "anthropic" ||
+      draft.ai_provider === savedDraft.ai_provider ||
+      hasAnthropicKey ||
+      draft.anthropic_api_key.trim(),
+  );
+  const canSave = Boolean(draft && savedDraft && dirty && providerReady && !saveMutation.isPending);
   const saveRequest = draft && savedDraft ? buildSettingsPayload(savedDraft, draft, settings) : null;
   const hasPayloadChanges = saveRequest ? payloadHasChanges(saveRequest.payload) : false;
 
@@ -430,7 +478,12 @@ export function SettingsPage() {
                     savedConnected={Boolean(savedDraft?.gmail_connected)}
                     onDisconnect={() => setDraftField("gmail_connected", false)}
                   />
-                  <AiProviderShell settings={settings} />
+                  <AiProviderPicker
+                    draft={draft}
+                    hasAnthropicKey={hasAnthropicKey}
+                    maskedAnthropicKey={settings?.anthropic_api_key}
+                    onChange={setDraftField}
+                  />
                 </Card>
               </SettingsSection>
 
@@ -725,11 +778,20 @@ function GmailConnectionRow({
   );
 }
 
-function AiProviderShell({ settings }: { settings?: FriendlySettings }) {
-  const activeProvider = settings?.ai_provider ?? "anthropic";
+function AiProviderPicker({
+  draft,
+  hasAnthropicKey,
+  maskedAnthropicKey,
+  onChange,
+}: {
+  draft: SettingsDraft;
+  hasAnthropicKey: boolean;
+  maskedAnthropicKey?: string;
+  onChange: <Key extends keyof SettingsDraft>(key: Key, value: SettingsDraft[Key]) => void;
+}) {
   const providers = [
     {
-      icon: <Brain aria-hidden="true" className="h-4 w-4" />,
+      icon: <Sparkles aria-hidden="true" className="h-4 w-4" />,
       id: "gemini",
       name: "Gemini",
       subtitle: "Vertex AI",
@@ -749,22 +811,24 @@ function AiProviderShell({ settings }: { settings?: FriendlySettings }) {
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <span className="font-display text-base font-semibold text-content-strong">AI provider</span>
         <StatusPill
-          label={activeProvider === "gemini" ? "Active · Vertex AI" : "Active · Claude"}
+          label={draft.ai_provider === "gemini" ? "Active · Vertex AI" : hasAnthropicKey ? "Key on file" : "Key required"}
           pulse={false}
-          tone="done"
+          tone={draft.ai_provider === "anthropic" && !hasAnthropicKey ? "attention" : "done"}
         />
       </div>
       <div className="grid gap-[10px] sm:grid-cols-2">
         {providers.map((provider) => {
-          const selected = provider.id === activeProvider;
+          const selected = provider.id === draft.ai_provider;
           return (
-            <div
-              aria-selected={selected}
+            <button
+              aria-pressed={selected}
               className={cn(
-                "rounded-sm border border-[color:var(--border-strong)] bg-transparent p-[13px] transition-[background,border-color,box-shadow] duration-fast ease-standard",
+                "rounded-sm border border-[color:var(--border-strong)] bg-transparent p-[13px] text-left transition-[background,border-color,box-shadow] duration-fast ease-standard hover:border-brand focus-visible:outline-none focus-visible:shadow-focus",
                 selected && "border-brand bg-fill-olive shadow-focus",
               )}
               key={provider.id}
+              onClick={() => onChange("ai_provider", provider.id)}
+              type="button"
             >
               <div className="flex items-start justify-between gap-3">
                 <span className="flex min-w-0 items-center gap-[9px]">
@@ -781,24 +845,65 @@ function AiProviderShell({ settings }: { settings?: FriendlySettings }) {
                     <span className="ss-label">{provider.subtitle}</span>
                   </span>
                 </span>
-                {selected ? <CheckCircle2 aria-hidden="true" className="h-[18px] w-[18px] text-brand-strong" /> : null}
+                {selected ? (
+                  <CheckCircle2 aria-hidden="true" className="h-[18px] w-[18px] text-brand-strong" />
+                ) : (
+                  <Circle aria-hidden="true" className="h-[18px] w-[18px] text-content-faint" />
+                )}
               </div>
               <div className="mt-2">
                 <Badge variant={selected ? "olive" : "neutral"}>{provider.tag}</Badge>
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
-      <p className="mt-3 text-sm leading-relaxed text-content-muted">
-        {activeProvider === "gemini"
-          ? `Gemini model: ${settings?.gemini_model || "gemini"}`
-          : settings?.anthropic_key_from_secret
-            ? "Claude key is supplied by Secret Manager."
-            : settings?.anthropic_api_key
-              ? "Claude key is on file."
-              : "Claude key is not configured."}
-      </p>
+
+      {draft.ai_provider === "gemini" ? (
+        <div className="mt-3 grid gap-3 rounded-sm border border-border bg-surface-sunken p-4">
+          <StatusPill label="Active · Vertex AI" pulse={false} tone="done" />
+          <p className="text-sm leading-relaxed text-content-body">
+            Smokescreen runs on your Google Cloud project's Vertex AI credentials - no API key required.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <TextField
+              label="GCP project"
+              placeholder="my-gcp-project"
+              value={draft.gemini_project}
+              onChange={(event) => onChange("gemini_project", event.currentTarget.value)}
+            />
+            <TextField
+              label="Gemini model"
+              placeholder="gemini-3.1-flash-lite"
+              value={draft.gemini_model}
+              onChange={(event) => onChange("gemini_model", event.currentTarget.value)}
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 grid gap-3 rounded-sm border border-border bg-surface-sunken p-4">
+          <StatusPill label={hasAnthropicKey ? "Key on file" : "Key required"} pulse={false} tone={hasAnthropicKey ? "done" : "attention"} />
+          <p className="text-sm leading-relaxed text-content-body">
+            Prefer Claude? Add an Anthropic API key and Smokescreen will use it instead of Vertex AI.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <TextField
+              icon={<KeyRound aria-hidden="true" />}
+              label="Anthropic API key"
+              placeholder={maskedAnthropicKey || "sk-ant-..."}
+              type="password"
+              value={draft.anthropic_api_key}
+              onChange={(event) => onChange("anthropic_api_key", event.currentTarget.value)}
+            />
+            <TextField
+              label="Claude model"
+              placeholder="claude-sonnet-4-20250514"
+              value={draft.anthropic_model}
+              onChange={(event) => onChange("anthropic_model", event.currentTarget.value)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

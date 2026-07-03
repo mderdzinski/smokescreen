@@ -698,7 +698,7 @@ def test_get_advanced_settings(settings_client):
     assert data["poll_label"] == "smokescreen"
     assert data["max_retries"] == 5
     assert data["dry_run"] is False
-    assert data["ai_provider"] == "anthropic"
+    assert data["ai_provider"] == "gemini"
     assert data["anthropic_model"] == "claude-sonnet-4-20250514"
     assert data["gemini_model"] == "gemini-3.1-flash-lite"
     assert data["gemini_project"] == ""
@@ -967,7 +967,7 @@ def test_get_settings_reports_env_flags_off_by_default(settings_client):
     assert data["sender_email_from_env"] is False
     assert data["sender_name_from_env"] is False
     assert data["anthropic_key_from_secret"] is False
-    assert data["ai_provider"] == "anthropic"
+    assert data["ai_provider"] == "gemini"
     assert data["gmail_configured"] is False
     assert data["gemini_model"] == "gemini-3.1-flash-lite"
 
