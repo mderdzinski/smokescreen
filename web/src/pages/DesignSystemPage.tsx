@@ -1,4 +1,5 @@
 import { AlertTriangle, CheckCircle2, Mail, RefreshCcw, Search, Send, Settings, ShieldCheck } from "lucide-react";
+import { useState } from "react";
 
 import { Avatar } from "../components/ui/avatar";
 import { Badge } from "../components/ui/badge";
@@ -7,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Logo } from "../components/ui/logo";
 import { Metric } from "../components/ui/metric";
 import { StatusPill, type BrokerStatus } from "../components/ui/status-pill";
+import { Switch } from "../components/ui/switch";
 import { TextField } from "../components/ui/text-field";
 
 const buttonVariants = ["primary", "accent", "secondary", "outline", "ghost", "danger"] as const;
@@ -32,6 +34,11 @@ const statuses: BrokerStatus[] = [
 ];
 
 export function DesignSystemPage() {
+  const [bareOn, setBareOn] = useState(true);
+  const [bareOff, setBareOff] = useState(false);
+  const [notifications, setNotifications] = useState(true);
+  const [dryRun, setDryRun] = useState(false);
+
   return (
     <section className="mx-auto grid max-w-container gap-6 px-5 py-6 sm:px-6 lg:px-8">
       <Card variant="inverse" pad className="ss-haze">
@@ -88,6 +95,29 @@ export function DesignSystemPage() {
             ))}
             <StatusPill label="Not started" tone="idle" />
           </div>
+        </div>
+      </Card>
+
+      <Card label="Core" title="Switch">
+        <div className="grid max-w-[420px] gap-4">
+          <div className="flex items-center gap-5">
+            <Switch aria-label="Active toggle" checked={bareOn} onChange={setBareOn} />
+            <Switch aria-label="Inactive toggle" checked={bareOff} onChange={setBareOff} />
+            <Switch aria-label="Disabled toggle" checked={false} disabled />
+          </div>
+          <Switch
+            checked={notifications}
+            description="Ping me when a broker replies."
+            label="Email notifications"
+            onChange={setNotifications}
+          />
+          <Switch
+            checked={dryRun}
+            description="Prepare work without sending email."
+            label="Dry run"
+            onChange={setDryRun}
+            row
+          />
         </div>
       </Card>
 
