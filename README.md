@@ -1,12 +1,12 @@
 # Smokescreen
 
-Automated data broker opt-out system. Sends CCPA/privacy deletion requests to data brokers via email, classifies their replies using Claude or Vertex AI Gemini, and handles the back-and-forth (identity verification, follow-ups) until completion.
+Automated data broker opt-out system. Sends CCPA/privacy deletion requests to data brokers via email, classifies replies with the configured AI provider (Vertex AI Gemini by default, Anthropic Claude optionally), and handles broker acknowledgments, information requests, follow-ups, and manual-review cases until completion.
 
 ## How it works
 
-1. **Outreach** — Sends templated opt-out emails to all known data brokers
-2. **Poll** — Checks inbox for replies, classifies them with the configured AI provider (acknowledgment, identity request, completed, rejected, needs manual review), and responds automatically
-3. **State machine** — Tracks each broker through: `PENDING → INITIAL_SENT → AWAITING_RESPONSE → COMPLETED/REJECTED/FAILED`
+1. **Outreach** — Sends templated opt-out emails to the brokers explicitly enabled in the persisted broker selection
+2. **Poll** — Checks inbox for replies, classifies them with the configured AI provider (acknowledgment, information request, completed, rejected, needs manual review), and responds automatically
+3. **State machine** — Tracks each broker through request, ping, follow-up, completion, rejection, failure, and manual-review states
 
 ## Quick start
 
@@ -17,12 +17,18 @@ uv sync
 # Configure (minimum required)
 export SMOKESCREEN_SENDER_EMAIL="YOUR_EMAIL"
 export SMOKESCREEN_SENDER_NAME="Your Legal Name"
-export SMOKESCREEN_ANTHROPIC_API_KEY="sk-ant-..."
 
-# Optional: use Vertex AI Gemini instead of Anthropic
-# export SMOKESCREEN_AI_PROVIDER="gemini"
+# Default AI provider: Vertex AI Gemini.
+# Authenticate locally with Google Application Default Credentials:
+gcloud auth application-default login
+
+# Optional: pin the Vertex AI project/location if ADC does not infer them
 # export SMOKESCREEN_GEMINI_PROJECT="your-gcp-project"
 # export SMOKESCREEN_GEMINI_LOCATION="global"
+
+# Optional alternative: use Anthropic Claude instead of Gemini
+# export SMOKESCREEN_AI_PROVIDER="anthropic"
+# export SMOKESCREEN_ANTHROPIC_API_KEY="sk-ant-..."
 
 # Set up Gmail OAuth (one-time — opens browser)
 # Place your Google Cloud OAuth client credentials at ./credentials.json
@@ -35,6 +41,10 @@ smokescreen poll
 # short-circuits before Gmail client initialization and never opens the flow.
 # Verify the token has a refresh_token:
 python3 -c "import json; d=json.load(open('token.json')); print('has refresh_token:', 'refresh_token' in d)"
+
+# Enable at least one broker before outreach. Use the dashboard Setup flow or
+# Brokers page toggles, or call PUT /api/brokers/selections against a running
+# dashboard API.
 
 # Dry run — simulate outreach without sending email
 smokescreen --dry-run outreach
@@ -155,12 +165,27 @@ smokescreen serve --host 0.0.0.0 --port 9000
 
 **Tabs:**
 
-- **Broker Status** — Overview of all opt-out records with status, retries, and reset actions
-- **Manual Queue** — Brokers flagged as `NEEDS_MANUAL` for human intervention
-- **Broker Registry** — Add, edit, or delete data brokers
-- **Email Whitelist** — Manage whitelisted email addresses (auto-synced from broker registry)
-- **Pending Whitelist** — Approve or reject new whitelist requests detected from incoming mail
-- **Settings** — Configure all settings via the UI (persisted to a JSON file)
+- **Status** — Overview route at `/` with working, removed, and needs-attention broker records
+- **Brokers** — Broker registry route at `/brokers`; add, edit, delete, enable, disable, import, and run outreach for selected brokers
+- **Needs Attention** — Manual-review route at `/needs-attention` for `NEEDS_MANUAL`, `FAILED`, and `REJECTED` records
+- **Settings** — Configure identity, Gmail status, AI provider, cadence, identity documents, and trusted senders
+
+The onboarding flow is available at `/setup` and `/onboarding`. It persists
+the enabled broker selection used by scheduled outreach. The `/trusted-senders`
+route remains available for direct trusted-sender management, but trusted
+sender controls are also embedded in Settings.
+
+### Outreach broker selection gate
+
+Smokescreen outreach uses a safety gate: scheduled outreach and the
+`smokescreen outreach` CLI only contact brokers from the persisted enabled
+broker selection. A fresh install has no enabled brokers, so the CLI exits with
+an error and the scheduled Cloud Run job skips without sending. Enable brokers
+from the dashboard Setup flow or Brokers page before running outreach.
+
+`POST /api/outreach` follows the same gate when `broker_ids` is omitted. The
+one-shot onboarding and Brokers-page flows pass explicit `broker_ids`, which
+run only that selected subset.
 
 **Signing out (deployed dashboard):**
 
@@ -185,14 +210,14 @@ All settings use the `SMOKESCREEN_` env prefix. They can be set via environment 
 |----------|---------|-------------|
 | `SMOKESCREEN_SENDER_EMAIL` | `""` | Gmail address to send from |
 | `SMOKESCREEN_SENDER_NAME` | `""` | Full legal name for requests |
-| `SMOKESCREEN_AI_PROVIDER` | `anthropic` (local) / `gemini` (Terraform deploy) | Reply classifier provider: `anthropic` or `gemini`. Pydantic default is `anthropic` for the local CLI; the Terraform `ai_provider` variable defaults to `gemini` and sets this env var on Cloud Run. See the AI provider section below. |
+| `SMOKESCREEN_AI_PROVIDER` | `gemini` | Reply classifier provider: `gemini` or `anthropic`. See the AI provider section below. |
 | `SMOKESCREEN_ANTHROPIC_API_KEY` | `""` | Claude API key |
 | `SMOKESCREEN_ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Claude model |
 | `SMOKESCREEN_GEMINI_MODEL` | `gemini-3.1-flash-lite` | Vertex AI Gemini model for reply classification |
 | `SMOKESCREEN_GEMINI_PROJECT` | `""` | GCP project for Vertex AI; defaults to Firestore project or ADC environment |
 | `SMOKESCREEN_GEMINI_LOCATION` | `global` | Vertex AI location for Gemini |
 | `SMOKESCREEN_STATE_BACKEND` | `sqlite` | `sqlite` or `firestore` |
-| `SMOKESCREEN_SQLITE_PATH` | `smokescreen.db` | SQLite database path |
+| `SMOKESCREEN_SQLITE_PATH` | `~/.smokescreen/data.db` | SQLite database path |
 | `SMOKESCREEN_FIRESTORE_PROJECT` | `""` | GCP project for Firestore |
 | `SMOKESCREEN_FIRESTORE_COLLECTION` | `opt_outs` | Firestore collection name |
 | `SMOKESCREEN_GMAIL_CREDENTIALS_PATH` | `credentials.json` | OAuth client credentials |
@@ -200,33 +225,28 @@ All settings use the `SMOKESCREEN_` env prefix. They can be set via environment 
 | `SMOKESCREEN_GMAIL_CREDENTIALS_JSON` | `""` | OAuth client credentials JSON from Secret Manager |
 | `SMOKESCREEN_GMAIL_TOKEN_JSON` | `""` | Authorized-user OAuth token JSON from Secret Manager |
 | `SMOKESCREEN_GMAIL_OAUTH_INTERACTIVE` | `true` | Allow browser OAuth when no reusable token is available |
-| `SMOKESCREEN_IDENTITY_DOCS_DIR` | `identity/` | Pre-redacted ID documents |
+| `SMOKESCREEN_IDENTITY_BUCKET` | `""` | Private GCS bucket for uploaded identity documents |
+| `SMOKESCREEN_IDENTITY_DOCS_DIR` | `identity/` | Deprecated local identity document fallback. Use `SMOKESCREEN_IDENTITY_BUCKET` and upload documents through the dashboard. |
 | `SMOKESCREEN_MAX_RETRIES` | `5` | Max retries before FAILED |
 | `SMOKESCREEN_POLL_LABEL` | `smokescreen` | Gmail label used to select active stored threads during polling; set blank to poll all active stored threads |
 | `SMOKESCREEN_DRY_RUN` | `false` | Skip actual sends |
+| `SMOKESCREEN_REREQUEST_INTERVAL_DAYS` | `30` | Days after completion before re-sending a deletion request |
+| `SMOKESCREEN_STATE_TIMEOUT_DAYS` | `14` | Days before a waiting record is pinged; a second silent period escalates to `NEEDS_MANUAL` |
 | `SMOKESCREEN_SETTINGS_FILE` | `settings.json` | Path to the settings JSON file |
 
 ### AI provider
 
-The default provider depends on where Smokescreen is running:
+Smokescreen defaults to Vertex AI Gemini everywhere the Pydantic settings
+defaults are used. Local development can authenticate Gemini with
+`gcloud auth application-default login`; Cloud Run uses its service account.
+Gemini does not use a separate API key, but the project must have
+`aiplatform.googleapis.com` enabled and the runtime service account must have
+`roles/aiplatform.user`.
 
-- **Local development / `smokescreen` CLI runtime.** The Pydantic default is
-  `anthropic`, so a local run requires `SMOKESCREEN_ANTHROPIC_API_KEY`
-  (and optionally `SMOKESCREEN_ANTHROPIC_MODEL`). Anthropic requires a
-  separate Anthropic account and API key. Switch locally by exporting
-  `SMOKESCREEN_AI_PROVIDER=gemini` before running.
-- **Terraform / GCP deployment.** The `ai_provider` Terraform variable
-  defaults to `gemini` and sets `SMOKESCREEN_AI_PROVIDER=gemini` on the
-  Cloud Run resources. Gemini uses Vertex AI through Application Default
-  Credentials via the service account, so no Anthropic API key is needed
-  for the deployed dashboard by default. See
-  [docs/DEPLOY.md](docs/DEPLOY.md) for the provider modes.
-
-Gemini uses Vertex AI through the official Google Gen AI SDK. Locally you can
-authenticate with `gcloud auth application-default login`; Cloud Run uses its
-service account. Gemini does not use a separate API key, but the project must
-have `aiplatform.googleapis.com` enabled and the runtime service account must
-have `roles/aiplatform.user`.
+Anthropic Claude remains supported. Set `SMOKESCREEN_AI_PROVIDER=anthropic`
+and provide `SMOKESCREEN_ANTHROPIC_API_KEY` (and optionally
+`SMOKESCREEN_ANTHROPIC_MODEL`) to use Claude instead of Gemini. See
+[docs/DEPLOY.md](docs/DEPLOY.md) for the Terraform provider modes.
 
 The default Gemini model is `gemini-3.1-flash-lite`. Google Cloud's
 [Gemini 3.1 Flash-Lite model page](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-1-flash-lite)
@@ -238,21 +258,83 @@ lists it as the latest supported version for Gemini 3.1 Flash-Lite.
 
 Settings can be persisted to a JSON file (default: `settings.json`) via the dashboard Settings tab or the `PUT /api/settings` endpoint. Environment variables always take precedence over file-based settings. Changes to identity, email, or state backend settings require a server restart.
 
+### Identity documents
+
+`SMOKESCREEN_IDENTITY_BUCKET` is the current identity-document storage setting.
+The dashboard uploads Government ID, Proof of address, and optional SSN-last-4
+documents to that private GCS bucket. `SMOKESCREEN_IDENTITY_DOCS_DIR` is
+deprecated; existing local files are used only as a fallback when no bucket is
+configured. Migrate by configuring the bucket, starting the dashboard, and
+uploading the documents from Settings.
+
 ## State machine
 
 ```
 PENDING
-  → INITIAL_SENT
-    → AWAITING_RESPONSE
-      → IDENTITY_REQUESTED → IDENTITY_SENT → AWAITING_RESPONSE (cycle)
-      → COMPLETED
-      → REJECTED
-      → NEEDS_MANUAL
-      → FAILED
+  -> INITIAL_SENT
+  -> FAILED
 
-Any active state → FAILED (after max retries)
-NEEDS_MANUAL → PENDING (manual reset)
+INITIAL_SENT
+  -> INITIAL_SENT_PINGED
+  -> AWAITING_RESPONSE
+  -> INFO_REQUESTED
+  -> FAILED
+
+INITIAL_SENT_PINGED
+  -> AWAITING_RESPONSE
+  -> INFO_REQUESTED
+  -> NEEDS_MANUAL
+  -> FAILED
+
+AWAITING_RESPONSE
+  -> AWAITING_RESPONSE_PINGED
+  -> INFO_REQUESTED
+  -> COMPLETED
+  -> REJECTED
+  -> NEEDS_MANUAL
+  -> FAILED
+
+AWAITING_RESPONSE_PINGED
+  -> INFO_REQUESTED
+  -> COMPLETED
+  -> REJECTED
+  -> NEEDS_MANUAL
+  -> FAILED
+
+INFO_REQUESTED
+  -> INFO_REQUESTED_PINGED
+  -> FOLLOW_UP_SENT
+  -> NEEDS_MANUAL
+  -> FAILED
+
+INFO_REQUESTED_PINGED
+  -> FOLLOW_UP_SENT
+  -> NEEDS_MANUAL
+  -> FAILED
+
+FOLLOW_UP_SENT
+  -> FOLLOW_UP_SENT_PINGED
+  -> AWAITING_RESPONSE
+  -> NEEDS_MANUAL
+  -> FAILED
+
+FOLLOW_UP_SENT_PINGED
+  -> AWAITING_RESPONSE
+  -> NEEDS_MANUAL
+  -> FAILED
+
+COMPLETED -> PENDING (scheduled re-request)
+NEEDS_MANUAL -> PENDING | COMPLETED | FAILED
+REJECTED and FAILED are terminal
 ```
+
+The waiting states are `INITIAL_SENT`, `AWAITING_RESPONSE`, `INFO_REQUESTED`,
+and `FOLLOW_UP_SENT`. If one remains unchanged for
+`SMOKESCREEN_STATE_TIMEOUT_DAYS`, polling sends one status-check ping and moves
+the record to the paired `*_PINGED` state. If the pinged state sits through a
+second silent timeout, Smokescreen escalates the record to `NEEDS_MANUAL`.
+Legacy stored values `IDENTITY_REQUESTED` and `IDENTITY_SENT` are mapped at read
+time to `INFO_REQUESTED` and `FOLLOW_UP_SENT`.
 
 ## CI and releases
 
@@ -305,7 +387,7 @@ Use the deployment docs for the path that matches your goal:
 
 - Gmail scopes restricted to `gmail.send` + `gmail.readonly`
 - Identity documents are never sent to the AI classifier; only email text is used
-- Pre-redacted docs stored locally or in GCS
+- Identity documents are uploaded to a private GCS bucket; the local identity docs directory is deprecated fallback behavior
 - Cloud Run SA has least-privilege IAM roles
 - Credentials, tokens, and databases are gitignored
 
@@ -333,21 +415,35 @@ The dashboard server exposes a REST API:
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/` | React dashboard |
+| `GET` | `/app` | Redirect legacy app mount to `/` |
+| `GET` | `/app/{path}` | Redirect legacy app routes to root-relative routes |
+| `GET` | `/{path}` | React dashboard fallback for non-API paths |
 | `GET` | `/api/brokers` | List all brokers |
 | `POST` | `/api/brokers` | Add a broker |
-| `PUT` | `/api/brokers/{id}` | Update a broker |
-| `DELETE` | `/api/brokers/{id}` | Delete a broker |
+| `POST` | `/api/brokers/import` | Import brokers from CSV |
+| `GET` | `/api/brokers/selections` | Get enabled broker IDs for outreach |
+| `PUT` | `/api/brokers/selections` | Persist enabled broker IDs for outreach |
+| `PUT` | `/api/brokers/{broker_id}` | Update a broker |
+| `DELETE` | `/api/brokers/{broker_id}` | Delete a broker |
 | `GET` | `/api/optouts` | List opt-out records (optional `?status=` filter) |
-| `POST` | `/api/optouts/{id}/reset` | Reset a broker to PENDING |
+| `POST` | `/api/optouts/{broker_id}/reset` | Reset a broker to `PENDING` |
+| `POST` | `/api/optouts/{broker_id}/handled` | Mark a needs-attention record handled/completed |
+| `POST` | `/api/outreach` | Run outreach for enabled brokers or an explicit broker subset |
+| `GET` | `/api/version` | Running app version |
 | `GET` | `/api/stats` | Completion stats |
+| `GET` | `/api/stats/extended` | Extended dashboard metrics and recent activity |
 | `GET` | `/api/whitelist` | List whitelisted emails |
 | `POST` | `/api/whitelist` | Add an email to the whitelist |
-| `DELETE` | `/api/whitelist/{id}` | Remove a whitelist entry |
+| `DELETE` | `/api/whitelist/{entry_id}` | Remove a whitelist entry |
 | `GET` | `/api/whitelist/pending` | List pending whitelist requests |
-| `POST` | `/api/whitelist/pending/{id}/approve` | Approve a pending request |
-| `POST` | `/api/whitelist/pending/{id}/reject` | Reject a pending request |
+| `POST` | `/api/whitelist/pending/{entry_id}/approve` | Approve a pending request |
+| `POST` | `/api/whitelist/pending/{entry_id}/reject` | Reject a pending request |
 | `GET` | `/api/settings` | Get current settings (sensitive fields masked) |
+| `GET` | `/api/settings/advanced` | Get advanced settings fields |
 | `PUT` | `/api/settings` | Update settings (partial, persisted to JSON file) |
+| `GET` | `/api/identity-documents` | List uploaded identity documents |
+| `POST` | `/api/identity-documents/{kind}` | Upload or replace an identity document |
+| `DELETE` | `/api/identity-documents/{kind}` | Delete an identity document |
 
 ## Project layout
 
@@ -378,5 +474,5 @@ src/smokescreen/
         poll.py         # Poll inbox and respond
 infra/                  # Terraform (Cloud Run, Scheduler, etc.)
 Dockerfile              # Container image
-tests/                  # 78 unit tests
+tests/                  # Test suite
 ```

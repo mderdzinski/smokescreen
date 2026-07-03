@@ -260,10 +260,10 @@ require a Gemini API key or Gemini-specific secret.
 #### Phase 3 — Apply everything else
 
 With the secret payloads in place, apply the remaining resources with the same
-variables and no `-target`. Terraform should show the remaining roughly 17-19
-resources to add — Cloud Run services and jobs, Cloud Scheduler jobs,
-Firestore, the private identity-document bucket, service accounts, IAM
-bindings, and IAP. Review the plan, then approve.
+variables and no `-target`. Terraform should show approximately 20-25 resources
+to add depending on `ai_provider` — Cloud Run services and jobs, Cloud
+Scheduler jobs, Firestore, the private identity-document bucket, service
+accounts, IAM bindings, and IAP. Review the plan, then approve.
 
 ```bash
 terraform plan \
@@ -511,7 +511,7 @@ For an emergency in-place rollback without a revert commit, use the
 break-glass path in the next section with the previous tag:
 
 ```bash
-export IMAGE_TAG="v0.1.4"   # last known-good tag
+export IMAGE_TAG="v0.18.0"  # last known-good tag
 export IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/smokescreen:${IMAGE_TAG}"
 terraform apply -var="image=${IMAGE}" ...
 ```

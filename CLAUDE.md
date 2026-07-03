@@ -1,8 +1,10 @@
 # Smokescreen Agent Notes
 
 Smokescreen automates data broker opt-out requests. It sends Gmail-based
-privacy/deletion requests, classifies broker replies with Anthropic, tracks
-state, and exposes a local dashboard/API for monitoring and manual review.
+privacy/deletion requests, classifies broker replies with the configured AI
+provider (Anthropic Claude or Vertex AI Gemini; Gemini is the deployment
+default), tracks state, and exposes a local dashboard/API for monitoring and
+manual review.
 
 ## Stack
 
@@ -10,7 +12,7 @@ state, and exposes a local dashboard/API for monitoring and manual review.
 - Click CLI in `src/smokescreen/cli.py`
 - FastAPI dashboard/API in `src/smokescreen/api.py`
 - Gmail OAuth/client code under `src/smokescreen/email/`
-- Anthropic classifier/composer code under `src/smokescreen/ai/`
+- AI classifier/composer code for Anthropic Claude and Vertex AI Gemini under `src/smokescreen/ai/`
 - State backends: SQLite and Firestore under `src/smokescreen/state/`
 - Broker registry in `src/smokescreen/brokers/brokers.yaml`
 - Terraform/GCP deployment files in `infra/`
@@ -18,13 +20,9 @@ state, and exposes a local dashboard/API for monitoring and manual review.
 ## Project Brief
 
 Start with `README.md` for product scope, setup, commands, architecture, and
-deployment notes. For current recovery context, read the audit bead:
-
-```bash
-bd show sm-24k
-```
-
-Use `bd ready` and `bd list --status=open` to inspect the current backlog.
+deployment notes. For current recovery context, read the bead assigned to your
+hook with `gt hook` and `bd show <bead-id>`. Use `bd ready` and
+`bd list --status=open` to inspect the current backlog.
 
 ## Workflow
 
