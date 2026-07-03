@@ -231,7 +231,7 @@ describe("App", () => {
     expect(settingsTab.querySelector("[data-ss-active-tab-rule='true']")).toBeInTheDocument();
   });
 
-  it("shows a sign-out button linking to the signed-out route and surfaces the operator email", async () => {
+  it("shows a sign-out button linking to the signed-out route and does not surface the operator email", async () => {
     mockApi([
       { body: [], path: "/api/optouts?status=needs_attention" },
       {
@@ -247,8 +247,7 @@ describe("App", () => {
       name: /Sign out of the Smokescreen dashboard/,
     });
     expect(signOutLink).toHaveAttribute("href", "/signed-out");
-
-    expect(await screen.findByTestId("app-user-email")).toHaveTextContent("signed-in@example.com");
+    expect(screen.queryByTestId("app-user-email")).not.toBeInTheDocument();
   });
 });
 
@@ -1043,6 +1042,7 @@ describe("SettingsPage", () => {
     renderWithProviders(<SettingsPage />);
 
     expect(await screen.findByLabelText("Full name")).toHaveValue("Jane Doe");
+    expect(screen.getByLabelText("Sender email")).toHaveValue("jane@example.com");
     const rail = screen.getByRole("navigation", { name: "Settings sections" });
     const trustedRailItem = within(rail).getByRole("button", { name: /Trusted senders/ });
     expect(trustedRailItem).toHaveTextContent("1");
@@ -1054,6 +1054,45 @@ describe("SettingsPage", () => {
 
     await user.click(within(rail).getByRole("button", { name: "Cadence" }));
     expect(within(rail).getByRole("button", { name: "Cadence" })).toHaveAttribute("aria-current", "true");
+  });
+
+  it("filters trusted senders inside a scrollable container and restores the full list when cleared", async () => {
+    const user = userEvent.setup();
+    const trustedSenders: WhitelistEntry[] = [
+      { ...trustedSender, id: 1, email: "privacy@acme.example", broker_id: "acme", source: "registry" },
+      { ...trustedSender, id: 2, email: "billing@acme.example", broker_id: "acme", source: "manual" },
+      { ...trustedSender, id: 3, email: "newsletter@acme.example", broker_id: "acme", source: "manual" },
+      { ...trustedSender, id: 4, email: "ops@relay.example", broker_id: "second", source: "manual" },
+      { ...trustedSender, id: 5, email: "alerts@relay.example", broker_id: "second", source: "registry" },
+      { ...trustedSender, id: 6, email: "support@acme.example", broker_id: "acme", source: "manual" },
+      { ...trustedSender, id: 7, email: "legal@acme.example", broker_id: "acme", source: "registry" },
+      { ...trustedSender, id: 8, email: "reply@acme.example", broker_id: "acme", source: "manual" },
+    ];
+    mockApi(settingsPageRoutes({ whitelistBody: trustedSenders }));
+
+    renderWithProviders(<SettingsPage />);
+
+    const scrollContainer = await screen.findByTestId("trusted-senders-scroll");
+    expect(scrollContainer).toHaveClass("overflow-y-auto");
+    expect(scrollContainer).toHaveClass("max-h-[360px]");
+
+    const searchInput = screen.getByLabelText("Search trusted senders");
+    await user.type(searchInput, "SECOND");
+
+    await waitFor(() => expect(screen.getByText("2 of 8 matches")).toBeInTheDocument());
+    expect(screen.getByText("ops@relay.example")).toBeInTheDocument();
+    expect(screen.getByText("alerts@relay.example")).toBeInTheDocument();
+    expect(screen.queryByText("privacy@acme.example")).not.toBeInTheDocument();
+
+    await user.clear(searchInput);
+    await waitFor(() => expect(screen.queryByText("2 of 8 matches")).not.toBeInTheDocument());
+    expect(screen.getByText("privacy@acme.example")).toBeInTheDocument();
+
+    await user.type(searchInput, "zzz");
+    await waitFor(() =>
+      expect(screen.getByText("No approved senders match your search.")).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("ops@relay.example")).not.toBeInTheDocument();
   });
 
   it("uploads an identity document from the settings document manager", async () => {

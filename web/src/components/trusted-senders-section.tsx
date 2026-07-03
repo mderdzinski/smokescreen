@@ -8,6 +8,7 @@ import { cn } from "../lib/utils";
 import { EmptyState, ErrorState, LoadingState } from "./status-state";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { TextField } from "./ui/text-field";
 
 interface TrustedSendersSectionProps {
   onPendingChange?: (count: number) => void;
@@ -22,13 +23,35 @@ export function TrustedSendersSection({ onPendingChange }: TrustedSendersSection
   const brokerById = useMemo(() => new Map(brokers.map((broker) => [broker.id, broker])), [brokers]);
   const [selectedBrokerId, setSelectedBrokerId] = useState("");
   const [email, setEmail] = useState("");
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const trustedSenders = useMemo(
     () => [...(whitelistQuery.data ?? [])].sort((a, b) => a.email.localeCompare(b.email)),
     [whitelistQuery.data],
   );
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 200);
+
+    return () => window.clearTimeout(timer);
+  }, [search]);
   const manualCount = trustedSenders.filter((entry) => entry.source === "manual").length;
   const registryCount = trustedSenders.length - manualCount;
   const pendingSenders = pendingQuery.data ?? [];
+  const trustedSendersQuery = debouncedSearch.trim().toLowerCase();
+  const filteredTrustedSenders = useMemo(() => {
+    if (!trustedSendersQuery) {
+      return trustedSenders;
+    }
+
+    return trustedSenders.filter((entry) => {
+      const broker = brokerById.get(entry.broker_id ?? "") ?? null;
+      const haystack = [entry.email, entry.broker_id ?? "", broker?.name ?? ""].join(" ").toLowerCase();
+      return haystack.includes(trustedSendersQuery);
+    });
+  }, [brokerById, trustedSenders, trustedSendersQuery]);
+  const searchActive = trustedSendersQuery.length > 0;
 
   useEffect(() => {
     onPendingChange?.(pendingSenders.length);
@@ -199,36 +222,60 @@ export function TrustedSendersSection({ onPendingChange }: TrustedSendersSection
         </Button>
       </form>
 
-      <div className="overflow-hidden rounded-sm border border-border">
-        <div className="flex items-center justify-between gap-3 border-b border-border bg-surface-sunken px-[14px] py-[10px]">
-          <span className="ss-label">Approved addresses</span>
-          <Badge variant="neutral">{loading ? "--" : trustedSenders.length}</Badge>
-        </div>
-        <div>
-          {whitelistQuery.isLoading ? (
-            <LoadingState
-              className="border-0 bg-transparent py-8 shadow-none"
-              description="Loading trusted addresses."
-              title="Loading senders"
-            />
-          ) : null}
-          {!whitelistQuery.isLoading && trustedSenders.length === 0 ? (
-            <EmptyState
-              className="border-0 bg-transparent py-8 shadow-none"
-              description="Trusted reply addresses will appear here after you add them or approve detected senders."
-              title="No trusted senders yet"
-            />
-          ) : null}
-          {trustedSenders.map((entry, index) => (
-            <TrustedSenderRow
-              key={entry.id}
-              brokerName={brokerDisplayName(entry.broker_id, brokerById)}
-              entry={entry}
-              hasDivider={index > 0}
-              isRemoving={deleteMutation.isPending && deleteMutation.variables === entry.id}
-              onRemove={() => removeTrustedSender(entry)}
-            />
-          ))}
+      <div className="grid gap-3">
+        <TextField
+          aria-label="Search trusted senders"
+          hint="Filter by sender email, broker name, or broker id."
+          label="Search trusted senders"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search approved senders"
+        />
+        {searchActive ? (
+          <p aria-live="polite" className="text-xs text-content-muted">
+            {filteredTrustedSenders.length} of {trustedSenders.length} matches
+          </p>
+        ) : null}
+        <div className="max-h-[360px] overflow-y-auto rounded-sm border border-border" data-testid="trusted-senders-scroll">
+          <div className="flex items-center justify-between gap-3 border-b border-border bg-surface-sunken px-[14px] py-[10px]">
+            <span className="ss-label">Approved addresses</span>
+            <Badge variant="neutral">{loading ? "--" : trustedSenders.length}</Badge>
+          </div>
+          <div>
+            {whitelistQuery.isLoading ? (
+              <LoadingState
+                className="border-0 bg-transparent py-8 shadow-none"
+                description="Loading trusted addresses."
+                title="Loading senders"
+              />
+            ) : null}
+            {!whitelistQuery.isLoading && !searchActive && trustedSenders.length === 0 ? (
+              <EmptyState
+                className="border-0 bg-transparent py-8 shadow-none"
+                description="Trusted reply addresses will appear here after you add them or approve detected senders."
+                title="No trusted senders yet"
+              />
+            ) : null}
+            {!whitelistQuery.isLoading && searchActive && filteredTrustedSenders.length === 0 ? (
+              <div aria-live="polite">
+                <EmptyState
+                  className="border-0 bg-transparent py-8 shadow-none"
+                  description="No approved senders match your search."
+                  title="No matches"
+                />
+              </div>
+            ) : null}
+            {filteredTrustedSenders.map((entry, index) => (
+              <TrustedSenderRow
+                key={entry.id}
+                brokerName={brokerDisplayName(entry.broker_id, brokerById)}
+                entry={entry}
+                hasDivider={index > 0}
+                isRemoving={deleteMutation.isPending && deleteMutation.variables === entry.id}
+                onRemove={() => removeTrustedSender(entry)}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </div>

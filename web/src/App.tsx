@@ -35,7 +35,6 @@ import {
   useExtendedStats,
   useOptOuts,
   usePendingWhitelist,
-  useSettings,
   useWhitelist,
 } from "./lib/queries";
 import {
@@ -253,24 +252,8 @@ function AppNavLink({
 }
 
 function UserMenu() {
-  const settingsQuery = useSettings();
-  const identityEmail =
-    settingsQuery.data?.gmail_connected_email?.trim() ||
-    settingsQuery.data?.sender_email?.trim() ||
-    "";
-
   return (
     <div className="flex shrink-0 items-center gap-3">
-      {identityEmail ? (
-        <span
-          aria-label="Signed-in operator email"
-          className="max-w-[220px] truncate font-mono text-2xs uppercase tracking-label text-steel-300"
-          data-testid="app-user-email"
-          title={identityEmail}
-        >
-          {identityEmail}
-        </span>
-      ) : null}
       <Button asChild size="sm" variant="outline">
         <Link to="/signed-out" aria-label="Sign out of the Smokescreen dashboard">
           <LogOut aria-hidden="true" />
