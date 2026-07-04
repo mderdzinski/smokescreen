@@ -1,3 +1,10 @@
+# [0.27.0](https://github.com/mderdzinski/smokescreen/compare/v0.26.0...v0.27.0) (2026-07-04)
+
+
+### Features
+
+* hybrid LLM plus template composer for adaptive broker responses ([45ff23f](https://github.com/mderdzinski/smokescreen/commit/45ff23f6252e63d4ea855aa0ddc8ce5023500bb6))
+
 # [0.26.0](https://github.com/mderdzinski/smokescreen/compare/v0.25.7...v0.26.0) (2026-07-04)
 
 
