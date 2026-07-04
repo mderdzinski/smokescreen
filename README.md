@@ -62,8 +62,7 @@ Gmail client initialization. Verify that the token has a refresh token:
 python3 -c "import json; d=json.load(open('token.json')); print('has refresh_token:', 'refresh_token' in d)"
 ```
 
-Enable at least one broker before outreach. Use the onboarding flow at `/setup`
-or `/onboarding`, the Brokers page toggles, or call
+Enable at least one broker before outreach. Use the Brokers page at `/brokers` or call
 `PUT /api/brokers/selections` against a running dashboard API.
 
 Simulate outreach without sending email:
@@ -212,11 +211,11 @@ smokescreen serve --host 0.0.0.0 --port 9000
 - **Needs Attention** — Manual-review route at `/needs-attention` for `NEEDS_MANUAL`, `FAILED`, and `REJECTED` records
 - **Settings** — Configure identity, verification profile, Gmail status, AI provider, cadence, and trusted senders
 
-The onboarding flow is available at `/setup` and `/onboarding`. It persists
-the enabled broker selection used by scheduled outreach. The `/trusted-senders`
-route remains available for direct trusted-sender management, but trusted
-sender controls are also embedded in Settings, including sender deletion and a
-scrollable/searchable trusted-senders list.
+The Brokers page at `/brokers` persists the enabled broker selection used by
+scheduled outreach. The `/trusted-senders` route remains available for direct
+trusted-sender management, but trusted sender controls are also embedded in
+Settings, including sender deletion and a scrollable/searchable
+trusted-senders list.
 
 The dashboard header shows the running app version and a **Sign out** button.
 
@@ -226,11 +225,11 @@ Smokescreen outreach uses a safety gate: scheduled outreach and the
 `smokescreen outreach` CLI only contact brokers from the persisted enabled
 broker selection. A fresh install has no enabled brokers, so the CLI exits with
 an error and the scheduled Cloud Run job skips without sending. Enable brokers
-from onboarding or the Brokers page before running outreach.
+from the Brokers page before running outreach.
 
 `POST /api/outreach` follows the same gate when `broker_ids` is omitted. The
-one-shot onboarding and Brokers-page flows pass explicit `broker_ids`, which
-run only that selected subset.
+Brokers-page flow passes explicit `broker_ids`, which runs only that selected
+subset.
 
 **Signing out (deployed dashboard):**
 

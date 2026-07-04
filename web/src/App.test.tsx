@@ -11,7 +11,7 @@ import {
   TrustedSendersPage,
 } from "./App";
 import { BrokerRegistryPage } from "./pages/BrokerRegistryPage";
-import { OnboardingPage } from "./pages/OnboardingPage";
+import { router } from "./router";
 import type {
   AdvancedSettings,
   Broker,
@@ -222,6 +222,14 @@ describe("App", () => {
     expect(await screen.findByText("2")).toHaveClass("ss-badge-live");
   });
 
+  it("does not register obsolete setup or onboarding routes", () => {
+    const rootRoute = router.routes.find((route) => route.path === "/");
+    const childPaths = rootRoute?.children?.map((route) => route.path).filter(Boolean);
+
+    expect(childPaths).not.toContain("setup");
+    expect(childPaths).not.toContain("onboarding");
+  });
+
   it("renders the backend-provided version in the top bar", async () => {
     mockApi([
       { body: [], path: "/api/optouts?status=needs_attention" },
@@ -343,7 +351,7 @@ describe("OverviewPage", () => {
     expect(banner).toHaveTextContent("No enabled brokers. Enable brokers in Settings to see their status here.");
     expect(within(banner).getByRole("link", { name: /Configure brokers/i })).toHaveAttribute(
       "href",
-      "/setup",
+      "/brokers",
     );
     expect(within(banner).getByRole("link", { name: /Open registry/i })).toHaveAttribute(
       "href",
@@ -533,325 +541,6 @@ describe("OverviewPage", () => {
     expect(within(workingColumn).getByText("Awaiting Pinged")).toBeInTheDocument();
     expect(within(workingColumn).getByText("Info Pinged")).toBeInTheDocument();
     expect(within(workingColumn).getByText("Follow Pinged")).toBeInTheDocument();
-  });
-});
-
-describe("OnboardingPage", () => {
-  it("walks through the four setup steps and gates launch until prerequisites are complete", async () => {
-    const user = userEvent.setup();
-    const savedBodies: unknown[] = [];
-    mockApi([
-      { body: settings, path: "/api/settings" },
-      { body: advancedSettings, path: "/api/settings/advanced" },
-      { body: [broker, secondBroker], path: "/api/brokers" },
-      {
-        assert: (request) => savedBodies.push(parseJsonBody(request)),
-        body: { restart_required: false, status: "saved" },
-        method: "PUT",
-        path: "/api/settings",
-      },
-    ]);
-
-    renderWithProviders(<OnboardingPage />);
-
-    expect(await screen.findByRole("heading", { name: "Configure identity" })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /Brokers Step 3/ }));
-    expect(await screen.findByRole("heading", { name: "Pick brokers" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Continue/ })).toBeDisabled();
-
-    await user.click(screen.getByRole("button", { name: /Identity Step 1/ }));
-    await screen.findByRole("heading", { name: "Configure identity" });
-    await user.clear(screen.getByLabelText("Full name"));
-    await user.type(screen.getByLabelText("Full name"), "Jane Smith");
-    await user.clear(screen.getByLabelText("Gmail address"));
-    await user.type(screen.getByLabelText("Gmail address"), "jane@gmail.com");
-    await user.click(screen.getByRole("button", { name: "Save identity" }));
-
-    expect(await screen.findByRole("heading", { name: "AI provider" })).toBeInTheDocument();
-    await user.type(screen.getByLabelText("Anthropic API key"), "sk-ant-test");
-    await user.click(screen.getByRole("button", { name: "Save API key" }));
-
-    expect(await screen.findByRole("heading", { name: "Pick brokers" })).toBeInTheDocument();
-    const acmeCheckbox = screen.getByRole("checkbox", { name: /Acme Data/ });
-    await user.click(acmeCheckbox);
-
-    expect(screen.getByText("1 selected")).toBeInTheDocument();
-    expect(acmeCheckbox.closest("label")).toHaveClass("bg-fill-olive");
-    await user.click(screen.getByRole("button", { name: /Continue/ }));
-
-    expect(await screen.findByRole("heading", { name: "Send first batch" })).toBeInTheDocument();
-    expect(screen.getByText("Anthropic (Claude)")).toBeInTheDocument();
-    expect(screen.getByText("1 selected")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Send first batch" })).toBeEnabled();
-    expect(savedBodies).toEqual([
-      {
-        sender_email: "jane@gmail.com",
-        sender_name: "Jane Smith",
-      },
-      {
-        anthropic_api_key: "sk-ant-test",
-      },
-    ]);
-  });
-
-  it("persists broker picks to the server when the user toggles them", async () => {
-    const user = userEvent.setup();
-    const selectionBodies: string[][] = [];
-    window.localStorage.setItem("smokescreen:onboarding-step", "2");
-    mockApi([
-      { body: settings, path: "/api/settings" },
-      { body: advancedSettings, path: "/api/settings/advanced" },
-      { body: [broker, secondBroker], path: "/api/brokers" },
-      {
-        assert: (request) => {
-          const body = parseJsonBody(request) as { enabled_broker_ids: string[] };
-          selectionBodies.push(body.enabled_broker_ids);
-        },
-        body: { enabled_broker_ids: ["acme"] },
-        method: "PUT",
-        path: "/api/brokers/selections",
-      },
-    ]);
-
-    renderWithProviders(<OnboardingPage />);
-
-    expect(await screen.findByRole("heading", { name: "Pick brokers" })).toBeInTheDocument();
-    const acmeCheckbox = await screen.findByRole("checkbox", { name: /Acme Data/ });
-    await user.click(acmeCheckbox);
-
-    await waitFor(() => {
-      expect(selectionBodies).toContainEqual(["acme"]);
-    });
-    // Toggling a second broker persists the accumulated set — proving the
-    // picker treats the server, not localStorage, as the source of truth.
-    await user.click(await screen.findByRole("checkbox", { name: /Second Broker/ }));
-    await waitFor(() => {
-      expect(selectionBodies.some((body) => body.length === 2 && body.includes("acme") && body.includes("second"))).toBe(
-        true,
-      );
-    });
-  });
-
-  it("blocks the first batch until required setup is ready", async () => {
-    window.localStorage.setItem("smokescreen:onboarding-step", "3");
-    window.localStorage.setItem("smokescreen:onboarding-brokers", JSON.stringify(["acme"]));
-    const { calls } = mockApi([
-      { body: settings, path: "/api/settings" },
-      { body: advancedSettings, path: "/api/settings/advanced" },
-      { body: [broker], path: "/api/brokers" },
-    ]);
-
-    renderWithProviders(<OnboardingPage />);
-
-    expect(await screen.findByRole("heading", { name: "Send first batch" })).toBeInTheDocument();
-    expect(screen.getByText("Missing identity")).toBeInTheDocument();
-    expect(screen.getByText("Not connected")).toBeInTheDocument();
-    expect(screen.getByText("Missing key")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Send first batch" })).toBeDisabled();
-    expect(calls.some((call) => call.path === "/api/outreach")).toBe(false);
-  });
-
-  it("starts the first batch with selected brokers and shows the throw overlay when setup is complete", async () => {
-    const user = userEvent.setup();
-    const outreachBodies: unknown[] = [];
-    mockReducedSmokeOverlay();
-    window.localStorage.setItem("smokescreen:onboarding-step", "3");
-    window.localStorage.setItem("smokescreen:onboarding-brokers", JSON.stringify(["acme"]));
-    mockApi([
-      {
-        body: {
-          ...settings,
-          anthropic_api_key: "stored",
-          gmail_connected: true,
-          gmail_connected_email: "jane@gmail.com",
-          identity_configured: true,
-        },
-        path: "/api/settings",
-      },
-      { body: { ...advancedSettings, dry_run: true }, path: "/api/settings/advanced" },
-      { body: [broker], path: "/api/brokers" },
-      {
-        assert: (request) => outreachBodies.push(parseJsonBody(request)),
-        body: { dry_run: true, processed: ["acme"], processed_count: 1, status: "sent" },
-        method: "POST",
-        path: "/api/outreach",
-      },
-    ]);
-
-    renderWithProviders(<OnboardingPage />);
-
-    expect(await screen.findByText("Dry run is on. The first batch will be prepared without sending email.")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Send first batch" }));
-
-    expect(screen.getByRole("dialog", { name: "Sending opt-out requests" })).toBeInTheDocument();
-    await waitFor(() => expect(outreachBodies).toEqual([{ broker_ids: ["acme"] }]));
-    expect(await screen.findByText("Deployment complete")).toBeInTheDocument();
-    expect(screen.getByText(/1 opt-out request is on their way/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Close" }));
-    expect(await screen.findByText("Smoke's out.")).toBeInTheDocument();
-    expect(screen.getByText("1 opt-out request is on the way. Track them on the Status board.")).toBeInTheDocument();
-    expect(window.localStorage.getItem("smokescreen:onboarding-complete")).toBe("true");
-  });
-
-  it("keeps the launch overlay pending until the first batch is accepted", async () => {
-    const user = userEvent.setup();
-    let resolveOutreach: (() => void) | undefined;
-    mockReducedSmokeOverlay();
-    window.localStorage.setItem("smokescreen:onboarding-step", "3");
-    window.localStorage.setItem("smokescreen:onboarding-brokers", JSON.stringify(["acme"]));
-    mockApi([
-      {
-        body: {
-          ...settings,
-          anthropic_api_key: "stored",
-          gmail_connected: true,
-          gmail_connected_email: "jane@gmail.com",
-          identity_configured: true,
-        },
-        path: "/api/settings",
-      },
-      { body: advancedSettings, path: "/api/settings/advanced" },
-      { body: [broker], path: "/api/brokers" },
-      {
-        method: "POST",
-        path: "/api/outreach",
-        respond: () =>
-          new Promise<Response>((resolve) => {
-            resolveOutreach = () =>
-              resolve(
-                new Response(JSON.stringify({ dry_run: false, processed: ["acme"], processed_count: 1, status: "sent" }), {
-                  headers: { "Content-Type": "application/json" },
-                }),
-              );
-          }),
-      },
-    ]);
-
-    renderWithProviders(<OnboardingPage />);
-
-    expect(await screen.findByRole("heading", { name: "Send first batch" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Send first batch" }));
-    expect(screen.getByRole("dialog", { name: "Sending opt-out requests" })).toBeInTheDocument();
-
-    await new Promise((resolve) => window.setTimeout(resolve, 20));
-    expect(screen.getByText("Deploying smokescreen · going dark")).toBeInTheDocument();
-    expect(screen.queryByText("Deployment complete")).not.toBeInTheDocument();
-
-    resolveOutreach?.();
-
-    expect(await screen.findByText("Deployment complete")).toBeInTheDocument();
-    expect(screen.getByText(/1 opt-out request is on their way/)).toBeInTheDocument();
-  });
-
-  it("renders identity read-only when sender is configured via deployment", async () => {
-    mockApi([
-      {
-        body: {
-          ...settings,
-          sender_email: "deploy@example.com",
-          sender_email_from_env: true,
-          sender_name: "Deploy User",
-          sender_name_from_env: true,
-        },
-        path: "/api/settings",
-      },
-      { body: advancedSettings, path: "/api/settings/advanced" },
-      { body: [broker], path: "/api/brokers" },
-    ]);
-
-    renderWithProviders(<OnboardingPage />);
-
-    expect(await screen.findByRole("heading", { name: "Configure identity" })).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getByTestId("identity-sender-email")).toHaveTextContent("deploy@example.com"),
-    );
-    expect(screen.getByText(/Configured via deployment/)).toBeInTheDocument();
-    expect(screen.getByTestId("identity-sender-name")).toHaveTextContent("Deploy User");
-    expect(screen.getByText(/update your Terraform variables/i)).toBeInTheDocument();
-    expect(screen.queryByLabelText("Full name")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Gmail address")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Save identity" })).not.toBeInTheDocument();
-  });
-
-  it("shows Gemini AI provider as configured with no API key input", async () => {
-    window.localStorage.setItem("smokescreen:onboarding-step", "1");
-    mockApi([
-      {
-        body: {
-          ...settings,
-          ai_provider: "gemini",
-          gemini_model: "gemini-3.1-flash-lite",
-          sender_email_from_env: true,
-          sender_name_from_env: true,
-        },
-        path: "/api/settings",
-      },
-      { body: advancedSettings, path: "/api/settings/advanced" },
-      { body: [broker], path: "/api/brokers" },
-    ]);
-
-    renderWithProviders(<OnboardingPage />);
-
-    expect(await screen.findByText(/Gemini \(gemini-3\.1-flash-lite\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Vertex AI/)).toBeInTheDocument();
-    expect(screen.queryByLabelText("Anthropic API key")).not.toBeInTheDocument();
-    expect(screen.queryByText(/Claude reads/i)).not.toBeInTheDocument();
-  });
-
-  it("shows Anthropic secret-manager mode as configured with no API key input", async () => {
-    window.localStorage.setItem("smokescreen:onboarding-step", "1");
-    mockApi([
-      {
-        body: {
-          ...settings,
-          ai_provider: "anthropic",
-          anthropic_key_from_secret: true,
-        },
-        path: "/api/settings",
-      },
-      { body: advancedSettings, path: "/api/settings/advanced" },
-      { body: [broker], path: "/api/brokers" },
-    ]);
-
-    renderWithProviders(<OnboardingPage />);
-
-    expect(await screen.findByText(/Secret Manager/i)).toBeInTheDocument();
-    expect(screen.queryByLabelText("Anthropic API key")).not.toBeInTheDocument();
-  });
-
-  it("keeps launch checklist honest for a fully deployed environment", async () => {
-    window.localStorage.setItem("smokescreen:onboarding-step", "3");
-    window.localStorage.setItem("smokescreen:onboarding-brokers", JSON.stringify(["acme"]));
-    mockApi([
-      {
-        body: {
-          ...settings,
-          ai_provider: "gemini",
-          gemini_model: "gemini-3.1-flash-lite",
-          gmail_configured: true,
-          gmail_connected: true,
-          gmail_connected_email: "deploy@example.com",
-          identity_configured: true,
-          sender_email: "deploy@example.com",
-          sender_email_from_env: true,
-          sender_name: "Deploy User",
-          sender_name_from_env: true,
-        },
-        path: "/api/settings",
-      },
-      { body: advancedSettings, path: "/api/settings/advanced" },
-      { body: [broker], path: "/api/brokers" },
-      { body: { enabled_broker_ids: ["acme"] }, path: "/api/brokers/selections" },
-    ]);
-
-    renderWithProviders(<OnboardingPage />);
-
-    expect(await screen.findByRole("heading", { name: "Send first batch" })).toBeInTheDocument();
-    expect(await screen.findByText("Gemini (gemini-3.1-flash-lite)")).toBeInTheDocument();
-    expect(screen.getAllByText("deploy@example.com").length).toBeGreaterThan(0);
-    expect(screen.queryByText("Missing identity")).not.toBeInTheDocument();
-    expect(screen.queryByText("Missing key")).not.toBeInTheDocument();
   });
 });
 

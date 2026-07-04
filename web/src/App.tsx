@@ -389,7 +389,7 @@ export function OverviewPage() {
             </div>
             <div className="flex flex-wrap gap-[10px]">
               <Button asChild variant="primary">
-                <Link to="/setup">Configure brokers</Link>
+                <Link to="/brokers">Configure brokers</Link>
               </Button>
               <Button asChild variant="outline">
                 <Link to="/brokers">Open registry</Link>

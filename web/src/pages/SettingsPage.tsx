@@ -27,7 +27,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { Link, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 
 import { ErrorState, LoadingState } from "../components/status-state";
 import { Badge } from "../components/ui/badge";
@@ -1225,11 +1225,9 @@ function GmailConnectionRow({
               Disconnect
             </Button>
           ) : (
-            <Button asChild size="sm" variant="secondary">
-              <Link to="/onboarding">
-                <Mail aria-hidden="true" />
-                Connect Gmail
-              </Link>
+            <Button disabled size="sm" type="button" variant="secondary">
+              <Mail aria-hidden="true" />
+              Connect Gmail
             </Button>
           )}
         </div>

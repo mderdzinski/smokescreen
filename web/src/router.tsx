@@ -3,7 +3,6 @@ import { createBrowserRouter } from "react-router-dom";
 import { App, NeedsAttentionPage, OverviewPage, SettingsPage, TrustedSendersPage } from "./App";
 import { BrokerRegistryPage } from "./pages/BrokerRegistryPage";
 import { DesignSystemPage } from "./pages/DesignSystemPage";
-import { OnboardingPage } from "./pages/OnboardingPage";
 import { SignedOutPage } from "./pages/SignedOutPage";
 
 export const router = createBrowserRouter(
@@ -27,14 +26,6 @@ export const router = createBrowserRouter(
         {
           path: "trusted-senders",
           element: <TrustedSendersPage />,
-        },
-        {
-          path: "setup",
-          element: <OnboardingPage />,
-        },
-        {
-          path: "onboarding",
-          element: <OnboardingPage />,
         },
         {
           path: "settings",
