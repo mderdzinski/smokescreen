@@ -357,11 +357,17 @@ The deploy job reads non-sensitive configuration from **repository variables**
 in Secrets — they are not confidential and repository variables are the
 correct GitHub surface for them.
 
-The release workflow validates these variables before authenticating to Google
-Cloud, publishing an image, or running Terraform. If any value is missing or
-blank, the workflow fails fast with a message naming the missing variables
-instead of passing empty project, image, backend, or dashboard allowlist values
-into the deploy.
+The release workflow validates required variables before authenticating to
+Google Cloud, publishing an image, or running Terraform. If any required value
+is missing or blank, the workflow fails fast with a message naming the missing
+variables instead of passing empty project, backend, or dashboard allowlist
+values into the deploy.
+
+`ARTIFACT_REPO_NAME` and `ARTIFACT_IMAGE_NAME` are optional. If either
+repository variable is unset or blank, the release workflow defaults that value
+to `smokescreen`, producing the standard
+`us-central1-docker.pkg.dev/YOUR_PROJECT_ID/smokescreen/smokescreen:vX.Y.Z`
+image path.
 
 | Variable | Example | Description |
 | --- | --- | --- |
@@ -369,8 +375,8 @@ into the deploy.
 | `WIF_SERVICE_ACCOUNT` | `smokescreen-ci@YOUR_PROJECT_ID.iam.gserviceaccount.com` | Already set for docker-publish. Deploy reuses it. |
 | `GCP_PROJECT_ID` | `YOUR_PROJECT_ID` | Target project for image publishing and `terraform apply`. |
 | `GCP_REGION` | `us-central1` | Terraform region. |
-| `ARTIFACT_REPO_NAME` | `smokescreen` | Artifact Registry repository name. Use `smokescreen` if keeping the default repo name. |
-| `ARTIFACT_IMAGE_NAME` | `smokescreen` | Artifact Registry image name. Use `smokescreen` if keeping the default image name. |
+| `ARTIFACT_REPO_NAME` | `smokescreen` | Optional Artifact Registry repository name. Defaults to `smokescreen` when unset or blank. |
+| `ARTIFACT_IMAGE_NAME` | `smokescreen` | Optional Artifact Registry image name. Defaults to `smokescreen` when unset or blank. |
 | `TFSTATE_BUCKET` | `YOUR_PROJECT_ID-tfstate` | GCS bucket used by Terraform's remote backend. Must match the bucket you created above. |
 | `DASHBOARD_ALLOWED_USER` | `you@example.com` | Google account authorized to access the IAP-protected dashboard. |
 | `SMOKESCREEN_SENDER_EMAIL` | `you@example.com` | Value passed as `sender_email`. |

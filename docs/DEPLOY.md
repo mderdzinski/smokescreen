@@ -539,6 +539,11 @@ workflow from **GitHub Actions → Release → …last run… → Re-run all job
 Semantic-release will not cut a new tag; the deploy job will re-apply
 Terraform against the same tag.
 
+If the `v0.25.4` release workflow failed before the artifact repo/image
+defaults were fixed, rerun that failed Release workflow after the fix lands to
+publish and deploy the existing tag. If the tag does not need to be published
+immediately, the next release will exercise the corrected path.
+
 ### Roll back to an earlier tag
 
 Roll backs are still driven by Terraform, but the safer path is a revert
@@ -578,14 +583,15 @@ Actions > Variables** and rerun the Release workflow:
 
 - `GCP_PROJECT_ID`
 - `GCP_REGION`
-- `ARTIFACT_REPO_NAME`
-- `ARTIFACT_IMAGE_NAME`
 - `TFSTATE_BUCKET`
 - `DASHBOARD_ALLOWED_USER`
 - `SMOKESCREEN_SENDER_EMAIL`
 - `SMOKESCREEN_SENDER_NAME`
 - `WIF_PROVIDER`
 - `WIF_SERVICE_ACCOUNT`
+
+`ARTIFACT_REPO_NAME` and `ARTIFACT_IMAGE_NAME` are optional. When either value
+is unset or blank, the release workflow uses `smokescreen`.
 
 `GCP_REGION` is required explicitly. Use the same region you chose during
 setup, usually `us-central1`.

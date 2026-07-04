@@ -80,14 +80,14 @@ jobs:
     env:
       TF_INPUT: "0"
       TF_IN_AUTOMATION: "1"
-      IMAGE_REPO: us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REPO_NAME }}/${{ vars.ARTIFACT_IMAGE_NAME }}
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.release.outputs.tag }}
 
-      - name: Validate deploy repository variables
+      - name: Validate and resolve deploy repository variables
+        id: deploy-vars
         shell: bash
         env:
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
@@ -104,8 +104,6 @@ jobs:
           required_vars=(
             GCP_PROJECT_ID
             GCP_REGION
-            ARTIFACT_REPO_NAME
-            ARTIFACT_IMAGE_NAME
             TFSTATE_BUCKET
             DASHBOARD_ALLOWED_USER
             SMOKESCREEN_SENDER_EMAIL
@@ -129,6 +127,23 @@ jobs:
             echo "Set them in Settings > Secrets and variables > Actions > Variables, then rerun the Release workflow." >&2
             exit 1
           fi
+
+          trim() {
+            local value="$1"
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            printf '%s' "${value}"
+          }
+
+          artifact_repo_name="$(trim "${ARTIFACT_REPO_NAME:-}")"
+          artifact_image_name="$(trim "${ARTIFACT_IMAGE_NAME:-}")"
+          artifact_repo_name="${artifact_repo_name:-smokescreen}"
+          artifact_image_name="${artifact_image_name:-smokescreen}"
+
+          image_repo="us-central1-docker.pkg.dev/${GCP_PROJECT_ID}/${artifact_repo_name}/${artifact_image_name}"
+          echo "artifact_repo_name=${artifact_repo_name}" >> "${GITHUB_OUTPUT}"
+          echo "artifact_image_name=${artifact_image_name}" >> "${GITHUB_OUTPUT}"
+          echo "image_repo=${image_repo}" >> "${GITHUB_OUTPUT}"
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -154,5 +169,5 @@ jobs:
           TF_VAR_sender_email: ${{ vars.SMOKESCREEN_SENDER_EMAIL }}
           TF_VAR_sender_name: ${{ vars.SMOKESCREEN_SENDER_NAME }}
           TF_VAR_dashboard_allowed_user: ${{ vars.DASHBOARD_ALLOWED_USER }}
-          TF_VAR_image: ${{ env.IMAGE_REPO }}:${{ needs.release.outputs.tag }}
+          TF_VAR_image: ${{ steps.deploy-vars.outputs.image_repo }}:${{ needs.release.outputs.tag }}
         run: terraform apply -auto-approve -input=false
