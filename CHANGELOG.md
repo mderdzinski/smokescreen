@@ -1,3 +1,10 @@
+## [0.27.4](https://github.com/mderdzinski/smokescreen/compare/v0.27.3...v0.27.4) (2026-07-04)
+
+
+### Bug Fixes
+
+* composer cites CCPA only in rejection rebuttals ([c922efe](https://github.com/mderdzinski/smokescreen/commit/c922efe16d057ff8f49a48dd82c54760f7fedda5))
+
 ## [0.27.3](https://github.com/mderdzinski/smokescreen/compare/v0.27.2...v0.27.3) (2026-07-04)
 
 
