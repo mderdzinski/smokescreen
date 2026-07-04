@@ -1,3 +1,10 @@
+# [0.26.0](https://github.com/mderdzinski/smokescreen/compare/v0.25.7...v0.26.0) (2026-07-04)
+
+
+### Features
+
+* structured NEEDS_MANUAL reason with expandable details ([fd17679](https://github.com/mderdzinski/smokescreen/commit/fd17679372bcfbe2c54d912bc2a5e399ed4ac4a4))
+
 ## [0.25.7](https://github.com/mderdzinski/smokescreen/compare/v0.25.6...v0.25.7) (2026-07-04)
 
 
