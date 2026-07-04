@@ -69,6 +69,15 @@ export IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/smokescree
 Use `gcloud config configurations activate smokescreen` before running the
 commands from a new shell.
 
+## Command Safety
+
+This deploy guide keeps explanatory text outside shell command blocks and does
+not rely on zsh `interactivecomments`. Do not append inline comments to the
+commands you copy from this runbook. When filing deploy diagnostics or other
+rich text from a shell, use a structured API or a single-quoted heredoc
+delimiter so values such as `$(...)`, backticks, pipes, and redirects stay
+literal data.
+
 ## Choose an Image Tag
 
 Deploy a specific immutable image tag whenever possible. Use `latest` only for
@@ -544,7 +553,7 @@ For an emergency in-place rollback without a revert commit, use the
 break-glass path in the next section with the previous tag:
 
 ```bash
-export IMAGE_TAG="v0.18.0"  # last known-good tag
+export IMAGE_TAG="v0.18.0"
 export IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/smokescreen:${IMAGE_TAG}"
 terraform apply -var="image=${IMAGE}" ...
 ```

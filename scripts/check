@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-uv run --extra dev ruff check src/ tests/
+uv run python scripts/check_runbook_shell.py
+uv run --extra dev ruff check src/ tests/ scripts/check_runbook_shell.py
 uv run --extra dev pytest tests/ -v
 npm --prefix web ci
 npm --prefix web run test

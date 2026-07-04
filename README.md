@@ -10,56 +10,112 @@ Automated data broker opt-out system. Sends CCPA/privacy deletion requests to da
 
 ## Quick start
 
-```bash
-# Install
-uv sync
+Install dependencies:
 
-# Configure (minimum required)
+```bash
+uv sync
+```
+
+Set the minimum sender identity used in broker requests:
+
+```bash
 export SMOKESCREEN_SENDER_EMAIL="YOUR_EMAIL"
 export SMOKESCREEN_SENDER_NAME="Your Legal Name"
+```
 
-# Default AI provider: Vertex AI Gemini.
-# Authenticate locally with Google Application Default Credentials:
+Smokescreen uses Vertex AI Gemini by default. Authenticate local development
+with Google Application Default Credentials:
+
+```bash
 gcloud auth application-default login
+```
 
-# Optional: pin the Vertex AI project/location if ADC does not infer them
-# export SMOKESCREEN_GEMINI_PROJECT="your-gcp-project"
-# export SMOKESCREEN_GEMINI_LOCATION="global"
+If ADC does not infer the intended Vertex AI project or location, pin them:
 
-# Optional alternative: use Anthropic Claude instead of Gemini
-# export SMOKESCREEN_AI_PROVIDER="anthropic"
-# export SMOKESCREEN_ANTHROPIC_API_KEY="sk-ant-..."
+```bash
+export SMOKESCREEN_GEMINI_PROJECT="your-gcp-project"
+export SMOKESCREEN_GEMINI_LOCATION="global"
+```
 
-# Set up Gmail OAuth (one-time — opens browser)
-# Place your Google Cloud OAuth client credentials at ./credentials.json
-# See "Gmail setup" below, then trigger the OAuth flow with `smokescreen poll`:
+To use Anthropic Claude instead of Gemini, set the provider and API key:
+
+```bash
+export SMOKESCREEN_AI_PROVIDER="anthropic"
+export SMOKESCREEN_ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+Place your Google Cloud OAuth client credentials at `./credentials.json`. See
+[Gmail setup](#gmail-setup), then trigger the one-time OAuth flow:
+
+```bash
 smokescreen poll
+```
 
-# `smokescreen poll` initializes the Gmail client, which opens the browser
-# OAuth flow the first time. It writes token.json next to credentials.json.
-# Do NOT use `smokescreen --dry-run outreach` to trigger OAuth — dry-run
-# short-circuits before Gmail client initialization and never opens the flow.
-# Verify the token has a refresh_token:
+`smokescreen poll` initializes the Gmail client, opens the browser OAuth flow
+the first time, and writes `token.json` next to `credentials.json`. Do not use
+`smokescreen --dry-run outreach` to trigger OAuth because dry-run exits before
+Gmail client initialization. Verify that the token has a refresh token:
+
+```bash
 python3 -c "import json; d=json.load(open('token.json')); print('has refresh_token:', 'refresh_token' in d)"
+```
 
-# Enable at least one broker before outreach. Use the dashboard Setup flow or
-# Brokers page toggles, or call PUT /api/brokers/selections against a running
-# dashboard API.
+Enable at least one broker before outreach. Use the dashboard Setup flow or
+Brokers page toggles, or call `PUT /api/brokers/selections` against a running
+dashboard API.
 
-# Dry run — simulate outreach without sending email
+Simulate outreach without sending email:
+
+```bash
 smokescreen --dry-run outreach
+```
 
-# Send opt-out emails
+Send opt-out emails:
+
+```bash
 smokescreen outreach
+```
 
-# Check for and process replies
+Check for and process replies:
+
+```bash
 smokescreen poll
+```
 
-# View status of all brokers
+View status of all brokers:
+
+```bash
 smokescreen status
+```
 
-# Reset a broker to try again
+Reset a broker to try again:
+
+```bash
 smokescreen reset spokeo
+```
+
+## Runbook shell safety
+
+Smokescreen docs and runbooks do not rely on zsh `interactivecomments`.
+Command blocks should be safe even when an operator's interactive shell treats
+`#` as an ordinary argument character. Keep explanatory prose outside shell
+fences and do not append inline comments to executable command lines.
+
+When sending bead notes, mail, diagnostics, or other rich text from a shell,
+use structured APIs or a single-quoted heredoc delimiter so metacharacters stay
+literal:
+
+```bash
+gt mail send smokescreen/witness -s "HELP: deploy failure" --stdin <<'BODY'
+Problem: terraform apply failed before secrets were populated.
+Evidence: literal text containing $(commands) stays data here.
+BODY
+```
+
+If you want to inspect the local zsh setting, run:
+
+```bash
+zsh -ic 'print -- ${options[interactivecomments]}'
 ```
 
 ## Local dashboard
@@ -158,8 +214,10 @@ stored thread.
 
 The web dashboard provides a UI for monitoring and managing the opt-out process:
 
+By default, `smokescreen serve` listens on `http://127.0.0.1:8000`.
+
 ```bash
-smokescreen serve                    # default: http://127.0.0.1:8000
+smokescreen serve
 smokescreen serve --host 0.0.0.0 --port 9000
 ```
 
@@ -402,11 +460,17 @@ uv sync --extra dev
 ./scripts/check
 ```
 
-The quality gate runs Ruff, the test suite, and a Docker image smoke check:
+The quality gate runs the runbook shell guard, Ruff, the Python test suite,
+web dependency installation, web tests, the web build, and a Docker image smoke
+check:
 
 ```bash
-uv run --extra dev ruff check src/ tests/
+uv run python scripts/check_runbook_shell.py
+uv run --extra dev ruff check src/ tests/ scripts/check_runbook_shell.py
 uv run --extra dev pytest tests/ -v
+npm --prefix web ci
+npm --prefix web run test
+npm --prefix web run build
 docker_image="${SMOKESCREEN_DOCKER_IMAGE:-smokescreen:check}"
 docker build -t "$docker_image" .
 docker run --rm "$docker_image" --help

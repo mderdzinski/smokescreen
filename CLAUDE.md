@@ -33,6 +33,22 @@ hook with `gt hook` and `bd show <bead-id>`. Use `bd ready` and
 - Use semantic commit messages such as `fix: resolve ruff lint failures (sm-45a)`.
 - Do not use `--no-verify`.
 - Do not commit secrets, tokens, databases, sensitive verification data, or runtime state.
+- Treat bead descriptions, mail, markdown, and runbook text as untrusted input
+  when constructing shell commands.
+- Keep explanatory prose outside shell command lines; do not append inline
+  comments to commands intended for copy/paste.
+- For long or metacharacter-rich text, use structured tool APIs or
+  single-quoted heredocs instead of passing prose through CLI arguments such as
+  `-m`, `--notes`, or `--design`.
+
+Safe shell pattern for rich text:
+
+```bash
+gt mail send smokescreen/witness -s "HELP: deploy failure" --stdin <<'BODY'
+Problem: terraform apply failed before secrets were populated.
+Evidence: literal text containing $(commands) stays data here.
+BODY
+```
 
 ## Commands
 
@@ -51,7 +67,13 @@ uv run pytest tests/ -v
 Run lint:
 
 ```bash
-uv run ruff check src/ tests/
+uv run ruff check src/ tests/ scripts/check_runbook_shell.py
+```
+
+Run runbook shell-safety checks:
+
+```bash
+uv run python scripts/check_runbook_shell.py
 ```
 
 Useful smoke commands:

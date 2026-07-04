@@ -77,11 +77,17 @@ available, run:
 ./scripts/check
 ```
 
-The quality gate runs Ruff, the test suite, and a Docker image smoke check:
+The quality gate runs the runbook shell guard, Ruff, the Python test suite,
+web dependency installation, web tests, the web build, and a Docker image smoke
+check:
 
 ```bash
-uv run --extra dev ruff check src/ tests/
+uv run python scripts/check_runbook_shell.py
+uv run --extra dev ruff check src/ tests/ scripts/check_runbook_shell.py
 uv run --extra dev pytest tests/ -v
+npm --prefix web ci
+npm --prefix web run test
+npm --prefix web run build
 docker_image="${SMOKESCREEN_DOCKER_IMAGE:-smokescreen:check}"
 docker build -t "$docker_image" .
 docker run --rm "$docker_image" --help

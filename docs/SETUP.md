@@ -246,8 +246,11 @@ Bucket names are globally unique across all of GCS. `smokescreen-app-tfstate`
 is claimed by the overseer deployment; forks must pick a variant and update
 `infra/backend.tf` to match.
 
+For forks, replace the `TFSTATE_BUCKET` value with your own globally unique
+bucket name.
+
 ```bash
-export TFSTATE_BUCKET="smokescreen-app-tfstate"   # pick your own for forks
+export TFSTATE_BUCKET="smokescreen-app-tfstate"
 
 gcloud storage buckets create "gs://${TFSTATE_BUCKET}" \
   --project="${PROJECT_ID}" \
@@ -270,8 +273,11 @@ access from the image-publish step. It now also needs enough IAM to run
 `terraform apply` against the smokescreen resource set. Grant only what
 `infra/main.tf` actually manages:
 
+Use the same CI service account that the Workload Identity Federation setup
+uses today:
+
 ```bash
-export CI_SA="YOUR_CI_SERVICE_ACCOUNT_EMAIL"  # same one used by WIF today
+export CI_SA="YOUR_CI_SERVICE_ACCOUNT_EMAIL"
 
 for role in \
   roles/run.admin \
@@ -288,8 +294,11 @@ do
     --member="serviceAccount:${CI_SA}" \
     --role="${role}"
 done
+```
 
-# Terraform state bucket access — scoped to the bucket only, not project-wide.
+Grant Terraform state bucket access only on the bucket, not project-wide:
+
+```bash
 gcloud storage buckets add-iam-policy-binding "gs://${TFSTATE_BUCKET}" \
   --member="serviceAccount:${CI_SA}" \
   --role="roles/storage.objectAdmin"
@@ -374,8 +383,11 @@ Manager only, populated by the operator as documented in
 If you had been running `terraform apply` locally without a backend, migrate
 your local state into the new bucket once:
 
+The first command refreshes Application Default Credentials used by the GCS
+backend:
+
 ```bash
-gcloud auth application-default login   # ADC used by the gcs backend
+gcloud auth application-default login
 cd infra
 terraform init -migrate-state
 ```
