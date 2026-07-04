@@ -39,15 +39,17 @@ Set local shell variables for the placeholders used below:
 
 ```bash
 export PROJECT_ID="YOUR_PROJECT_ID"
-export REGION="YOUR_REGION"
+export REGION="us-central1"
 export BILLING_ACCOUNT_ID="YOUR_BILLING_ACCOUNT_ID"
 export DEPLOYER_EMAIL="YOUR_EMAIL"
 export ARTIFACT_REPO="smokescreen"
 ```
 
-`YOUR_REGION` can be a region such as `us-central1`. Use the same region for
-Artifact Registry, Cloud Run, Cloud Scheduler, and Firestore unless you have a
-specific reason to split them.
+The stock GitHub Actions workflows publish images to
+`us-central1-docker.pkg.dev`, so use `us-central1` for the first deployment
+unless you also update the workflow image path. Keep Cloud Run, Cloud
+Scheduler, Artifact Registry, and Firestore in the same region unless you have
+a specific reason to split them.
 
 ## Create a Dedicated GCP Project
 
@@ -246,8 +248,10 @@ Bucket names are globally unique across all of GCS. Pick something distinctive
 for your project, then pass it to Terraform at init time with
 `terraform init -backend-config="bucket=YOUR_BUCKET_NAME"`.
 
+The example below uses `YOUR_PROJECT_ID-tfstate`; change it if that bucket name
+is already taken.
+
 ```bash
-# Bucket names are globally unique in GCS; pick something distinctive for your project.
 export TFSTATE_BUCKET="YOUR_PROJECT_ID-tfstate"
 
 gcloud storage buckets create "gs://${TFSTATE_BUCKET}" \
@@ -283,7 +287,6 @@ for role in \
   roles/iam.serviceAccountAdmin \
   roles/resourcemanager.projectIamAdmin \
   roles/secretmanager.admin \
-  roles/storage.admin \
   roles/cloudscheduler.admin \
   roles/datastore.owner \
   roles/iap.admin
@@ -312,9 +315,6 @@ Why each role, briefly:
   runtime service accounts (Firestore, Vertex AI, Secret Manager
   accessor).
 - `secretmanager.admin` — create the Secret Manager secret containers.
-- `storage.admin` — create and manage Terraform-owned GCS buckets when needed
-  for deploy support. The current app no longer creates an identity-document
-  bucket; keep Terraform state access bucket-scoped when possible.
 - `cloudscheduler.admin` — create the poll and outreach schedules.
 - `datastore.owner` — create and manage the Firestore database.
 - `iap.admin` — read and write IAP IAM bindings on the dashboard service.
@@ -332,11 +332,6 @@ Why each role, briefly:
   inside the manually created Terraform state bucket; it cannot create new
   buckets or manage Terraform-created bucket IAM.
 
-> **Existing deployers with old identity-document buckets.** Current Terraform
-> removes `google_storage_bucket.identity_documents`. If a prior deployment
-> created that bucket, empty it before applying this release so Terraform can
-> destroy it and its IAM bindings cleanly.
-
 > **Migrating from an earlier version of these docs.** If you previously
 > granted `roles/iap.settingsAdmin`, add `roles/iap.admin` on top —
 > `terraform apply` will start succeeding on the IAP binding. You can
@@ -344,8 +339,8 @@ Why each role, briefly:
 > update permissions, but the current `infra/main.tf` manages only IAP IAM
 > bindings, so `roles/iap.admin` is the role the release workflow needs.
 
-> **Future Terraform-managed resources.** New Terraform changes that add GCS
-> buckets, Cloud Run services, Firestore resources, or similar new resource
+> **Future Terraform-managed resources.** New Terraform changes that add Cloud
+> Run services, Firestore resources, Secret Manager resources, or similar new resource
 > types may require additional CI service account roles. When `terraform apply`
 > fails with permission denied, inspect the missing permission in the error,
 > grant the narrow role needed for that resource type, and rerun the deploy.

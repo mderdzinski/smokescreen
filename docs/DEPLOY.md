@@ -60,7 +60,7 @@ Set local shell variables for the placeholders used below:
 
 ```bash
 export PROJECT_ID="YOUR_PROJECT_ID"
-export REGION="YOUR_REGION"
+export REGION="us-central1"
 export DEPLOYER_EMAIL="YOUR_EMAIL"
 export DEPLOYER_NAME="YOUR_LEGAL_NAME"
 export ARTIFACT_REPO="smokescreen"
@@ -72,6 +72,10 @@ export IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/${ARTIFACT
 
 Use `gcloud config configurations activate smokescreen` before running the
 commands from a new shell.
+
+The stock release workflows publish images to `us-central1-docker.pkg.dev`.
+Use `us-central1` for Artifact Registry and the deployment region unless you
+also update the workflow image path.
 
 ## Choose an Image Tag
 
@@ -342,20 +346,15 @@ lists it as the latest supported version for Gemini 3.1 Flash-Lite.
 
 ## Verification Profile Storage
 
-Identity document uploads have been removed. Terraform no longer creates or
-injects `SMOKESCREEN_IDENTITY_BUCKET`, and broker requests for documents now
-move records to `NEEDS_MANUAL`.
-
 The optional Verification Profile is stored in the configured state backend,
 not in Terraform variables, environment variables, or Secret Manager. For
 deployed Firestore state, Smokescreen stores it as a single metadata document
 beside broker selections. Configure it from the dashboard Settings page.
 
-Existing deployments that still have
-`google_storage_bucket.identity_documents` in Terraform state should expect the
-next plan to destroy that old bucket and its IAM bindings. The bucket must be
-empty before destroy can succeed; the expected overseer state is an empty
-identity-document bucket before applying the removal.
+Broker requests for documents always move records to `NEEDS_MANUAL`. The
+Verification Profile can satisfy structured requests for home address, phone
+number, email alias, date of birth, last-four SSN, and employer name when those
+fields are present.
 
 ## Verify IAP Dashboard Access
 
@@ -429,6 +428,9 @@ or want the broker visible but not automatically enabled for outreach:
 ```
 
 Leave `test_broker_email` empty to omit the synthetic broker entirely.
+For solo testing from one mailbox, also set `allow_self_reply=true`; this maps
+to `SMOKESCREEN_ALLOW_SELF_REPLY` and lets poll process replies from
+`SMOKESCREEN_SENDER_EMAIL`. Leave it `false` for production.
 
 ## Verify Scheduled Polling
 
@@ -636,10 +638,6 @@ scope problems:
   Cross-reference the failing resource against the role list in
   [SETUP.md](SETUP.md#grant-deploy-roles-to-the-ci-service-account) and
   add the missing role to the CI service account.
-- GCS bucket creation failure → if the missing permission is
-  `storage.buckets.create`, existing deployers may need to add project-level
-  `roles/storage.admin` to the CI service account, then rerun the failed
-  workflow with `gh run rerun --failed WORKFLOW_ID` or trigger a fresh release.
 - Secret access failure on Cloud Run → the payload was never populated
   for that project. First deploys still need the manual Phase 2 secret
   population step; the deploy job does not populate secrets.

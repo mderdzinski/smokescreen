@@ -102,7 +102,9 @@ terraform -chdir=infra validate
 ## Refresh the Broker Registry
 
 The bundled broker registry lives at
-`src/smokescreen/brokers/brokers.yaml`. To regenerate it from a California
+`src/smokescreen/brokers/brokers.yaml`. It currently contains 596 brokers from
+the California Attorney General 2026 data broker registry plus curated entries.
+To regenerate it from a California
 Attorney General data broker registry CSV, keep the CSV as a local ignored input
 and run:
 
@@ -233,7 +235,7 @@ Set placeholders:
 
 ```bash
 export PROJECT_ID="YOUR_PROJECT_ID"
-export REGION="YOUR_REGION"
+export REGION="us-central1"
 export GITHUB_REPO="YOUR_GITHUB_OWNER/YOUR_REPO"
 export ARTIFACT_REPO="smokescreen"
 export PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" \

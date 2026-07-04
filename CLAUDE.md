@@ -49,7 +49,7 @@ uv run pytest tests/ -v
 Run lint:
 
 ```bash
-uv run ruff check src/ tests/ scripts/check_runbook_shell.py
+uv run ruff check .
 ```
 
 Run runbook shell-safety checks:
@@ -71,5 +71,5 @@ uv run smokescreen serve
 - Acceptance criteria are satisfied.
 - Relevant manual verification has been performed and noted when useful.
 - `uv run pytest tests/ -v` passes unless the task explicitly narrows scope.
-- `uv run ruff check src/ tests/` is clean.
+- `uv run ruff check .` is clean.
 - Any docs/config touched by the change match runtime behavior.

@@ -60,9 +60,9 @@ Gmail client initialization. Verify that the token has a refresh token:
 python3 -c "import json; d=json.load(open('token.json')); print('has refresh_token:', 'refresh_token' in d)"
 ```
 
-Enable at least one broker before outreach. Use the dashboard Setup flow or
-Brokers page toggles, or call `PUT /api/brokers/selections` against a running
-dashboard API.
+Enable at least one broker before outreach. Use the onboarding flow at `/setup`
+or `/onboarding`, the Brokers page toggles, or call
+`PUT /api/brokers/selections` against a running dashboard API.
 
 Simulate outreach without sending email:
 
@@ -92,6 +92,12 @@ Reset a broker to try again:
 
 ```bash
 smokescreen reset spokeo
+```
+
+Import additional brokers from CSV:
+
+```bash
+smokescreen import-csv brokers.csv --name-col "Broker Name" --email-col "Privacy Email"
 ```
 
 ## Local dashboard
@@ -200,14 +206,17 @@ smokescreen serve --host 0.0.0.0 --port 9000
 **Tabs:**
 
 - **Status** — Overview route at `/` with working, removed, and needs-attention broker records
-- **Brokers** — Broker registry route at `/brokers`; add, edit, delete, enable, disable, import, and run outreach for selected brokers
+- **Brokers** — Broker registry route at `/brokers`; add, delete, search, bulk enable or disable, reset, and run outreach for selected brokers
 - **Needs Attention** — Manual-review route at `/needs-attention` for `NEEDS_MANUAL`, `FAILED`, and `REJECTED` records
 - **Settings** — Configure identity, verification profile, Gmail status, AI provider, cadence, and trusted senders
 
 The onboarding flow is available at `/setup` and `/onboarding`. It persists
 the enabled broker selection used by scheduled outreach. The `/trusted-senders`
 route remains available for direct trusted-sender management, but trusted
-sender controls are also embedded in Settings.
+sender controls are also embedded in Settings, including sender deletion and a
+scrollable/searchable trusted-senders list.
+
+The dashboard header shows the running app version and a **Sign out** button.
 
 ### Outreach broker selection gate
 
@@ -215,7 +224,7 @@ Smokescreen outreach uses a safety gate: scheduled outreach and the
 `smokescreen outreach` CLI only contact brokers from the persisted enabled
 broker selection. A fresh install has no enabled brokers, so the CLI exits with
 an error and the scheduled Cloud Run job skips without sending. Enable brokers
-from the dashboard Setup flow or Brokers page before running outreach.
+from onboarding or the Brokers page before running outreach.
 
 `POST /api/outreach` follows the same gate when `broker_ids` is omitted. The
 one-shot onboarding and Brokers-page flows pass explicit `broker_ids`, which
@@ -262,9 +271,16 @@ All settings use the `SMOKESCREEN_` env prefix. They can be set via environment 
 | `SMOKESCREEN_MAX_RETRIES` | `5` | Max retries before FAILED |
 | `SMOKESCREEN_POLL_LABEL` | `smokescreen` | Gmail label used to select active stored threads during polling; set blank to poll all active stored threads |
 | `SMOKESCREEN_DRY_RUN` | `false` | Skip actual sends |
+| `SMOKESCREEN_ALLOW_SELF_REPLY` | `false` | Testing-only bypass that lets poll process replies from `SMOKESCREEN_SENDER_EMAIL` |
 | `SMOKESCREEN_REREQUEST_INTERVAL_DAYS` | `30` | Days after completion before re-sending a deletion request |
 | `SMOKESCREEN_STATE_TIMEOUT_DAYS` | `14` | Days before a waiting record is pinged; a second silent period escalates to `NEEDS_MANUAL` |
 | `SMOKESCREEN_SETTINGS_FILE` | `settings.json` | Path to the settings JSON file |
+
+Synthetic test broker environment variables are read by the broker registry
+when you need an end-to-end target: `SMOKESCREEN_TEST_BROKER_EMAIL` registers
+the broker, while `SMOKESCREEN_TEST_BROKER_ID`, `SMOKESCREEN_TEST_BROKER_NAME`,
+and `SMOKESCREEN_TEST_BROKER_ENABLED` override its default identity and initial
+selection behavior.
 
 ### AI provider
 
@@ -298,12 +314,13 @@ variables or the settings JSON file. You can store home addresses, phone
 numbers, email aliases, date of birth, last-four SSN, employer name, and
 additional notes.
 
-When a broker reply is classified as `INFO_REQUEST`, Smokescreen extracts the
-requested fields. If every requested field is available in the Verification
-Profile, Smokescreen sends a follow-up containing only those requested fields.
-If the broker asks for documents, asks for an unsupported/ambiguous field, or
-the profile is missing a requested field, the record moves to `NEEDS_MANUAL`
-and Needs Attention shows what the broker asked for and what is missing.
+When a broker reply is classified as `INFO_REQUEST`, Smokescreen extracts
+structured `requested_fields`. If every requested field is available in the
+Verification Profile, Smokescreen sends a follow-up containing only those
+requested fields. If the broker asks for documents, asks for an
+unsupported/ambiguous field, or the profile is missing a requested field, the
+record moves to `NEEDS_MANUAL`; Needs Attention shows the broker reply, the
+requested fields, and the missing fields.
 
 ## State machine
 
@@ -316,11 +333,16 @@ INITIAL_SENT
   -> INITIAL_SENT_PINGED
   -> AWAITING_RESPONSE
   -> INFO_REQUESTED
+  -> COMPLETED
+  -> REJECTED
+  -> NEEDS_MANUAL
   -> FAILED
 
 INITIAL_SENT_PINGED
   -> AWAITING_RESPONSE
   -> INFO_REQUESTED
+  -> COMPLETED
+  -> REJECTED
   -> NEEDS_MANUAL
   -> FAILED
 
@@ -342,27 +364,35 @@ AWAITING_RESPONSE_PINGED
 INFO_REQUESTED
   -> INFO_REQUESTED_PINGED
   -> FOLLOW_UP_SENT
+  -> COMPLETED
+  -> REJECTED
   -> NEEDS_MANUAL
   -> FAILED
 
 INFO_REQUESTED_PINGED
   -> FOLLOW_UP_SENT
+  -> COMPLETED
+  -> REJECTED
   -> NEEDS_MANUAL
   -> FAILED
 
 FOLLOW_UP_SENT
   -> FOLLOW_UP_SENT_PINGED
   -> AWAITING_RESPONSE
+  -> COMPLETED
+  -> REJECTED
   -> NEEDS_MANUAL
   -> FAILED
 
 FOLLOW_UP_SENT_PINGED
   -> AWAITING_RESPONSE
+  -> COMPLETED
+  -> REJECTED
   -> NEEDS_MANUAL
   -> FAILED
 
 COMPLETED -> PENDING (scheduled re-request)
-NEEDS_MANUAL -> PENDING | COMPLETED | FAILED
+NEEDS_MANUAL -> PENDING | retry previous waiting state | COMPLETED | FAILED
 REJECTED and FAILED are terminal
 ```
 
@@ -371,8 +401,6 @@ and `FOLLOW_UP_SENT`. If one remains unchanged for
 `SMOKESCREEN_STATE_TIMEOUT_DAYS`, polling sends one status-check ping and moves
 the record to the paired `*_PINGED` state. If the pinged state sits through a
 second silent timeout, Smokescreen escalates the record to `NEEDS_MANUAL`.
-Legacy stored values `IDENTITY_REQUESTED` and `IDENTITY_SENT` are mapped at read
-time to `INFO_REQUESTED` and `FOLLOW_UP_SENT`.
 
 ## CI and releases
 
@@ -410,7 +438,7 @@ Use the deployment docs for the path that matches your goal:
 
 ## Brokers
 
-20 data brokers are included in `src/smokescreen/brokers/brokers.yaml`. Add more by editing that file. Each broker needs:
+596 data brokers are included in `src/smokescreen/brokers/brokers.yaml`, generated from the California Attorney General 2026 data broker registry plus curated entries. Add temporary brokers through the dashboard/API; for durable registry changes, rerun the importer or edit curated entries without hand-editing generated CA rows. Each broker needs:
 
 ```yaml
 - id: unique-slug
@@ -425,7 +453,7 @@ Use the deployment docs for the path that matches your goal:
 
 - Gmail scopes restricted to `gmail.send` + `gmail.modify`
 - Verification profile values are never sent to the AI classifier; only email text is used
-- Identity document uploads have been removed; document requests move records to manual review
+- Broker document requests move records to manual review
 - Cloud Run SA has least-privilege IAM roles
 - Credentials, tokens, and databases are gitignored
 
@@ -469,8 +497,9 @@ The dashboard server exposes a REST API:
 | `PUT` | `/api/brokers/selections` | Persist enabled broker IDs for outreach |
 | `PUT` | `/api/brokers/{broker_id}` | Update a broker |
 | `DELETE` | `/api/brokers/{broker_id}` | Delete a broker |
-| `GET` | `/api/optouts` | List opt-out records (optional `?status=` filter) |
+| `GET` | `/api/optouts` | List opt-out records (optional `?status=` and `?include_disabled=true` filters) |
 | `POST` | `/api/optouts/{broker_id}/reset` | Reset a broker to `PENDING` |
+| `POST` | `/api/optouts/{broker_id}/retry_classification` | Retry classification for a `NEEDS_MANUAL` record with an existing Gmail thread |
 | `POST` | `/api/optouts/{broker_id}/handled` | Mark a needs-attention record handled/completed |
 | `POST` | `/api/outreach` | Run outreach for enabled brokers or an explicit broker subset |
 | `GET` | `/api/version` | Running app version |
@@ -492,7 +521,7 @@ The dashboard server exposes a REST API:
 
 ```
 src/smokescreen/
-    cli.py              # Click CLI (outreach, poll, status, reset, serve)
+    cli.py              # Click CLI (outreach, poll, status, reset, import-csv, serve)
     config.py           # Pydantic Settings with JSON file persistence
     models.py           # Domain models
     api.py              # FastAPI REST API + React dashboard serving
