@@ -1,3 +1,5 @@
+![Smokescreen hero banner showing a pixel-art privacy operator beside the Smokescreen wordmark for automated data broker opt-out](docs/assets/hero.png)
+
 # Smokescreen
 
 Automated data broker opt-out system. Sends CCPA/privacy deletion requests to data brokers via email, classifies replies with the configured AI provider (Vertex AI Gemini by default, Anthropic Claude optionally), and handles broker acknowledgments, information requests, follow-ups, and manual-review cases until completion.

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="../../styles.css" />
+<style>
+  html, body { margin: 0; width: 900px; height: 300px; overflow: hidden; background: #14181a; }
+  .banner {
+    width: 900px; height: 300px; position: relative; overflow: hidden;
+    background:
+      radial-gradient(120% 130% at 84% -30%, rgba(102,114,63,0.30), transparent 55%),
+      radial-gradient(90% 90% at 8% 120%, rgba(92,100,105,0.14), transparent 60%),
+      linear-gradient(155deg, #20262a, #14181a 70%);
+    display: flex; align-items: center; gap: 40px; padding: 0 52px; box-sizing: border-box;
+  }
+  /* subtle scanline texture */
+  .banner::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .5;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,0.014) 0 2px, transparent 2px 4px);
+  }
+  .mark {
+    width: 210px; height: 210px; flex: 0 0 auto; display: grid; place-items: center;
+    position: relative;
+  }
+  .mark img { width: 200px; image-rendering: pixelated; filter: drop-shadow(0 18px 34px rgba(0,0,0,0.55)); }
+  .copy { position: relative; z-index: 2; max-width: 460px; }
+  .word { font-family: var(--font-pixel); font-size: 44px; color: var(--smoke-50); line-height: 1; }
+  .word b { color: var(--olive-300); font-weight: 400; }
+  .tag {
+    font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--steel-300); margin-top: 15px;
+  }
+  .lede { font-family: var(--font-display); font-size: 17px; color: var(--text-body); line-height: 1.5; margin-top: 16px; max-width: 30ch; }
+  .chips { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
+  .chip {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--brand-strong); border: 1px solid var(--bd-olive); background: var(--fill-olive);
+    padding: 5px 10px; border-radius: 2px;
+  }
+</style>
+</head>
+<body>
+  <div class="banner" id="banner">
+    <div class="mark"><img src="operator-clean.png" alt="" /></div>
+    <div class="copy">
+      <div class="word">smoke<b>screen</b></div>
+      <div class="tag">Data-broker opt-out</div>
+      <div class="lede">Throw smoke. Go dark. Disappear from the data brokers.</div>
+      <div class="chips">
+        <span class="chip">Automated opt-outs</span>
+        <span class="chip">AI-read replies</span>
+        <span class="chip">Local dashboard</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
