@@ -42,6 +42,7 @@ class SQLiteStore:
                 updated_at TEXT NOT NULL,
                 last_completed_at TEXT,
                 notes TEXT NOT NULL DEFAULT '',
+                previous_status TEXT,
                 requested_fields TEXT NOT NULL DEFAULT '[]',
                 missing_fields TEXT NOT NULL DEFAULT '[]',
                 requested_other_details TEXT NOT NULL DEFAULT ''
@@ -52,6 +53,8 @@ class SQLiteStore:
         ]
         if "last_completed_at" not in cols:
             self._conn.execute("ALTER TABLE opt_outs ADD COLUMN last_completed_at TEXT")
+        if "previous_status" not in cols:
+            self._conn.execute("ALTER TABLE opt_outs ADD COLUMN previous_status TEXT")
         if "requested_fields" not in cols:
             self._conn.execute(
                 """
@@ -135,6 +138,11 @@ class SQLiteStore:
         return OptOutRecord(
             broker_id=row["broker_id"],
             status=parse_broker_status(row["status"]),
+            previous_status=(
+                parse_broker_status(row["previous_status"])
+                if row["previous_status"]
+                else None
+            ),
             retries=row["retries"],
             thread_id=row["thread_id"],
             last_message_id=row["last_message_id"],
@@ -186,11 +194,13 @@ class SQLiteStore:
             """
             INSERT INTO opt_outs (broker_id, status, retries, thread_id,
                                   last_message_id, created_at, updated_at,
-                                  last_completed_at, notes, requested_fields,
-                                  missing_fields, requested_other_details)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  last_completed_at, notes, previous_status,
+                                  requested_fields, missing_fields,
+                                  requested_other_details)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(broker_id) DO UPDATE SET
                 status = excluded.status,
+                previous_status = excluded.previous_status,
                 retries = excluded.retries,
                 thread_id = excluded.thread_id,
                 last_message_id = excluded.last_message_id,
@@ -213,6 +223,7 @@ class SQLiteStore:
                 if record.last_completed_at
                 else None,
                 record.notes,
+                record.previous_status.value if record.previous_status else None,
                 json.dumps(record.requested_fields),
                 json.dumps(record.missing_fields),
                 record.requested_other_details,

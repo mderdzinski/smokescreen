@@ -402,6 +402,7 @@ def test_process_thread_marks_manual_without_anthropic_key(tmp_path):
     assert processed is True
     updated = store.get("labeled")
     assert updated.status == BrokerStatus.NEEDS_MANUAL
+    assert updated.previous_status == BrokerStatus.INITIAL_SENT
     assert updated.notes == "No Anthropic API key configured"
     assert store.list_pending_whitelist(PendingWhitelistStatus.PENDING) == []
     assert gmail.sent_messages == []
@@ -445,10 +446,50 @@ def test_process_thread_persists_manual_review_reply_details(tmp_path):
     updated = store.get("labeled")
     assert updated.status == BrokerStatus.NEEDS_MANUAL
     assert updated.last_message_id == "reply-labeled"
+    assert updated.previous_status == BrokerStatus.AWAITING_RESPONSE
     assert (
         updated.notes == "Subject: Portal action required\n\n"
         "Please log in to our privacy portal to finish the opt-out."
     )
+    store.close()
+
+
+def test_needs_manual_transition_records_previous_status(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    record = _record(status=BrokerStatus.AWAITING_RESPONSE_PINGED)
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Portal action required",
+                    body="Please log in to our privacy portal to finish the opt-out.",
+                )
+            ]
+        }
+    )
+
+    processed = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        ai_client=_mock_anthropic("NEEDS_MANUAL"),
+    )
+
+    assert processed is True
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.NEEDS_MANUAL
+    assert updated.previous_status == BrokerStatus.AWAITING_RESPONSE_PINGED
     store.close()
 
 
@@ -701,6 +742,7 @@ def test_process_thread_info_request_missing_profile_field_needs_manual(tmp_path
     assert updated.status == BrokerStatus.NEEDS_MANUAL
     assert updated.requested_fields == ["phone_number"]
     assert updated.missing_fields == ["phone_number"]
+    assert updated.previous_status == BrokerStatus.AWAITING_RESPONSE
     assert "You are missing: Phone number" in updated.notes
     store.close()
 
@@ -900,6 +942,7 @@ def test_process_thread_marks_needs_manual_for_unknown_sender(tmp_path):
     assert pending[0].message_snippet == "x" * 200
     updated = store.get("labeled")
     assert updated.status == BrokerStatus.NEEDS_MANUAL
+    assert updated.previous_status == BrokerStatus.INITIAL_SENT
     assert (
         updated.notes
         == "Reply received from untrusted sender reply@labeled.example - "
@@ -1083,6 +1126,7 @@ def test_timeout_escalation_second_strike_moves_to_needs_manual(tmp_path):
     updated = store.get("labeled")
     assert updated.status == BrokerStatus.NEEDS_MANUAL
     assert "AWAITING_RESPONSE" in updated.notes
+    assert updated.previous_status == BrokerStatus.AWAITING_RESPONSE_PINGED
     store.close()
 
 

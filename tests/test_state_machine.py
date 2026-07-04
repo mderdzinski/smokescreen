@@ -72,6 +72,11 @@ def test_needs_manual_can_reset():
     validate_transition(BrokerStatus.NEEDS_MANUAL, BrokerStatus.COMPLETED)
 
 
+@pytest.mark.parametrize("target", WAITING_REPLY_STATES)
+def test_needs_manual_can_restore_previous_waiting_state(target):
+    validate_transition(BrokerStatus.NEEDS_MANUAL, target)
+
+
 def test_pinged_transitions():
     """Every waiting state can transition to its paired pinged variant, and
     every pinged variant can escalate to NEEDS_MANUAL."""

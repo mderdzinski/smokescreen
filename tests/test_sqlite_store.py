@@ -53,6 +53,7 @@ def test_upsert_persists_info_request_metadata(store):
     record = OptOutRecord(
         broker_id="spokeo",
         status=BrokerStatus.NEEDS_MANUAL,
+        previous_status=BrokerStatus.INFO_REQUESTED,
         requested_fields=["home_address", "documents"],
         missing_fields=["documents"],
         requested_other_details="Signed form",
@@ -61,6 +62,7 @@ def test_upsert_persists_info_request_metadata(store):
 
     fetched = store.get("spokeo")
     assert fetched is not None
+    assert fetched.previous_status == BrokerStatus.INFO_REQUESTED
     assert fetched.requested_fields == ["home_address", "documents"]
     assert fetched.missing_fields == ["documents"]
     assert fetched.requested_other_details == "Signed form"

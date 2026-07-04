@@ -186,6 +186,7 @@ def test_firestore_upsert_persists_info_request_metadata():
         OptOutRecord(
             broker_id="spokeo",
             status=BrokerStatus.NEEDS_MANUAL,
+            previous_status=BrokerStatus.INFO_REQUESTED,
             requested_fields=["home_address", "other"],
             missing_fields=["other"],
             requested_other_details="Account number",
@@ -194,6 +195,7 @@ def test_firestore_upsert_persists_info_request_metadata():
 
     fetched = store.get("spokeo")
     assert fetched is not None
+    assert fetched.previous_status == BrokerStatus.INFO_REQUESTED
     assert fetched.requested_fields == ["home_address", "other"]
     assert fetched.missing_fields == ["other"]
     assert fetched.requested_other_details == "Account number"

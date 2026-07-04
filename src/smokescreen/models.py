@@ -136,6 +136,7 @@ class OptOutRecord(BaseModel):
 
     broker_id: str
     status: BrokerStatus = BrokerStatus.PENDING
+    previous_status: BrokerStatus | None = None
     retries: int = 0
     thread_id: str | None = None
     last_message_id: str | None = None

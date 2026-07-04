@@ -113,6 +113,7 @@ function optOut(overrides: Partial<OptOutRecord>): OptOutRecord {
     last_message_id: "msg-1",
     missing_fields: [],
     notes: "",
+    previous_status: null,
     requested_fields: [],
     requested_other_details: "",
     retries: 0,
@@ -1884,5 +1885,108 @@ describe("NeedsAttentionPage", () => {
     expect(await screen.findByText("Queue clear")).toBeInTheDocument();
     expect(screen.getByText("Every broker reply has been handled.")).toBeInTheDocument();
     expect(container.querySelector('img[src="/assets/glyph-mail-smoke.png"]')).toBeInTheDocument();
+  });
+
+  it("retries classification through the existing thread and refetches the queue", async () => {
+    const user = userEvent.setup();
+    const retryPaths: string[] = [];
+    let resolveRetry!: (response: Response) => void;
+    const pendingRetry = new Promise<Response>((resolve) => {
+      resolveRetry = resolve;
+    });
+    let attentionLoads = 0;
+    mockApi([
+      {
+        path: "/api/optouts?status=needs_attention",
+        respond: () => {
+          attentionLoads += 1;
+          return jsonResponse(
+            attentionLoads > 1
+              ? []
+              : [
+                  optOut({
+                    broker_id: "acme",
+                    broker_name: "Acme Data",
+                    notes: "Broker asked for a phone number.",
+                    status: "NEEDS_MANUAL",
+                  }),
+                ],
+          );
+        },
+      },
+      {
+        assert: (request) => retryPaths.push(request.path),
+        method: "POST",
+        path: "/api/optouts/acme/retry_classification",
+        respond: () => pendingRetry,
+      },
+      { body: brokerSelectionResponse(["acme"]), path: "/api/brokers/selections" },
+    ]);
+
+    renderWithProviders(<NeedsAttentionPage />);
+
+    expect(await screen.findByText("Broker asked for a phone number.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByRole("button", { name: "Retrying" })).toBeDisabled();
+    expect(retryPaths).toEqual(["/api/optouts/acme/retry_classification"]);
+
+    resolveRetry(
+      jsonResponse(
+        optOut({
+          broker_id: "acme",
+          broker_name: "Acme Data",
+          previous_status: null,
+          status: "INFO_REQUESTED",
+        }),
+      ),
+    );
+
+    await waitFor(() => expect(attentionLoads).toBeGreaterThan(1));
+    expect(await screen.findByText("Queue clear")).toBeInTheDocument();
+    expect(screen.queryByText("Broker asked for a phone number.")).not.toBeInTheDocument();
+  });
+
+  it("surfaces retry validation errors inline", async () => {
+    const user = userEvent.setup();
+    mockApi([
+      {
+        body: [
+          optOut({
+            broker_id: "acme",
+            broker_name: "Acme Data",
+            notes: "Old manual record with no source thread.",
+            status: "NEEDS_MANUAL",
+            thread_id: null,
+          }),
+        ],
+        path: "/api/optouts?status=needs_attention",
+      },
+      {
+        method: "POST",
+        path: "/api/optouts/acme/retry_classification",
+        respond: () =>
+          new Response(
+            JSON.stringify({
+              detail: "Cannot retry: broker record has no thread. Use Reset to start over.",
+            }),
+            {
+              headers: { "Content-Type": "application/json" },
+              status: 400,
+            },
+          ),
+      },
+      { body: brokerSelectionResponse(["acme"]), path: "/api/brokers/selections" },
+    ]);
+
+    renderWithProviders(<NeedsAttentionPage />);
+
+    expect(await screen.findByText("Old manual record with no source thread.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText("Request was not retried")).toBeInTheDocument();
+    expect(
+      screen.getByText("Cannot retry: broker record has no thread. Use Reset to start over."),
+    ).toBeInTheDocument();
   });
 });

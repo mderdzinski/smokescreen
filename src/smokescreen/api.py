@@ -459,14 +459,7 @@ async def list_optouts(status: str | None = None, include_disabled: bool = False
     )
     result = []
     for r in records:
-        d = r.model_dump()
-        d["created_at"] = r.created_at.isoformat()
-        d["updated_at"] = r.updated_at.isoformat()
-        broker = registry.get(r.broker_id)
-        d["broker_name"] = broker.name if broker else r.broker_id
-        d["broker_domain"] = broker.domain if broker else ""
-        d["broker_privacy_email"] = broker.privacy_email if broker else ""
-        result.append(d)
+        result.append(_optout_response(r, registry))
     return result
 
 
@@ -481,6 +474,15 @@ def _filter_enabled_optout_records(
         return records
     enabled = set(list_or_seed_enabled_brokers(store, registry))
     return [record for record in records if record.broker_id in enabled]
+
+
+def _optout_response(record: OptOutRecord, registry: BrokerRegistry) -> dict[str, Any]:
+    data = record.model_dump(mode="json")
+    broker = registry.get(record.broker_id)
+    data["broker_name"] = broker.name if broker else record.broker_id
+    data["broker_domain"] = broker.domain if broker else ""
+    data["broker_privacy_email"] = broker.privacy_email if broker else ""
+    return data
 
 
 @app.post("/api/optouts/{broker_id}/reset")
@@ -508,6 +510,7 @@ async def reset_optout(broker_id: str):
         pass
     record.status = BrokerStatus.PENDING
     record.retries = 0
+    record.previous_status = None
     record.thread_id = None
     record.last_message_id = None
     record.notes = ""
@@ -517,6 +520,39 @@ async def reset_optout(broker_id: str):
     record.updated_at = utc_now()
     store.upsert(record)
     return {"status": "reset", "broker_id": broker_id}
+
+
+@app.post("/api/optouts/{broker_id}/retry_classification")
+async def retry_optout_classification(broker_id: str):
+    store = get_store()
+    registry = get_registry()
+    record = store.get(broker_id)
+    if record is None:
+        raise HTTPException(400, f"No record for broker {broker_id}")
+    if record.status != BrokerStatus.NEEDS_MANUAL:
+        raise HTTPException(400, f"Broker {broker_id} does not need manual review")
+    if record.thread_id is None:
+        raise HTTPException(
+            400,
+            "Cannot retry: broker record has no thread. Use Reset to start over.",
+        )
+
+    previous_status = record.previous_status or BrokerStatus.INITIAL_SENT
+    try:
+        validate_transition(record.status, previous_status)
+    except InvalidTransition as err:
+        raise HTTPException(
+            400,
+            "Cannot retry: previous status is not retryable. Use Reset to start over.",
+        ) from err
+    record.status = previous_status
+    record.previous_status = None
+    record.last_message_id = None
+    record.notes = ""
+    record.retries = 0
+    record.updated_at = utc_now()
+    store.upsert(record)
+    return _optout_response(record, registry)
 
 
 @app.post("/api/optouts/{broker_id}/handled")
@@ -531,6 +567,7 @@ async def mark_optout_handled(broker_id: str):
         validate_transition(record.status, BrokerStatus.COMPLETED)
     now = utc_now()
     record.status = BrokerStatus.COMPLETED
+    record.previous_status = None
     record.last_completed_at = now
     record.updated_at = now
     store.upsert(record)

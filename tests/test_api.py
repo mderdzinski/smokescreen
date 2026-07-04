@@ -354,6 +354,123 @@ def test_reset_optout_not_found(client):
     assert resp.status_code == 404
 
 
+def test_retry_classification_restores_previous_status(client):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    store.upsert(
+        OptOutRecord(
+            broker_id="spokeo",
+            status=BrokerStatus.NEEDS_MANUAL,
+            previous_status=BrokerStatus.INFO_REQUESTED,
+            thread_id="thread-123",
+            last_message_id="message-123",
+            notes="Missing phone number",
+            retries=3,
+        )
+    )
+
+    resp = client.post("/api/optouts/spokeo/retry_classification")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["broker_id"] == "spokeo"
+    assert data["status"] == "INFO_REQUESTED"
+    assert data["previous_status"] is None
+    assert data["thread_id"] == "thread-123"
+    assert data["last_message_id"] is None
+    assert data["notes"] == ""
+    assert data["retries"] == 0
+    saved = store.get("spokeo")
+    assert saved is not None
+    assert saved.status == BrokerStatus.INFO_REQUESTED
+    assert saved.previous_status is None
+    assert saved.thread_id == "thread-123"
+    assert saved.last_message_id is None
+    assert saved.notes == ""
+    assert saved.retries == 0
+
+
+def test_retry_classification_requires_needs_manual_status(client):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    store.upsert(
+        OptOutRecord(
+            broker_id="spokeo",
+            status=BrokerStatus.INFO_REQUESTED,
+            thread_id="thread-123",
+        )
+    )
+
+    resp = client.post("/api/optouts/spokeo/retry_classification")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Broker spokeo does not need manual review"
+    saved = store.get("spokeo")
+    assert saved is not None
+    assert saved.status == BrokerStatus.INFO_REQUESTED
+
+
+def test_retry_classification_requires_thread_id(client):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    store.upsert(
+        OptOutRecord(
+            broker_id="spokeo",
+            status=BrokerStatus.NEEDS_MANUAL,
+            previous_status=BrokerStatus.INFO_REQUESTED,
+            last_message_id="message-123",
+        )
+    )
+
+    resp = client.post("/api/optouts/spokeo/retry_classification")
+
+    assert resp.status_code == 400
+    assert (
+        resp.json()["detail"]
+        == "Cannot retry: broker record has no thread. Use Reset to start over."
+    )
+    saved = store.get("spokeo")
+    assert saved is not None
+    assert saved.status == BrokerStatus.NEEDS_MANUAL
+    assert saved.last_message_id == "message-123"
+
+
+def test_retry_classification_defaults_to_initial_sent_when_no_previous_status(client):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    store.upsert(
+        OptOutRecord(
+            broker_id="spokeo",
+            status=BrokerStatus.NEEDS_MANUAL,
+            thread_id="thread-123",
+            last_message_id="message-123",
+            notes="Old manual record",
+            retries=2,
+        )
+    )
+
+    resp = client.post("/api/optouts/spokeo/retry_classification")
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "INITIAL_SENT"
+    saved = store.get("spokeo")
+    assert saved is not None
+    assert saved.status == BrokerStatus.INITIAL_SENT
+    assert saved.previous_status is None
+    assert saved.last_message_id is None
+
+
+def test_retry_classification_not_found_returns_400(client):
+    resp = client.post("/api/optouts/nonexistent/retry_classification")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "No record for broker nonexistent"
+
+
 @pytest.mark.parametrize(
     "status",
     [BrokerStatus.NEEDS_MANUAL, BrokerStatus.REJECTED, BrokerStatus.FAILED],

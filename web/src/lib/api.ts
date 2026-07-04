@@ -23,6 +23,7 @@ interface ListOptOutsOptions {
 export interface OptOutRecord {
   broker_id: string;
   status: BrokerStatus;
+  previous_status: BrokerStatus | null;
   retries: number;
   thread_id: string | null;
   last_message_id: string | null;
@@ -323,6 +324,10 @@ export const api = {
   },
   resetOptOut: (brokerId: string) =>
     requestJson<{ status: "reset"; broker_id: string }>(`/api/optouts/${encodeURIComponent(brokerId)}/reset`, {
+      method: "POST",
+    }),
+  retryClassification: (brokerId: string) =>
+    requestJson<OptOutRecord>(`/api/optouts/${encodeURIComponent(brokerId)}/retry_classification`, {
       method: "POST",
     }),
   markOptOutHandled: (brokerId: string) =>

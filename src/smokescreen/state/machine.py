@@ -32,6 +32,17 @@ TERMINAL_OR_ATTENTION_STATES: set[BrokerStatus] = {
     BrokerStatus.NEEDS_MANUAL,
 }
 
+RETRYABLE_MANUAL_STATES: set[BrokerStatus] = {
+    BrokerStatus.INITIAL_SENT,
+    BrokerStatus.INITIAL_SENT_PINGED,
+    BrokerStatus.AWAITING_RESPONSE,
+    BrokerStatus.AWAITING_RESPONSE_PINGED,
+    BrokerStatus.INFO_REQUESTED,
+    BrokerStatus.INFO_REQUESTED_PINGED,
+    BrokerStatus.FOLLOW_UP_SENT,
+    BrokerStatus.FOLLOW_UP_SENT_PINGED,
+}
+
 
 TRANSITIONS: dict[BrokerStatus, set[BrokerStatus]] = {
     BrokerStatus.PENDING: {BrokerStatus.INITIAL_SENT, BrokerStatus.FAILED},
@@ -81,6 +92,7 @@ TRANSITIONS: dict[BrokerStatus, set[BrokerStatus]] = {
         BrokerStatus.PENDING,  # allow manual reset
         BrokerStatus.COMPLETED,
         BrokerStatus.FAILED,
+        *RETRYABLE_MANUAL_STATES,
     },
 }
 

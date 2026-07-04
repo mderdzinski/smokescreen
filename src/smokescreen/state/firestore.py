@@ -100,6 +100,11 @@ class FirestoreStore:
         return OptOutRecord(
             broker_id=broker_id,
             status=parse_broker_status(data["status"]),
+            previous_status=(
+                parse_broker_status(data["previous_status"])
+                if data.get("previous_status")
+                else None
+            ),
             retries=data.get("retries", 0),
             thread_id=data.get("thread_id"),
             last_message_id=data.get("last_message_id"),
@@ -158,6 +163,9 @@ class FirestoreStore:
         self._ref(record.broker_id).set(
             {
                 "status": record.status.value,
+                "previous_status": (
+                    record.previous_status.value if record.previous_status else None
+                ),
                 "retries": record.retries,
                 "thread_id": record.thread_id,
                 "last_message_id": record.last_message_id,

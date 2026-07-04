@@ -1025,7 +1025,7 @@ export function NeedsAttentionPage() {
     ]);
   };
   const retryMutation = useMutation({
-    mutationFn: api.resetOptOut,
+    mutationFn: api.retryClassification,
     onSuccess: refreshAttentionData,
   });
   const markHandledMutation = useMutation({
@@ -1071,7 +1071,10 @@ export function NeedsAttentionPage() {
       ) : null}
       {retryMutation.error ? (
         <ErrorState
-          description="Smokescreen could not retry that broker. Refresh the queue before trying again."
+          description={
+            retryMutation.error.message ||
+            "Smokescreen could not retry that broker. Refresh the queue before trying again."
+          }
           onAction={() => {
             retryMutation.reset();
             retryAttention();

@@ -259,13 +259,13 @@ def _process_thread(
                 message_snippet=latest.body[:200] if latest.body else "",
             )
         )
-        validate_transition(record.status, BrokerStatus.NEEDS_MANUAL)
-        record.status = BrokerStatus.NEEDS_MANUAL
-        record.notes = (
-            f"Reply received from untrusted sender {latest_sender} - "
-            "approve in Trusted Senders if legitimate"
+        transition_to_needs_manual(
+            record,
+            notes=(
+                f"Reply received from untrusted sender {latest_sender} - "
+                "approve in Trusted Senders if legitimate"
+            ),
         )
-        record.updated_at = utc_now()
         store.upsert(record)
         log.warning(
             "poll_needs_manual_untrusted_sender",
@@ -280,9 +280,7 @@ def _process_thread(
             broker=record.broker_id,
             provider=settings.ai_provider,
         )
-        record.status = BrokerStatus.NEEDS_MANUAL
-        record.notes = _missing_classifier_notes(settings)
-        record.updated_at = utc_now()
+        transition_to_needs_manual(record, notes=_missing_classifier_notes(settings))
         store.upsert(record)
         return True
 
@@ -370,11 +368,10 @@ def _handle_classification(
         return True
 
     if classification == ReplyClassification.NEEDS_MANUAL:
-        validate_transition(record.status, BrokerStatus.NEEDS_MANUAL)
-        record.status = BrokerStatus.NEEDS_MANUAL
         record.last_message_id = latest.message_id
-        record.notes = _manual_review_notes(latest)
-        record.updated_at = now
+        transition_to_needs_manual(
+            record, notes=_manual_review_notes(latest), now=now
+        )
         store.upsert(record)
         log.info("poll_needs_manual", broker=record.broker_id)
         return True
@@ -427,6 +424,22 @@ def _manual_review_notes(message: EmailMessage) -> str:
     )
 
 
+def transition_to_needs_manual(
+    record: OptOutRecord,
+    *,
+    notes: str | None = None,
+    now: datetime | None = None,
+) -> None:
+    """Atomically remember the current state before moving to manual review."""
+    previous_status = record.status
+    validate_transition(previous_status, BrokerStatus.NEEDS_MANUAL)
+    record.previous_status = previous_status
+    record.status = BrokerStatus.NEEDS_MANUAL
+    if notes is not None:
+        record.notes = notes
+    record.updated_at = now or utc_now()
+
+
 def _handle_info_request(
     settings: Settings,
     record: OptOutRecord,
@@ -462,16 +475,17 @@ def _handle_info_request(
     record.last_message_id = latest.message_id
 
     if missing_fields:
-        validate_transition(record.status, BrokerStatus.NEEDS_MANUAL)
-        record.status = BrokerStatus.NEEDS_MANUAL
-        record.notes = _info_request_manual_notes(
-            requested_fields=requested_fields,
-            missing_fields=missing_fields,
-            reason=manual_reason,
-            latest=latest,
-            other_details=other_details,
+        transition_to_needs_manual(
+            record,
+            notes=_info_request_manual_notes(
+                requested_fields=requested_fields,
+                missing_fields=missing_fields,
+                reason=manual_reason,
+                latest=latest,
+                other_details=other_details,
+            ),
+            now=now,
         )
-        record.updated_at = now
         store.upsert(record)
         log.info(
             "poll_info_request_needs_manual",
@@ -799,10 +813,11 @@ def _escalate_to_needs_manual(
     store: StateStore,
     now: datetime,
 ) -> None:
-    validate_transition(record.status, BrokerStatus.NEEDS_MANUAL)
-    record.notes = f"escalated after two silent periods on {previous_state.value}"
-    record.status = BrokerStatus.NEEDS_MANUAL
-    record.updated_at = now
+    transition_to_needs_manual(
+        record,
+        notes=f"escalated after two silent periods on {previous_state.value}",
+        now=now,
+    )
     store.upsert(record)
     log.warning(
         "poll_timeout_escalated",
