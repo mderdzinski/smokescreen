@@ -1,3 +1,10 @@
+## [0.25.2](https://github.com/mderdzinski/smokescreen/compare/v0.25.1...v0.25.2) (2026-07-04)
+
+
+### Bug Fixes
+
+* guard runbook shell snippets (sm-5ns) ([de1a5bc](https://github.com/mderdzinski/smokescreen/commit/de1a5bc7ddc0c5fe952c43d95be921413db4bf8d))
+
 ## [0.25.1](https://github.com/mderdzinski/smokescreen/compare/v0.25.0...v0.25.1) (2026-07-04)
 
 
