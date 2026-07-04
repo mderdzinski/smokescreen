@@ -2,6 +2,7 @@
 
 from smokescreen.email.templates import (
     render_initial_opt_out,
+    render_rejection_rebuttal,
     render_silent_ping,
     render_verification_profile_follow_up,
 )
@@ -48,3 +49,11 @@ def test_silent_ping_template():
     assert "Spokeo" in result
     assert "John Doe" in result
     assert "follow" in result.lower() or "status" in result.lower()
+
+
+def test_rejection_rebuttal_template():
+    result = render_rejection_rebuttal(broker_name="Spokeo", sender_name="John Doe")
+    assert "Spokeo" in result
+    assert "John Doe" in result
+    assert "CCPA" in result
+    assert "legal basis" in result.lower()

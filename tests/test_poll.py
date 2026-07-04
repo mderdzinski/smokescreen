@@ -155,11 +155,23 @@ def _labeled_reply_gmail() -> FakeGmail:
     )
 
 
-def _mock_anthropic(label: str) -> MagicMock:
-    client = MagicMock()
+def _mock_anthropic_response(label: str) -> MagicMock:
     content_block = MagicMock()
     content_block.text = label
-    client.messages.create.return_value = MagicMock(content=[content_block])
+    return MagicMock(content=[content_block])
+
+
+def _mock_anthropic(label: str) -> MagicMock:
+    client = MagicMock()
+    client.messages.create.return_value = _mock_anthropic_response(label)
+    return client
+
+
+def _mock_anthropic_sequence(labels: list[str]) -> MagicMock:
+    client = MagicMock()
+    client.messages.create.side_effect = [
+        _mock_anthropic_response(label) for label in labels
+    ]
     return client
 
 
@@ -746,6 +758,163 @@ def test_info_request_documents_available_auto_responds(tmp_path):
     assert updated.requested_fields == ["documents"]
     assert updated.missing_fields == []
     assert updated.retries == 1
+    store.close()
+
+
+def test_composer_fallback_to_template_on_llm_failure(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    store.set_verification_profile(
+        VerificationProfile(
+            home_addresses=[
+                VerificationAddress(
+                    street="1 Main St",
+                    city="Springfield",
+                    state="CA",
+                    zip="90210",
+                    country="US",
+                )
+            ]
+        )
+    )
+    record = _record(status=BrokerStatus.AWAITING_RESPONSE)
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Identity verification",
+                    body="Please send your home address.",
+                )
+            ]
+        }
+    )
+    client = _mock_anthropic_sequence([_info_request_response(["home_address"])])
+    client.messages.create.side_effect = [
+        _mock_anthropic_response(_info_request_response(["home_address"])),
+        RuntimeError("timeout"),
+    ]
+
+    processed = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        ai_client=client,
+    )
+
+    assert processed is True
+    assert len(gmail.sent_messages) == 1
+    sent = gmail.sent_messages[0]
+    assert sent["subject"] == "Re: Identity verification"
+    assert "Thank you for your response. As requested" in sent["body"]
+    assert "Home address: 1 Main St; Springfield, CA 90210; US" in sent["body"]
+    assert store.get("labeled").status == BrokerStatus.FOLLOW_UP_SENT
+    store.close()
+
+
+def test_rejection_rebuttal_transitions_to_rejected_rebutted(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    record = _record(status=BrokerStatus.AWAITING_RESPONSE)
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Request rejected",
+                    body="We cannot process this deletion request.",
+                )
+            ]
+        }
+    )
+    client = _mock_anthropic_sequence(
+        [
+            "REJECTED",
+            (
+                '{"subject":"Re: {{ broker_subject }}",'
+                '"body":"Dear {{ broker_name }} Privacy Team,\\n'
+                'Please reconsider this request under CCPA.\\n\\n'
+                'Sincerely,\\n{{ sender_name }}",'
+                '"notes":"challenge rejection"}'
+            ),
+        ]
+    )
+
+    processed = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        ai_client=client,
+    )
+
+    assert processed is True
+    assert len(gmail.sent_messages) == 1
+    sent = gmail.sent_messages[0]
+    assert sent["subject"] == "Re: Request rejected"
+    assert "CCPA" in sent["body"]
+    assert "Test User" in sent["body"]
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.REJECTED_REBUTTED
+    assert updated.last_message_id == "sent-identity"
+    assert "rebutted once" in updated.notes
+    store.close()
+
+
+def test_second_rejection_after_rebuttal_transitions_to_terminal_rejected(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    record = _record(status=BrokerStatus.REJECTED_REBUTTED)
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Request still rejected",
+                    body="We still reject this request.",
+                )
+            ]
+        }
+    )
+
+    processed = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        ai_client=_mock_anthropic("REJECTED"),
+    )
+
+    assert processed is True
+    assert gmail.sent_messages == []
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.REJECTED
+    assert updated.last_message_id == "reply-labeled"
     store.close()
 
 

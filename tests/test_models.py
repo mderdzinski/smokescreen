@@ -18,6 +18,7 @@ from smokescreen.models import (
 def test_broker_status_values():
     assert BrokerStatus.PENDING.value == "PENDING"
     assert BrokerStatus.COMPLETED.value == "COMPLETED"
+    assert BrokerStatus.REJECTED_REBUTTED.value == "REJECTED_REBUTTED"
 
 
 def test_opt_out_record_defaults():
@@ -93,6 +94,10 @@ def test_parse_broker_status_current_names():
     assert parse_broker_status("INITIAL_SENT") is BrokerStatus.INITIAL_SENT
     assert parse_broker_status("INFO_REQUESTED") is BrokerStatus.INFO_REQUESTED
     assert parse_broker_status("FOLLOW_UP_SENT") is BrokerStatus.FOLLOW_UP_SENT
+    assert (
+        parse_broker_status("REJECTED_REBUTTED")
+        is BrokerStatus.REJECTED_REBUTTED
+    )
     assert (
         parse_broker_status("INFO_REQUESTED_PINGED")
         is BrokerStatus.INFO_REQUESTED_PINGED

@@ -68,6 +68,21 @@ Thank you,
 {{ sender_name }}
 """)
 
+REJECTION_REBUTTAL = _env.from_string("""\
+Dear {{ broker_name }} Privacy Team,
+
+Thank you for your response. I am asking that you reconsider the rejection of \
+my data deletion request. Where applicable, including under the California \
+Consumer Privacy Act (CCPA), I am requesting deletion of personal information \
+you maintain about me and confirmation once the request has been completed.
+
+If you believe the request cannot be processed, please explain the specific \
+legal basis for refusing it and identify what information is still required to \
+verify and complete the request.
+
+Sincerely,
+{{ sender_name }}
+""")
 
 def render_initial_opt_out(
     broker_name: str, sender_name: str, sender_email: str
@@ -97,6 +112,13 @@ def render_verification_profile_follow_up(
 
 def render_silent_ping(broker_name: str, sender_name: str) -> str:
     return SILENT_PING.render(
+        broker_name=broker_name,
+        sender_name=sender_name,
+    )
+
+
+def render_rejection_rebuttal(broker_name: str, sender_name: str) -> str:
+    return REJECTION_REBUTTAL.render(
         broker_name=broker_name,
         sender_name=sender_name,
     )

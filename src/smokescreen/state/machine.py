@@ -41,6 +41,7 @@ RETRYABLE_MANUAL_STATES: set[BrokerStatus] = {
     BrokerStatus.INFO_REQUESTED_PINGED,
     BrokerStatus.FOLLOW_UP_SENT,
     BrokerStatus.FOLLOW_UP_SENT_PINGED,
+    BrokerStatus.REJECTED_REBUTTED,
 }
 
 
@@ -50,38 +51,51 @@ TRANSITIONS: dict[BrokerStatus, set[BrokerStatus]] = {
         BrokerStatus.INITIAL_SENT_PINGED,
         BrokerStatus.AWAITING_RESPONSE,
         BrokerStatus.INFO_REQUESTED,
+        BrokerStatus.REJECTED_REBUTTED,
         *TERMINAL_OR_ATTENTION_STATES,
     },
     BrokerStatus.INITIAL_SENT_PINGED: {
         BrokerStatus.AWAITING_RESPONSE,
         BrokerStatus.INFO_REQUESTED,
+        BrokerStatus.REJECTED_REBUTTED,
         *TERMINAL_OR_ATTENTION_STATES,
     },
     BrokerStatus.AWAITING_RESPONSE: {
         BrokerStatus.AWAITING_RESPONSE_PINGED,
         BrokerStatus.INFO_REQUESTED,
+        BrokerStatus.REJECTED_REBUTTED,
         *TERMINAL_OR_ATTENTION_STATES,
     },
     BrokerStatus.AWAITING_RESPONSE_PINGED: {
         BrokerStatus.INFO_REQUESTED,
+        BrokerStatus.REJECTED_REBUTTED,
         *TERMINAL_OR_ATTENTION_STATES,
     },
     BrokerStatus.INFO_REQUESTED: {
         BrokerStatus.INFO_REQUESTED_PINGED,
         BrokerStatus.FOLLOW_UP_SENT,
+        BrokerStatus.REJECTED_REBUTTED,
         *TERMINAL_OR_ATTENTION_STATES,
     },
     BrokerStatus.INFO_REQUESTED_PINGED: {
         BrokerStatus.FOLLOW_UP_SENT,
+        BrokerStatus.REJECTED_REBUTTED,
         *TERMINAL_OR_ATTENTION_STATES,
     },
     BrokerStatus.FOLLOW_UP_SENT: {
         BrokerStatus.FOLLOW_UP_SENT_PINGED,
         BrokerStatus.AWAITING_RESPONSE,
+        BrokerStatus.REJECTED_REBUTTED,
         *TERMINAL_OR_ATTENTION_STATES,
     },
     BrokerStatus.FOLLOW_UP_SENT_PINGED: {
         BrokerStatus.AWAITING_RESPONSE,
+        BrokerStatus.REJECTED_REBUTTED,
+        *TERMINAL_OR_ATTENTION_STATES,
+    },
+    BrokerStatus.REJECTED_REBUTTED: {
+        BrokerStatus.AWAITING_RESPONSE,
+        BrokerStatus.INFO_REQUESTED,
         *TERMINAL_OR_ATTENTION_STATES,
     },
     # Terminal states (COMPLETED allows re-request back to PENDING)

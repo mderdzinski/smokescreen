@@ -14,6 +14,7 @@ export type BrokerStatus =
   | "FOLLOW_UP_SENT_PINGED"
   | "COMPLETED"
   | "REJECTED"
+  | "REJECTED_REBUTTED"
   | "NEEDS_MANUAL"
   | "FAILED";
 
@@ -31,6 +32,7 @@ export const BROKER_STATUS_DISPLAY: Record<BrokerStatus, { tone: StatusTone; lab
   FOLLOW_UP_SENT_PINGED: { tone: "working", label: "Pinged" },
   COMPLETED: { tone: "done", label: "Removed" },
   REJECTED: { tone: "attention", label: "Blocked" },
+  REJECTED_REBUTTED: { tone: "working", label: "Rebuttal sent" },
   NEEDS_MANUAL: { tone: "attention", label: "Review" },
   FAILED: { tone: "attention", label: "Failed" },
 };

@@ -12,6 +12,7 @@ export type BrokerStatus =
   | "FOLLOW_UP_SENT_PINGED"
   | "COMPLETED"
   | "REJECTED"
+  | "REJECTED_REBUTTED"
   | "NEEDS_MANUAL"
   | "FAILED";
 export type OptOutStatusFilter = BrokerStatus | "needs_attention";

@@ -78,6 +78,7 @@ const brokerStatusGroup: Record<BrokerStatus, BrokerStatusGroup> = {
   FOLLOW_UP_SENT_PINGED: "working",
   COMPLETED: "done",
   REJECTED: "attention",
+  REJECTED_REBUTTED: "working",
   NEEDS_MANUAL: "attention",
   FAILED: "attention",
 };
@@ -137,6 +138,11 @@ const brokerStatusCopy: Record<BrokerStatus, BrokerStatusCopy> = {
     group: brokerStatusGroup.REJECTED,
     label: "Blocked by broker",
     description: "The broker declined the request and needs review.",
+  },
+  REJECTED_REBUTTED: {
+    group: brokerStatusGroup.REJECTED_REBUTTED,
+    label: "Rebuttal sent",
+    description: "Smokescreen challenged the rejection and is waiting for a reply.",
   },
   NEEDS_MANUAL: {
     group: brokerStatusGroup.NEEDS_MANUAL,

@@ -11,10 +11,16 @@ from anthropic import Anthropic
 from google import genai
 
 from smokescreen.ai.classifier import classify_reply, classify_reply_gemini
+from smokescreen.ai.response_composer import (
+    ResponseTargetAction,
+    compose_response_skeleton,
+    render_response_skeleton,
+)
 from smokescreen.brokers.registry import BrokerRegistry
 from smokescreen.config import Settings
 from smokescreen.email.client import GmailClient
 from smokescreen.email.templates import (
+    render_rejection_rebuttal,
     render_silent_ping,
     render_verification_profile_follow_up,
 )
@@ -49,6 +55,7 @@ _ACTIVE_STATES = {
     BrokerStatus.FOLLOW_UP_SENT_PINGED,
     BrokerStatus.INFO_REQUESTED,
     BrokerStatus.INFO_REQUESTED_PINGED,
+    BrokerStatus.REJECTED_REBUTTED,
 }
 
 _PROFILE_FIELD_LABELS = {
@@ -335,6 +342,7 @@ def _process_thread(
         analysis=analysis,
         store=store,
         gmail=gmail,
+        ai_client=ai_client,
     )
 
 
@@ -359,6 +367,7 @@ def _handle_classification(
     analysis: ReplyAnalysis,
     store: StateStore,
     gmail: GmailClient,
+    ai_client: Any | None,
 ) -> bool:
     """Handle a classified reply. Returns True if action was taken."""
     now = utc_now()
@@ -375,13 +384,26 @@ def _handle_classification(
         return True
 
     if classification == ReplyClassification.REJECTED:
-        validate_transition(record.status, BrokerStatus.REJECTED)
-        record.status = BrokerStatus.REJECTED
-        record.last_message_id = latest.message_id
-        record.updated_at = now
-        store.upsert(record)
-        log.info("poll_rejected", broker=record.broker_id)
-        return True
+        if record.status == BrokerStatus.REJECTED_REBUTTED:
+            validate_transition(record.status, BrokerStatus.REJECTED)
+            record.status = BrokerStatus.REJECTED
+            record.last_message_id = latest.message_id
+            record.updated_at = now
+            store.upsert(record)
+            log.info("poll_rejected_after_rebuttal", broker=record.broker_id)
+            return True
+
+        return _handle_rejection_rebuttal(
+            settings=settings,
+            record=record,
+            broker_name=broker_name,
+            broker_email=broker_email,
+            latest=latest,
+            analysis=analysis,
+            store=store,
+            gmail=gmail,
+            ai_client=ai_client,
+        )
 
     if classification == ReplyClassification.NEEDS_MANUAL:
         record.last_message_id = latest.message_id
@@ -425,6 +447,7 @@ def _handle_classification(
             other_details=analysis.other_details,
             store=store,
             gmail=gmail,
+            ai_client=ai_client,
         )
 
     return False
@@ -499,6 +522,7 @@ def _handle_info_request(
     other_details: str,
     store: StateStore,
     gmail: GmailClient,
+    ai_client: Any | None,
 ) -> bool:
     """Handle a broker follow-up requesting additional information."""
     now = utc_now()
@@ -562,11 +586,35 @@ def _handle_info_request(
     record.updated_at = now
     store.upsert(record)
 
-    body = render_verification_profile_follow_up(
+    verification_lines = _verification_lines(profile, requested_fields)
+    fallback_body = render_verification_profile_follow_up(
         broker_name=broker_name,
         sender_name=settings.sender_name,
-        verification_lines=_verification_lines(profile, requested_fields),
+        verification_lines=verification_lines,
         document_labels=_requested_document_labels(profile, requested_fields),
+    )
+    subject, body = _compose_or_fallback(
+        settings=settings,
+        ai_client=ai_client,
+        broker_name=broker_name,
+        broker_subject=latest.subject,
+        broker_body=latest.body,
+        classifier_result=ReplyAnalysis(
+            classification=ReplyClassification.INFO_REQUEST,
+            requested_fields=requested_fields,
+            other_details=other_details,
+        ),
+        target_action=ResponseTargetAction.INFO_RESPONSE,
+        placeholders=_response_placeholders(
+            settings=settings,
+            broker_name=broker_name,
+            broker_subject=latest.subject,
+            verification_lines=verification_lines,
+            requested_fields=_format_field_list(requested_fields),
+            document_labels=_requested_document_labels(profile, requested_fields),
+        ),
+        fallback_subject=f"Re: {latest.subject}",
+        fallback_body=fallback_body,
     )
 
     if settings.dry_run:
@@ -576,7 +624,7 @@ def _handle_info_request(
         # poll label applied by outreach.
         sent = gmail.send(
             to=broker_email,
-            subject=f"Re: {latest.subject}",
+            subject=subject,
             body=body,
             sender=settings.sender_email,
             sender_name=settings.sender_name,
@@ -593,6 +641,146 @@ def _handle_info_request(
 
     log.info("poll_follow_up_sent", broker=record.broker_id, retries=record.retries)
     return True
+
+
+def _handle_rejection_rebuttal(
+    settings: Settings,
+    record: OptOutRecord,
+    broker_name: str,
+    broker_email: str,
+    latest: EmailMessage,
+    analysis: ReplyAnalysis,
+    store: StateStore,
+    gmail: GmailClient,
+    ai_client: Any | None,
+) -> bool:
+    """Send one polite rebuttal before accepting a broker rejection as terminal."""
+    fallback_body = render_rejection_rebuttal(
+        broker_name=broker_name,
+        sender_name=settings.sender_name,
+    )
+    subject, body = _compose_or_fallback(
+        settings=settings,
+        ai_client=ai_client,
+        broker_name=broker_name,
+        broker_subject=latest.subject,
+        broker_body=latest.body,
+        classifier_result=analysis,
+        target_action=ResponseTargetAction.REJECTION_REBUTTAL,
+        placeholders=_response_placeholders(
+            settings=settings,
+            broker_name=broker_name,
+            broker_subject=latest.subject,
+        ),
+        fallback_subject=f"Re: {latest.subject}",
+        fallback_body=fallback_body,
+    )
+
+    if settings.dry_run:
+        log.info("dry_run_rejection_rebuttal", broker=record.broker_id)
+        record.last_message_id = latest.message_id
+    else:
+        sent = gmail.send(
+            to=broker_email,
+            subject=subject,
+            body=body,
+            sender=settings.sender_email,
+            sender_name=settings.sender_name,
+            thread_id=record.thread_id,
+        )
+        record.last_message_id = sent.message_id
+
+    validate_transition(record.status, BrokerStatus.REJECTED_REBUTTED)
+    record.status = BrokerStatus.REJECTED_REBUTTED
+    record.notes = "Broker rejection rebutted once; waiting for broker response."
+    record.updated_at = utc_now()
+    store.upsert(record)
+    log.info("poll_rejection_rebuttal_sent", broker=record.broker_id)
+    return True
+
+
+def _compose_or_fallback(
+    *,
+    settings: Settings,
+    ai_client: Any | None,
+    broker_name: str,
+    broker_subject: str,
+    broker_body: str,
+    classifier_result: ReplyAnalysis,
+    target_action: ResponseTargetAction,
+    placeholders: dict[str, object],
+    fallback_subject: str,
+    fallback_body: str,
+) -> tuple[str, str]:
+    """Compose via LLM, render locally, and fall back to templates on any error."""
+    if ai_client is None:
+        log.warning(
+            "response_composer_fallback",
+            broker=broker_name,
+            target_action=target_action.value,
+            provider=settings.ai_provider,
+            reason="no AI client configured",
+        )
+        return fallback_subject, fallback_body
+
+    model = (
+        settings.anthropic_model
+        if settings.ai_provider == "anthropic"
+        else settings.gemini_model
+    )
+    try:
+        skeleton = compose_response_skeleton(
+            client=ai_client,
+            provider=settings.ai_provider,
+            model=model,
+            broker_name=broker_name,
+            broker_subject=broker_subject,
+            broker_body=broker_body,
+            classifier_result=classifier_result,
+            target_action=target_action,
+        )
+        rendered = render_response_skeleton(skeleton, placeholders)
+    except Exception as exc:
+        log.warning(
+            "response_composer_fallback",
+            broker=broker_name,
+            target_action=target_action.value,
+            provider=settings.ai_provider,
+            reason=str(exc),
+        )
+        return fallback_subject, fallback_body
+
+    return rendered.subject, rendered.body
+
+
+def _response_placeholders(
+    *,
+    settings: Settings,
+    broker_name: str,
+    broker_subject: str,
+    verification_lines: list[str] | None = None,
+    requested_fields: str = "",
+    missing_fields: str = "",
+    document_labels: list[str] | None = None,
+) -> dict[str, object]:
+    verification_lines = verification_lines or []
+    document_labels = document_labels or []
+    return {
+        "broker_name": broker_name,
+        "broker_subject": broker_subject,
+        "sender_name": settings.sender_name,
+        "verification_lines": _bullet_lines(verification_lines),
+        "verification_line_items": verification_lines,
+        "requested_fields": requested_fields,
+        "missing_fields": missing_fields,
+        "document_labels": ", ".join(document_labels),
+        "document_label_items": document_labels,
+        "additional_notes": "",
+    }
+
+
+def _bullet_lines(lines: list[str]) -> str:
+    return "\n".join(f"- {line}" for line in lines if line.strip())
 
 
 def _dedupe_requested_fields(
@@ -823,6 +1011,24 @@ def run_timeout_escalation(
 
     now = as_aware_utc(now) if now is not None else utc_now()
     processed: list[str] = []
+    composer_client: Any | None = None
+    composer_client_built = False
+
+    def response_composer_client() -> Any | None:
+        nonlocal composer_client, composer_client_built
+        if composer_client_built:
+            return composer_client
+        composer_client_built = True
+        try:
+            composer_client = _build_classifier_client(settings)
+        except Exception as exc:
+            log.warning(
+                "response_composer_client_unavailable",
+                provider=settings.ai_provider,
+                reason=str(exc),
+            )
+            composer_client = None
+        return composer_client
 
     # Ping first-timeout records (waiting state → paired *_PINGED).
     for status in WAITING_STATES:
@@ -841,6 +1047,7 @@ def run_timeout_escalation(
                 gmail=gmail,
                 store=store,
                 now=now,
+                ai_client=response_composer_client(),
             )
             processed.append(record.broker_id)
 
@@ -878,9 +1085,32 @@ def _send_silent_ping(
     gmail: GmailClient | None,
     store: StateStore,
     now: datetime,
+    ai_client: Any | None,
 ) -> None:
     """Send a friendly status-check ping and transition to the paired state."""
-    body = render_silent_ping(broker_name=broker_name, sender_name=settings.sender_name)
+    fallback_subject = f"Re: deletion request for {settings.sender_name}"
+    fallback_body = render_silent_ping(
+        broker_name=broker_name,
+        sender_name=settings.sender_name,
+    )
+    subject, body = _compose_or_fallback(
+        settings=settings,
+        ai_client=ai_client,
+        broker_name=broker_name,
+        broker_subject="",
+        broker_body="",
+        classifier_result=ReplyAnalysis(
+            classification=ReplyClassification.UNRELATED,
+        ),
+        target_action=ResponseTargetAction.SILENT_PING,
+        placeholders=_response_placeholders(
+            settings=settings,
+            broker_name=broker_name,
+            broker_subject="",
+        ),
+        fallback_subject=fallback_subject,
+        fallback_body=fallback_body,
+    )
 
     if settings.dry_run or gmail is None:
         log.info(
@@ -893,7 +1123,7 @@ def _send_silent_ping(
         # poll label applied by outreach.
         sent = gmail.send(
             to=broker_email,
-            subject=f"Re: deletion request for {settings.sender_name}",
+            subject=subject,
             body=body,
             sender=settings.sender_email,
             sender_name=settings.sender_name,

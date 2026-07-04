@@ -29,6 +29,7 @@ const statuses: BrokerStatus[] = [
   "FOLLOW_UP_SENT_PINGED",
   "COMPLETED",
   "REJECTED",
+  "REJECTED_REBUTTED",
   "NEEDS_MANUAL",
   "FAILED",
 ];
