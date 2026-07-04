@@ -1,3 +1,10 @@
+## [0.25.7](https://github.com/mderdzinski/smokescreen/compare/v0.25.6...v0.25.7) (2026-07-04)
+
+
+### Bug Fixes
+
+* align classifier documents handling with profile, remove dead composer code ([7397d9a](https://github.com/mderdzinski/smokescreen/commit/7397d9a043f451006afd7efcb14a9bd8d11efe53))
+
 ## [0.25.6](https://github.com/mderdzinski/smokescreen/compare/v0.25.5...v0.25.6) (2026-07-04)
 
 
