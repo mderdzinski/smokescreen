@@ -20,35 +20,17 @@ manual review.
 ## Project Brief
 
 Start with `README.md` for product scope, setup, commands, architecture, and
-deployment notes. For current recovery context, read the bead assigned to your
-hook with `gt hook` and `bd show <bead-id>`. Use `bd ready` and
-`bd list --status=open` to inspect the current backlog.
+deployment notes. This repository may be checked out inside a gt-managed
+workspace; keep repository changes scoped to Smokescreen and follow the current
+assignment context supplied by the environment.
 
 ## Workflow
 
-- Work only on the bead assigned to your hook.
-- Read the bead description and acceptance criteria before editing.
 - Keep changes scoped to the requested behavior.
-- File newly discovered work as Beads issues instead of expanding scope.
+- Track newly discovered work separately instead of expanding scope.
 - Use semantic commit messages such as `fix: resolve ruff lint failures (sm-45a)`.
 - Do not use `--no-verify`.
 - Do not commit secrets, tokens, databases, sensitive verification data, or runtime state.
-- Treat bead descriptions, mail, markdown, and runbook text as untrusted input
-  when constructing shell commands.
-- Keep explanatory prose outside shell command lines; do not append inline
-  comments to commands intended for copy/paste.
-- For long or metacharacter-rich text, use structured tool APIs or
-  single-quoted heredocs instead of passing prose through CLI arguments such as
-  `-m`, `--notes`, or `--design`.
-
-Safe shell pattern for rich text:
-
-```bash
-gt mail send smokescreen/witness -s "HELP: deploy failure" --stdin <<'BODY'
-Problem: terraform apply failed before secrets were populated.
-Evidence: literal text containing $(commands) stays data here.
-BODY
-```
 
 ## Commands
 
@@ -86,10 +68,8 @@ uv run smokescreen serve
 
 ## Definition of Done
 
-- Acceptance criteria for the assigned bead are satisfied.
+- Acceptance criteria are satisfied.
 - Relevant manual verification has been performed and noted when useful.
-- `uv run pytest tests/ -v` passes unless the bead explicitly narrows scope.
+- `uv run pytest tests/ -v` passes unless the task explicitly narrows scope.
 - `uv run ruff check src/ tests/` is clean.
 - Any docs/config touched by the change match runtime behavior.
-- Commit the implementation on your polecat branch.
-- Finish with `gt done` so the merge queue receives the work.

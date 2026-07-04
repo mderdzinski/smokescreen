@@ -94,30 +94,6 @@ Reset a broker to try again:
 smokescreen reset spokeo
 ```
 
-## Runbook shell safety
-
-Smokescreen docs and runbooks do not rely on zsh `interactivecomments`.
-Command blocks should be safe even when an operator's interactive shell treats
-`#` as an ordinary argument character. Keep explanatory prose outside shell
-fences and do not append inline comments to executable command lines.
-
-When sending bead notes, mail, diagnostics, or other rich text from a shell,
-use structured APIs or a single-quoted heredoc delimiter so metacharacters stay
-literal:
-
-```bash
-gt mail send smokescreen/witness -s "HELP: deploy failure" --stdin <<'BODY'
-Problem: terraform apply failed before secrets were populated.
-Evidence: literal text containing $(commands) stays data here.
-BODY
-```
-
-If you want to inspect the local zsh setting, run:
-
-```bash
-zsh -ic 'print -- ${options[interactivecomments]}'
-```
-
 ## Local dashboard
 
 Install both the Python app and React dashboard dependencies before launching

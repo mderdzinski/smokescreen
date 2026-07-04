@@ -343,9 +343,9 @@ npm --prefix web run build
 ```
 
 Open a pull request or submit through the repository's merge queue process.
-Maintainer repos use the Refinery merge queue; local branches are not considered
-landed until they are on `main` or accepted by the queue. Do not merge your own
-PR unless the repository maintainers explicitly ask you to.
+Local branches are not considered landed until they are on `main` or accepted
+by the queue. Do not merge your own PR unless the repository maintainers
+explicitly ask you to.
 
 ## Checkpoint
 

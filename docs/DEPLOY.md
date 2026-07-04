@@ -73,15 +73,6 @@ export IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/${ARTIFACT
 Use `gcloud config configurations activate smokescreen` before running the
 commands from a new shell.
 
-## Command Safety
-
-This deploy guide keeps explanatory text outside shell command blocks and does
-not rely on zsh `interactivecomments`. Do not append inline comments to the
-commands you copy from this runbook. When filing deploy diagnostics or other
-rich text from a shell, use a structured API or a single-quoted heredoc
-delimiter so values such as `$(...)`, backticks, pipes, and redirects stay
-literal data.
-
 ## Choose an Image Tag
 
 Deploy a specific immutable image tag whenever possible. Use `latest` only for
