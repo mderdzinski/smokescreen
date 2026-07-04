@@ -20,6 +20,36 @@ def _mock_client(response_text: str) -> MagicMock:
     return client
 
 
+def _prompt_payload_for(target_action: ResponseTargetAction) -> str:
+    client = _mock_client(
+        '{"subject":"Re: {{ broker_subject }}","body":"Thanks","notes":""}'
+    )
+    classification = (
+        ReplyClassification.REJECTED
+        if target_action == ResponseTargetAction.REJECTION_REBUTTAL
+        else ReplyClassification.INFO_REQUEST
+    )
+
+    compose_response_skeleton(
+        client=client,
+        provider="anthropic",
+        model="claude-sonnet-4-20250514",
+        broker_name="Labeled Broker",
+        broker_subject="Broker reply",
+        broker_body="Please provide the requested information.",
+        classifier_result=ReplyAnalysis(
+            classification=classification,
+            requested_fields=[VerificationField.HOME_ADDRESS],
+            other_details="Broker requested verification.",
+        ),
+        target_action=target_action,
+        user_context="The listing exposes a household member.",
+    )
+
+    call = client.messages.create.call_args.kwargs
+    return str(call["system"]) + "\n" + str(call["messages"])
+
+
 def test_composer_llm_call_excludes_pii():
     client = _mock_client(
         '{"subject":"Re: {{ broker_subject }}",'
@@ -59,6 +89,27 @@ def test_composer_llm_call_excludes_pii():
     assert "Labeled Broker" in prompt_payload
     assert "home_address" in prompt_payload
     assert "phone_number" in prompt_payload
+
+
+def test_info_response_prompt_does_not_reference_ccpa():
+    prompt_payload = _prompt_payload_for(ResponseTargetAction.INFO_RESPONSE)
+
+    assert "Target action: INFO_RESPONSE" in prompt_payload
+    assert "CCPA" not in prompt_payload
+
+
+def test_silent_ping_prompt_does_not_reference_ccpa():
+    prompt_payload = _prompt_payload_for(ResponseTargetAction.SILENT_PING)
+
+    assert "Target action: SILENT_PING" in prompt_payload
+    assert "CCPA" not in prompt_payload
+
+
+def test_rejection_rebuttal_prompt_references_ccpa():
+    prompt_payload = _prompt_payload_for(ResponseTargetAction.REJECTION_REBUTTAL)
+
+    assert "Target action: REJECTION_REBUTTAL" in prompt_payload
+    assert "CCPA" in prompt_payload
 
 
 def test_composer_output_placeholders_substituted_locally():

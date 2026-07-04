@@ -54,8 +54,8 @@ You are a privacy assistant that composes email replies to data brokers.
 Given the broker message and target action, produce JSON with subject, body,
 and notes fields. The subject and body may contain Jinja2 double-brace
 placeholder tokens that Smokescreen will substitute locally. Do not include
-specific PII values yourself. Keep responses professional, concise, and cite
-CCPA where relevant. Return only valid JSON.
+specific PII values yourself. Keep responses professional and concise. Return
+only valid JSON.
 """
 
 _ALLOWED_PLACEHOLDERS = """\
@@ -75,11 +75,12 @@ _TARGET_INSTRUCTIONS = {
     ResponseTargetAction.INFO_RESPONSE: (
         "Acknowledge the broker's request and provide the requested fields "
         "through placeholders, especially {{ verification_lines }}. Do not "
-        "ask for documents or mention attachments."
+        "ask for documents, mention attachments, or add legal citations."
     ),
     ResponseTargetAction.SILENT_PING: (
         "Send a brief status check on the pending deletion request. Ask the "
-        "broker to confirm status or identify anything still needed."
+        "broker to confirm status or identify anything still needed. Do not "
+        "add legal citations."
     ),
     ResponseTargetAction.REJECTION_REBUTTAL: (
         "Politely challenge the rejection and ask the broker to process the "
