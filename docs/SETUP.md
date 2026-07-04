@@ -314,9 +314,12 @@ Why each role, briefly:
   Terraform's `google_iap_web_cloud_run_service_iam_member` resource calls
   `iap.web*.getIamPolicy` and `iap.web*.setIamPolicy`, which
   `roles/iap.settingsAdmin` does **not** grant (that role manages IAP
-  configuration/settings, not IAM policies). Using the settings role
-  fails on first `terraform apply` with `Error 403: The caller does not
-  have permission` on the dashboard IAP IAM binding.
+  configuration/settings, not IAM policies). Google's
+  [IAP roles reference](https://cloud.google.com/iam/docs/roles-permissions/iap)
+  lists those IAM policy permissions on `roles/iap.admin`, not on
+  `roles/iap.settingsAdmin`. Using the settings role fails on first
+  `terraform apply` with `Error 403: The caller does not have permission`
+  on the dashboard IAP IAM binding.
 - `storage.objectAdmin` on the tfstate bucket — read and write state; do
   not grant this project-wide. This bucket-scoped role only covers objects
   inside the manually created Terraform state bucket; it cannot create new
@@ -330,8 +333,9 @@ Why each role, briefly:
 > **Migrating from an earlier version of these docs.** If you previously
 > granted `roles/iap.settingsAdmin`, add `roles/iap.admin` on top —
 > `terraform apply` will start succeeding on the IAP binding. You can
-> also revoke `roles/iap.settingsAdmin` afterwards (it is not required
-> by the current `infra/main.tf`), but leaving it is harmless.
+> also revoke `roles/iap.settingsAdmin` afterwards. It grants settings
+> update permissions, but the current `infra/main.tf` manages only IAP IAM
+> bindings, so `roles/iap.admin` is the role the release workflow needs.
 
 > **Future Terraform-managed resources.** New Terraform changes that add GCS
 > buckets, Cloud Run services, Firestore resources, or similar new resource
@@ -345,6 +349,11 @@ The deploy job reads non-sensitive configuration from **repository variables**
 (Settings → Secrets and variables → Actions → Variables). Do not put these
 in Secrets — they are not confidential and repository variables are the
 correct GitHub surface for them.
+
+The release workflow validates these variables before authenticating to Google
+Cloud or running Terraform. If any value is missing or blank, the deploy job
+fails fast with a message naming the missing variables instead of passing empty
+`TF_VAR_project_id` or `TF_VAR_region` values into the Google providers.
 
 | Variable | Example | Description |
 | --- | --- | --- |

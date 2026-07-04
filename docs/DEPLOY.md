@@ -562,6 +562,23 @@ the usual care about concurrent runs.
 
 ## Troubleshooting the release workflow
 
+### `deploy` job fails at `Validate deploy repository variables`
+
+The deploy job now checks required GitHub Actions repository variables before
+it authenticates to Google Cloud or runs Terraform. If the step reports missing
+variables, set the named values in **Settings > Secrets and variables >
+Actions > Variables** and rerun the Release workflow:
+
+- `GCP_PROJECT_ID`
+- `GCP_REGION`
+- `SMOKESCREEN_SENDER_EMAIL`
+- `SMOKESCREEN_SENDER_NAME`
+- `WIF_PROVIDER`
+- `WIF_SERVICE_ACCOUNT`
+
+`GCP_REGION` is required explicitly. Use the same region you chose during
+setup, usually `us-central1`.
+
 ### `Release` job succeeded but no `deploy` ran
 
 The deploy job is gated on `needs.release.outputs.tag != ''`. If
@@ -587,9 +604,16 @@ scope problems:
 
 ### `deploy` job fails at `terraform apply`
 
-- Missing repository variables → Terraform errors on required inputs
-  (`project_id`, `sender_email`, `sender_name`). Set the variables listed
-  in [SETUP.md](SETUP.md#set-github-actions-repository-variables).
+- Missing repository variables should be caught by the preflight step before
+  Terraform runs. If Terraform still reports an empty required input, verify
+  the variable names match
+  [SETUP.md](SETUP.md#set-github-actions-repository-variables).
+- IAP IAM policy 403 → errors mentioning
+  `iap webcloudrunservice ... getIamPolicy` or
+  `google_iap_web_cloud_run_service_iam_member.dashboard_accessor` mean the
+  CI service account is missing IAP Policy Admin (`roles/iap.admin`).
+  `roles/iap.settingsAdmin` is not enough because it does not grant
+  `iap.web*.getIamPolicy` or `iap.web*.setIamPolicy`.
 - IAM shortage → the apply reports `Permission denied` on a resource kind.
   Cross-reference the failing resource against the role list in
   [SETUP.md](SETUP.md#grant-deploy-roles-to-the-ci-service-account) and

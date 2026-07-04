@@ -87,6 +87,41 @@ jobs:
         with:
           ref: ${{ needs.release.outputs.tag }}
 
+      - name: Validate deploy repository variables
+        shell: bash
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          SMOKESCREEN_SENDER_EMAIL: ${{ vars.SMOKESCREEN_SENDER_EMAIL }}
+          SMOKESCREEN_SENDER_NAME: ${{ vars.SMOKESCREEN_SENDER_NAME }}
+          WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
+          WIF_SERVICE_ACCOUNT: ${{ vars.WIF_SERVICE_ACCOUNT }}
+        run: |
+          required_vars=(
+            GCP_PROJECT_ID
+            GCP_REGION
+            SMOKESCREEN_SENDER_EMAIL
+            SMOKESCREEN_SENDER_NAME
+            WIF_PROVIDER
+            WIF_SERVICE_ACCOUNT
+          )
+          missing=()
+
+          for name in "${required_vars[@]}"; do
+            value="${!name:-}"
+            if [[ -z "${value//[[:space:]]/}" ]]; then
+              missing+=("${name}")
+            fi
+          done
+
+          if (( ${#missing[@]} > 0 )); then
+            missing_csv="${missing[*]}"
+            missing_csv="${missing_csv// /, }"
+            echo "::error title=Missing deploy variables::Required GitHub Actions repository variables are missing or empty: ${missing_csv}" >&2
+            echo "Set them in Settings > Secrets and variables > Actions > Variables, then rerun the Release workflow." >&2
+            exit 1
+          fi
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
