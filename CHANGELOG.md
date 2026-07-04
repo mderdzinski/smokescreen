@@ -1,3 +1,10 @@
+## [0.27.1](https://github.com/mderdzinski/smokescreen/compare/v0.27.0...v0.27.1) (2026-07-04)
+
+
+### Bug Fixes
+
+* REJECTED goes to human review with accept or escalate options ([62c3111](https://github.com/mderdzinski/smokescreen/commit/62c3111616110a0c0c44eafa32e0f9d5dc618260))
+
 # [0.27.0](https://github.com/mderdzinski/smokescreen/compare/v0.26.0...v0.27.0) (2026-07-04)
 
 
