@@ -393,17 +393,23 @@ def _handle_classification(
             log.info("poll_rejected_after_rebuttal", broker=record.broker_id)
             return True
 
-        return _handle_rejection_rebuttal(
-            settings=settings,
-            record=record,
-            broker_name=broker_name,
-            broker_email=broker_email,
-            latest=latest,
-            analysis=analysis,
-            store=store,
-            gmail=gmail,
-            ai_client=ai_client,
+        record.last_message_id = latest.message_id
+        transition_to_needs_manual(
+            record,
+            reason_code="broker_rejected",
+            short_summary=(
+                "Broker rejected the deletion request. Review and choose to "
+                "accept or escalate."
+            ),
+            notes=_manual_review_notes(latest),
+            broker_reply_excerpt=_broker_reply_excerpt(latest),
+            classifier_output=_classifier_output(analysis),
+            missing_fields=[],
+            now=now,
         )
+        store.upsert(record)
+        log.info("poll_rejected_needs_manual", broker=record.broker_id)
+        return True
 
     if classification == ReplyClassification.NEEDS_MANUAL:
         record.last_message_id = latest.message_id
@@ -651,8 +657,9 @@ def _handle_rejection_rebuttal(
     latest: EmailMessage,
     analysis: ReplyAnalysis,
     store: StateStore,
-    gmail: GmailClient,
+    gmail: GmailClient | None,
     ai_client: Any | None,
+    user_context: str | None = None,
 ) -> bool:
     """Send one polite rebuttal before accepting a broker rejection as terminal."""
     fallback_body = render_rejection_rebuttal(
@@ -667,6 +674,7 @@ def _handle_rejection_rebuttal(
         broker_body=latest.body,
         classifier_result=analysis,
         target_action=ResponseTargetAction.REJECTION_REBUTTAL,
+        user_context=user_context,
         placeholders=_response_placeholders(
             settings=settings,
             broker_name=broker_name,
@@ -680,6 +688,9 @@ def _handle_rejection_rebuttal(
         log.info("dry_run_rejection_rebuttal", broker=record.broker_id)
         record.last_message_id = latest.message_id
     else:
+        if gmail is None:
+            log.error("no_gmail_client", broker=record.broker_id)
+            return False
         sent = gmail.send(
             to=broker_email,
             subject=subject,
@@ -692,6 +703,8 @@ def _handle_rejection_rebuttal(
 
     validate_transition(record.status, BrokerStatus.REJECTED_REBUTTED)
     record.status = BrokerStatus.REJECTED_REBUTTED
+    record.previous_status = None
+    record.needs_manual_reason = None
     record.notes = "Broker rejection rebutted once; waiting for broker response."
     record.updated_at = utc_now()
     store.upsert(record)
@@ -708,6 +721,7 @@ def _compose_or_fallback(
     broker_body: str,
     classifier_result: ReplyAnalysis,
     target_action: ResponseTargetAction,
+    user_context: str | None = None,
     placeholders: dict[str, object],
     fallback_subject: str,
     fallback_body: str,
@@ -738,6 +752,7 @@ def _compose_or_fallback(
             broker_body=broker_body,
             classifier_result=classifier_result,
             target_action=target_action,
+            user_context=user_context,
         )
         rendered = render_response_skeleton(skeleton, placeholders)
     except Exception as exc:

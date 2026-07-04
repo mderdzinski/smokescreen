@@ -821,7 +821,7 @@ def test_composer_fallback_to_template_on_llm_failure(tmp_path):
     store.close()
 
 
-def test_rejection_rebuttal_transitions_to_rejected_rebutted(tmp_path):
+def test_rejected_transitions_to_needs_manual_broker_rejected(tmp_path):
     settings = _settings(tmp_path)
     store = SQLiteStore(settings.sqlite_path)
     record = _record(status=BrokerStatus.AWAITING_RESPONSE)
@@ -842,18 +842,6 @@ def test_rejection_rebuttal_transitions_to_rejected_rebutted(tmp_path):
             ]
         }
     )
-    client = _mock_anthropic_sequence(
-        [
-            "REJECTED",
-            (
-                '{"subject":"Re: {{ broker_subject }}",'
-                '"body":"Dear {{ broker_name }} Privacy Team,\\n'
-                'Please reconsider this request under CCPA.\\n\\n'
-                'Sincerely,\\n{{ sender_name }}",'
-                '"notes":"challenge rejection"}'
-            ),
-        ]
-    )
 
     processed = _process_thread(
         settings=settings,
@@ -862,19 +850,28 @@ def test_rejection_rebuttal_transitions_to_rejected_rebutted(tmp_path):
         broker_email="privacy@labeled.example",
         store=store,
         gmail=gmail,
-        ai_client=client,
+        ai_client=_mock_anthropic("REJECTED"),
     )
 
     assert processed is True
-    assert len(gmail.sent_messages) == 1
-    sent = gmail.sent_messages[0]
-    assert sent["subject"] == "Re: Request rejected"
-    assert "CCPA" in sent["body"]
-    assert "Test User" in sent["body"]
+    assert gmail.sent_messages == []
     updated = store.get("labeled")
-    assert updated.status == BrokerStatus.REJECTED_REBUTTED
-    assert updated.last_message_id == "sent-identity"
-    assert "rebutted once" in updated.notes
+    assert updated.status == BrokerStatus.NEEDS_MANUAL
+    assert updated.previous_status == BrokerStatus.AWAITING_RESPONSE
+    assert updated.last_message_id == "reply-labeled"
+    assert updated.needs_manual_reason is not None
+    assert updated.needs_manual_reason.reason_code == "broker_rejected"
+    assert updated.needs_manual_reason.short_summary == (
+        "Broker rejected the deletion request. Review and choose to accept or "
+        "escalate."
+    )
+    assert (
+        updated.needs_manual_reason.broker_reply_excerpt
+        == "We cannot process this deletion request."
+    )
+    assert updated.needs_manual_reason.classifier_output["classification"] == "REJECTED"
+    assert updated.needs_manual_reason.missing_fields == []
+    assert updated.needs_manual_reason.transitioned_at.tzinfo is not None
     store.close()
 
 

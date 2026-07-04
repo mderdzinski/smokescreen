@@ -74,6 +74,7 @@ def test_terminal_states_have_no_transitions():
 def test_needs_manual_can_reset():
     validate_transition(BrokerStatus.NEEDS_MANUAL, BrokerStatus.PENDING)
     validate_transition(BrokerStatus.NEEDS_MANUAL, BrokerStatus.COMPLETED)
+    validate_transition(BrokerStatus.NEEDS_MANUAL, BrokerStatus.REJECTED)
 
 
 @pytest.mark.parametrize("target", WAITING_REPLY_STATES)

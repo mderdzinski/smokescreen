@@ -26,8 +26,11 @@ from smokescreen.config import (
 from smokescreen.models import (
     Broker,
     BrokerStatus,
+    EmailMessage,
     OptOutRecord,
     PendingWhitelistStatus,
+    ReplyAnalysis,
+    ReplyClassification,
     VerificationProfile,
     WhitelistEntry,
     WhitelistSource,
@@ -60,8 +63,8 @@ _settings: Settings | None = None
 ATTENTION_STATUSES = {
     BrokerStatus.NEEDS_MANUAL,
     BrokerStatus.FAILED,
-    BrokerStatus.REJECTED,
 }
+BROKER_REJECTED_REASON_CODE = "broker_rejected"
 
 
 def get_store() -> StateStore:
@@ -139,6 +142,10 @@ class OutreachRequest(BaseModel):
     broker_ids: list[str] | None = None
 
 
+class RejectionEscalationRequest(BaseModel):
+    context: str
+
+
 class BrokerSelectionsBody(BaseModel):
     enabled_broker_ids: list[str]
 
@@ -156,6 +163,32 @@ GMAIL_CREDENTIALS_REQUIRED_DETAIL = {
         "the batch without sending email."
     ),
 }
+
+
+def _gmail_client_from_settings(settings: Settings):
+    from smokescreen.email.client import GmailClient
+    from smokescreen.email.oauth import get_credentials
+
+    try:
+        credentials = get_credentials(
+            settings.gmail_credentials_path,
+            settings.gmail_token_path,
+            credentials_json=settings.gmail_credentials_json,
+            token_json=settings.gmail_token_json,
+            interactive=settings.gmail_oauth_interactive,
+        )
+        return GmailClient(credentials)
+    except (
+        FileNotFoundError,
+        GoogleAuthError,
+        JSONDecodeError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=GMAIL_CREDENTIALS_REQUIRED_DETAIL,
+        ) from exc
 
 
 def _slugify(text: str) -> str:
@@ -554,6 +587,137 @@ async def retry_optout_classification(broker_id: str):
     record.retries = 0
     record.updated_at = utc_now()
     store.upsert(record)
+    return _optout_response(record, registry)
+
+
+def _require_broker_rejected_review(
+    record: OptOutRecord,
+    broker_id: str,
+):
+    reason = record.needs_manual_reason
+    if (
+        record.status != BrokerStatus.NEEDS_MANUAL
+        or reason is None
+        or reason.reason_code != BROKER_REJECTED_REASON_CODE
+    ):
+        raise HTTPException(
+            400,
+            f"Broker {broker_id} is not awaiting broker rejection review",
+        )
+    return reason
+
+
+def _manual_rejection_subject(record: OptOutRecord) -> str:
+    for line in record.notes.splitlines():
+        if line.startswith("Subject:"):
+            subject = line.removeprefix("Subject:").strip()
+            if subject:
+                return subject
+    return "Broker rejection"
+
+
+def _rejection_review_message(
+    record: OptOutRecord,
+    *,
+    broker_email: str,
+) -> EmailMessage:
+    reason = record.needs_manual_reason
+    body = reason.broker_reply_excerpt if reason else ""
+    return EmailMessage(
+        message_id=record.last_message_id or "",
+        thread_id=record.thread_id or "",
+        sender=broker_email,
+        subject=_manual_rejection_subject(record),
+        body=body or record.notes,
+    )
+
+
+def _rejection_review_analysis(record: OptOutRecord) -> ReplyAnalysis:
+    reason = record.needs_manual_reason
+    classifier_output = reason.classifier_output if reason else {}
+    other_details = classifier_output.get("other_details", "")
+    return ReplyAnalysis(
+        classification=ReplyClassification.REJECTED,
+        requested_fields=[],
+        other_details=other_details if isinstance(other_details, str) else "",
+    )
+
+
+@app.post("/api/optouts/{broker_id}/accept_rejection")
+async def accept_rejection(broker_id: str):
+    store = get_store()
+    registry = get_registry()
+    record = store.get(broker_id)
+    if record is None:
+        raise HTTPException(404, f"No record for broker {broker_id}")
+    _require_broker_rejected_review(record, broker_id)
+    try:
+        validate_transition(record.status, BrokerStatus.REJECTED)
+    except InvalidTransition as err:
+        raise HTTPException(
+            400,
+            f"Cannot accept rejection for broker {broker_id}",
+        ) from err
+
+    now = utc_now()
+    record.status = BrokerStatus.REJECTED
+    record.previous_status = None
+    record.needs_manual_reason = None
+    record.updated_at = now
+    store.upsert(record)
+    return _optout_response(record, registry)
+
+
+@app.post("/api/optouts/{broker_id}/escalate_rejection")
+async def escalate_rejection(
+    broker_id: str,
+    request: RejectionEscalationRequest,
+):
+    context = request.context.strip()
+    if not context:
+        raise HTTPException(400, "Escalation context is required")
+
+    store = get_store()
+    registry = get_registry()
+    settings = get_settings_obj()
+    record = store.get(broker_id)
+    if record is None:
+        raise HTTPException(404, f"No record for broker {broker_id}")
+    _require_broker_rejected_review(record, broker_id)
+    if not record.thread_id:
+        raise HTTPException(
+            400,
+            "Cannot escalate rejection: broker record has no thread.",
+        )
+    broker = registry.get(broker_id)
+    if broker is None:
+        raise HTTPException(404, f"Broker {broker_id} not found")
+
+    gmail = None if settings.dry_run else _gmail_client_from_settings(settings)
+
+    from smokescreen.jobs.poll import (
+        _build_classifier_client,
+        _handle_rejection_rebuttal,
+    )
+
+    processed = _handle_rejection_rebuttal(
+        settings=settings,
+        record=record,
+        broker_name=broker.name,
+        broker_email=broker.privacy_email,
+        latest=_rejection_review_message(record, broker_email=broker.privacy_email),
+        analysis=_rejection_review_analysis(record),
+        store=store,
+        gmail=gmail,
+        ai_client=_build_classifier_client(settings),
+        user_context=context,
+    )
+    if not processed:
+        raise HTTPException(
+            400,
+            f"Cannot escalate rejection for broker {broker_id}",
+        )
+
     return _optout_response(record, registry)
 
 

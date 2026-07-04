@@ -31,6 +31,15 @@ def test_check_rerequest_not_completed():
     assert _check_rerequest(record, 60) is False
 
 
+def test_check_rerequest_skips_terminal_rejected():
+    record = OptOutRecord(
+        broker_id="a",
+        status=BrokerStatus.REJECTED,
+        updated_at=datetime.utcnow() - timedelta(days=90),
+    )
+    assert _check_rerequest(record, 60) is False
+
+
 def test_check_rerequest_completed_not_due():
     record = OptOutRecord(
         broker_id="a",

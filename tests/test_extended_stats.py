@@ -117,14 +117,14 @@ def test_extended_stats_excludes_disabled_brokers_by_default(client):
     assert include_data["needs_attention"] == 1
 
 
-def test_extended_stats_counts_rejected_as_needs_attention(client):
+def test_extended_stats_excludes_terminal_rejected_from_needs_attention(client):
     c, store = client
     store.upsert(OptOutRecord(broker_id="spokeo", status=BrokerStatus.REJECTED))
 
     resp = c.get("/api/stats/extended")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["needs_attention"] == 1
+    assert data["needs_attention"] == 0
 
 
 def test_extended_stats_by_status(client):

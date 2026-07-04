@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 from smokescreen.ai.response_composer import (
     ResponseSkeleton,
     ResponseTargetAction,
+    build_response_composer_user_prompt,
     compose_response_skeleton,
     render_response_skeleton,
 )
@@ -85,3 +86,23 @@ def test_composer_output_placeholders_substituted_locally():
     assert "Jane Doe" in rendered.body
     assert "1 Main St" in rendered.body
     assert "+1 555 0100" in rendered.body
+
+
+def test_composer_rejection_rebuttal_uses_user_context():
+    prompt = build_response_composer_user_prompt(
+        broker_name="Labeled Broker",
+        broker_subject="Request rejected",
+        broker_body="We reject this request as invalid.",
+        classifier_result=ReplyAnalysis(
+            classification=ReplyClassification.REJECTED,
+            requested_fields=[],
+            other_details="Broker claimed no matching record.",
+        ),
+        target_action=ResponseTargetAction.REJECTION_REBUTTAL,
+        user_context="The listing exposes a minor household member.",
+    )
+
+    assert "Target action: REJECTION_REBUTTAL" in prompt
+    assert "The listing exposes a minor household member." in prompt
+    assert "strengthen the rebuttal" in prompt
+    assert "sender email" in prompt

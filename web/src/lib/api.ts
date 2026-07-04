@@ -347,6 +347,15 @@ export const api = {
     requestJson<OptOutRecord>(`/api/optouts/${encodeURIComponent(brokerId)}/retry_classification`, {
       method: "POST",
     }),
+  acceptRejection: (brokerId: string) =>
+    requestJson<OptOutRecord>(`/api/optouts/${encodeURIComponent(brokerId)}/accept_rejection`, {
+      method: "POST",
+    }),
+  escalateRejection: (brokerId: string, context: string) =>
+    requestJson<OptOutRecord>(
+      `/api/optouts/${encodeURIComponent(brokerId)}/escalate_rejection`,
+      jsonRequest("POST", { context }),
+    ),
   markOptOutHandled: (brokerId: string) =>
     requestJson<{ status: "handled"; broker_id: string }>(
       `/api/optouts/${encodeURIComponent(brokerId)}/handled`,

@@ -105,6 +105,7 @@ TRANSITIONS: dict[BrokerStatus, set[BrokerStatus]] = {
     BrokerStatus.NEEDS_MANUAL: {
         BrokerStatus.PENDING,  # allow manual reset
         BrokerStatus.COMPLETED,
+        BrokerStatus.REJECTED,
         BrokerStatus.FAILED,
         *RETRYABLE_MANUAL_STATES,
     },

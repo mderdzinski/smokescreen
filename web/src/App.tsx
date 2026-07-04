@@ -77,7 +77,7 @@ const brokerStatusGroup: Record<BrokerStatus, BrokerStatusGroup> = {
   FOLLOW_UP_SENT: "working",
   FOLLOW_UP_SENT_PINGED: "working",
   COMPLETED: "done",
-  REJECTED: "attention",
+  REJECTED: "done",
   REJECTED_REBUTTED: "working",
   NEEDS_MANUAL: "attention",
   FAILED: "attention",
@@ -136,8 +136,8 @@ const brokerStatusCopy: Record<BrokerStatus, BrokerStatusCopy> = {
   },
   REJECTED: {
     group: brokerStatusGroup.REJECTED,
-    label: "Blocked by broker",
-    description: "The broker declined the request and needs review.",
+    label: "Rejected",
+    description: "The broker declined the request and the rejection was accepted.",
   },
   REJECTED_REBUTTED: {
     group: brokerStatusGroup.REJECTED_REBUTTED,
@@ -163,7 +163,7 @@ const statusGroupLabels: Record<BrokerStatusGroup, { title: string; description:
   },
   done: {
     title: "Done",
-    description: "Brokers that confirmed removal.",
+    description: "Completed removals and accepted terminal outcomes.",
   },
   attention: {
     title: "Needs attention",
@@ -435,8 +435,8 @@ export function OverviewPage() {
         />
         <Metric
           icon={<Check />}
-          label="Removed"
-          sub="confirmed by broker"
+          label="Closed"
+          sub="terminal records"
           tone="done"
           value={loading ? "--" : animatedDoneCount}
         />
@@ -525,10 +525,10 @@ function statusSummary({
     return "Smokescreen is loading the latest broker status from your local API.";
   }
   if (totalCount === 0) {
-    return "0 removed so far. Smokescreen will send requests and watch broker replies when you add brokers.";
+    return "0 closed so far. Smokescreen will send requests and watch broker replies when you add brokers.";
   }
 
-  return `${doneCount} removed so far. Smokescreen is sending requests and watching broker replies until every record is gone.`;
+  return `${doneCount} closed so far. Smokescreen is sending requests and watching broker replies until every record is done.`;
 }
 
 function pluralize(word: string, count: number): string {
@@ -1016,7 +1016,7 @@ export function NeedsAttentionPage() {
   const records = useMemo(
     () =>
       filterOptOutsByEnabledBrokerIds(attentionRecords, enabledBrokerIds).filter(
-        (record) => record.status === "REJECTED" || record.status === "NEEDS_MANUAL" || record.status === "FAILED",
+        (record) => record.status === "NEEDS_MANUAL" || record.status === "FAILED",
       ),
     [attentionRecords, enabledBrokerIds],
   );
@@ -1036,6 +1036,15 @@ export function NeedsAttentionPage() {
     mutationFn: api.retryClassification,
     onSuccess: refreshAttentionData,
   });
+  const acceptRejectionMutation = useMutation({
+    mutationFn: api.acceptRejection,
+    onSuccess: refreshAttentionData,
+  });
+  const escalateRejectionMutation = useMutation({
+    mutationFn: ({ brokerId, context }: { brokerId: string; context: string }) =>
+      api.escalateRejection(brokerId, context),
+    onSuccess: refreshAttentionData,
+  });
   const markHandledMutation = useMutation({
     mutationFn: api.markOptOutHandled,
     onSuccess: refreshAttentionData,
@@ -1052,6 +1061,20 @@ export function NeedsAttentionPage() {
 
   function retryRecord(record: OptOutRecord) {
     retryMutation.mutate(record.broker_id);
+  }
+
+  function acceptRejection(record: OptOutRecord) {
+    const confirmed = window.confirm(
+      "Accept this rejection? The record will be marked REJECTED and excluded from future outreach cycles.",
+    );
+    if (!confirmed) {
+      return;
+    }
+    acceptRejectionMutation.mutate(record.broker_id);
+  }
+
+  function escalateRejection(record: OptOutRecord, context: string) {
+    escalateRejectionMutation.mutate({ brokerId: record.broker_id, context });
   }
 
   function markRecordHandled(record: OptOutRecord) {
@@ -1100,6 +1123,32 @@ export function NeedsAttentionPage() {
           title="Request was not marked handled"
         />
       ) : null}
+      {acceptRejectionMutation.error ? (
+        <ErrorState
+          description={
+            acceptRejectionMutation.error.message ||
+            "Smokescreen could not accept that rejection. Refresh the queue before trying again."
+          }
+          onAction={() => {
+            acceptRejectionMutation.reset();
+            retryAttention();
+          }}
+          title="Rejection was not accepted"
+        />
+      ) : null}
+      {escalateRejectionMutation.error ? (
+        <ErrorState
+          description={
+            escalateRejectionMutation.error.message ||
+            "Smokescreen could not escalate that rejection. Refresh the queue before trying again."
+          }
+          onAction={() => {
+            escalateRejectionMutation.reset();
+            retryAttention();
+          }}
+          title="Rejection was not escalated"
+        />
+      ) : null}
 
       <div>
         <h1 className="text-2xl font-semibold tracking-normal">Needs Attention</h1>
@@ -1121,6 +1170,14 @@ export function NeedsAttentionPage() {
             isMarkingHandled={markHandledMutation.isPending && markHandledMutation.variables === record.broker_id}
             isResolving={resolvingBrokerId === record.broker_id}
             isRetrying={retryMutation.isPending && retryMutation.variables === record.broker_id}
+            isAcceptingRejection={
+              acceptRejectionMutation.isPending && acceptRejectionMutation.variables === record.broker_id
+            }
+            isEscalatingRejection={
+              escalateRejectionMutation.isPending && escalateRejectionMutation.variables?.brokerId === record.broker_id
+            }
+            onAcceptRejection={() => acceptRejection(record)}
+            onEscalateRejection={(context) => escalateRejection(record, context)}
             onMarkHandled={() => markRecordHandled(record)}
             onResolveDone={() => finishMarkHandled(record)}
             onRetry={() => retryRecord(record)}
@@ -1136,6 +1193,10 @@ function AttentionItem({
   isMarkingHandled,
   isResolving,
   isRetrying,
+  isAcceptingRejection,
+  isEscalatingRejection,
+  onAcceptRejection,
+  onEscalateRejection,
   onMarkHandled,
   onResolveDone,
   onRetry,
@@ -1144,21 +1205,52 @@ function AttentionItem({
   isMarkingHandled: boolean;
   isResolving: boolean;
   isRetrying: boolean;
+  isAcceptingRejection: boolean;
+  isEscalatingRejection: boolean;
+  onAcceptRejection: () => void;
+  onEscalateRejection: (context: string) => void;
   onMarkHandled: () => void;
   onResolveDone: () => void;
   onRetry: () => void;
 }) {
+  const [isEscalationOpen, setIsEscalationOpen] = useState(false);
+  const [escalationContext, setEscalationContext] = useState("");
+  const [escalationError, setEscalationError] = useState("");
   const guidance = getAttentionGuidance(record);
   const manualSummary = getNeedsManualSummary(record);
   const replyText = getBrokerReplyText(record);
   const reason = record.needs_manual_reason;
+  const isBrokerRejectedReview = reason?.reason_code === "broker_rejected";
   const classifierOutputText = reason ? formatClassifierOutput(reason.classifier_output) : "";
   const transitionedAge = reason ? formatTransitionAge(reason.transitioned_at) : null;
   const transitionedAt = reason ? formatFriendlyTimestamp(reason.transitioned_at) : null;
   const sourceEmailHref = getSourceEmailHref(record.thread_id);
   const verificationGap = getVerificationProfileGap(record);
   const actionLabels = getAttentionActionLabels({ isMarkingHandled: isMarkingHandled || isResolving, isRetrying });
-  const actionPending = isMarkingHandled || isRetrying || isResolving;
+  const actionPending = isMarkingHandled || isRetrying || isResolving || isAcceptingRejection || isEscalatingRejection;
+  const escalationContextId = `escalation-context-${record.broker_id}`;
+
+  function openEscalationForm() {
+    setEscalationError("");
+    setIsEscalationOpen(true);
+  }
+
+  function cancelEscalation() {
+    setEscalationContext("");
+    setEscalationError("");
+    setIsEscalationOpen(false);
+  }
+
+  function submitEscalation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const context = escalationContext.trim();
+    if (!context) {
+      setEscalationError("Context is required before escalating.");
+      return;
+    }
+    setEscalationError("");
+    onEscalateRejection(context);
+  }
 
   return (
     <Card
@@ -1204,14 +1296,29 @@ function AttentionItem({
               {actionLabels.sourceEmail}
             </Button>
           )}
-          <Button variant="secondary" size="sm" onClick={onRetry} disabled={actionPending}>
-            <RotateCcw className="h-4 w-4" />
-            {actionLabels.retry}
-          </Button>
-          <Button size="sm" onClick={onMarkHandled} disabled={actionPending}>
-            <Check className="h-4 w-4" />
-            {actionLabels.markHandled}
-          </Button>
+          {isBrokerRejectedReview ? (
+            <>
+              <Button variant="danger" size="sm" onClick={onAcceptRejection} disabled={actionPending}>
+                <XCircle className="h-4 w-4" />
+                {isAcceptingRejection ? "Accepting" : "Accept rejection"}
+              </Button>
+              <Button size="sm" onClick={openEscalationForm} disabled={actionPending}>
+                <ShieldPlus className="h-4 w-4" />
+                {isEscalatingRejection ? "Escalating" : "Escalate"}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="secondary" size="sm" onClick={onRetry} disabled={actionPending}>
+                <RotateCcw className="h-4 w-4" />
+                {actionLabels.retry}
+              </Button>
+              <Button size="sm" onClick={onMarkHandled} disabled={actionPending}>
+                <Check className="h-4 w-4" />
+                {actionLabels.markHandled}
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -1281,6 +1388,36 @@ function AttentionItem({
             <p className="mt-[5px] text-xs leading-relaxed text-content-body">{verificationGap.otherDetails}</p>
           ) : null}
         </div>
+      ) : null}
+
+      {isBrokerRejectedReview && isEscalationOpen ? (
+        <form className="mt-[14px] rounded-sm border border-border bg-surface-sunken px-[13px] py-[11px]" onSubmit={submitEscalation}>
+          <label className="ss-label mb-[7px] block text-content-muted" htmlFor={escalationContextId}>
+            Provide additional context to strengthen your escalation. This will be used by the AI to compose a stronger rebuttal.
+          </label>
+          <textarea
+            className="min-h-28 w-full resize-y rounded-sm border border-border bg-surface px-[11px] py-[9px] text-sm leading-relaxed text-content-body outline-none transition-shadow focus:shadow-focus"
+            disabled={isEscalatingRejection}
+            id={escalationContextId}
+            onChange={(event) => {
+              setEscalationContext(event.target.value);
+              if (escalationError) {
+                setEscalationError("");
+              }
+            }}
+            value={escalationContext}
+          />
+          {escalationError ? <p className="mt-2 text-sm text-rust-400">{escalationError}</p> : null}
+          <div className="mt-[10px] flex flex-wrap justify-end gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={cancelEscalation} disabled={isEscalatingRejection}>
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" disabled={isEscalatingRejection}>
+              <ShieldPlus className="h-4 w-4" />
+              {isEscalatingRejection ? "Submitting" : "Submit escalation"}
+            </Button>
+          </div>
+        </form>
       ) : null}
 
       <div className="mt-[14px] grid gap-3 lg:grid-cols-2">

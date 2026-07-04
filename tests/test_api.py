@@ -298,12 +298,10 @@ def test_list_optouts_by_needs_attention_group(client):
     assert {record["broker_id"] for record in data} == {
         "spokeo",
         "beenverified",
-        "whitepages",
     }
     assert {record["status"] for record in data} == {
         "NEEDS_MANUAL",
         "FAILED",
-        "REJECTED",
     }
 
 
@@ -517,9 +515,184 @@ def test_retry_classification_not_found_returns_400(client):
     assert resp.json()["detail"] == "No record for broker nonexistent"
 
 
+def test_accept_rejection_requires_broker_rejected_reason(client):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    store.upsert(
+        OptOutRecord(
+            broker_id="spokeo",
+            status=BrokerStatus.NEEDS_MANUAL,
+            needs_manual_reason=NeedsManualReason(
+                reason_code="classifier_returned_needs_manual",
+                short_summary="Classifier needs review.",
+            ),
+        )
+    )
+
+    resp = client.post("/api/optouts/spokeo/accept_rejection")
+
+    assert resp.status_code == 400
+    assert (
+        resp.json()["detail"]
+        == "Broker spokeo is not awaiting broker rejection review"
+    )
+    saved = store.get("spokeo")
+    assert saved is not None
+    assert saved.status == BrokerStatus.NEEDS_MANUAL
+    assert saved.needs_manual_reason is not None
+
+
+def test_accept_rejection_transitions_to_terminal_rejected(client):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    store.set_enabled_brokers(["spokeo"])
+    store.upsert(
+        OptOutRecord(
+            broker_id="spokeo",
+            status=BrokerStatus.NEEDS_MANUAL,
+            previous_status=BrokerStatus.AWAITING_RESPONSE,
+            thread_id="thread-123",
+            last_message_id="message-123",
+            needs_manual_reason=NeedsManualReason(
+                reason_code="broker_rejected",
+                short_summary="Broker rejected the deletion request.",
+                broker_reply_excerpt="We cannot process this request.",
+            ),
+        )
+    )
+
+    resp = client.post("/api/optouts/spokeo/accept_rejection")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "REJECTED"
+    assert data["previous_status"] is None
+    assert data["needs_manual_reason"] is None
+    saved = store.get("spokeo")
+    assert saved is not None
+    assert saved.status == BrokerStatus.REJECTED
+    assert saved.previous_status is None
+    assert saved.needs_manual_reason is None
+
+    attention_resp = client.get("/api/optouts?status=needs_attention")
+    assert attention_resp.status_code == 200
+    assert attention_resp.json() == []
+
+
+def test_escalate_rejection_requires_context(client):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    store.upsert(
+        OptOutRecord(
+            broker_id="spokeo",
+            status=BrokerStatus.NEEDS_MANUAL,
+            thread_id="thread-123",
+            needs_manual_reason=NeedsManualReason(
+                reason_code="broker_rejected",
+                short_summary="Broker rejected the deletion request.",
+                broker_reply_excerpt="We cannot process this request.",
+            ),
+        )
+    )
+
+    resp = client.post(
+        "/api/optouts/spokeo/escalate_rejection",
+        json={"context": "   "},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Escalation context is required"
+    saved = store.get("spokeo")
+    assert saved is not None
+    assert saved.status == BrokerStatus.NEEDS_MANUAL
+
+
+def test_escalate_rejection_composes_with_user_context(monkeypatch):
+    from smokescreen.ai.response_composer import ResponseSkeleton
+    from smokescreen.api import get_store
+
+    with tempfile.NamedTemporaryFile(suffix=".db") as f:
+        settings = Settings(
+            sqlite_path=Path(f.name),
+            sender_email="me@example.com",
+            sender_name="Test User",
+            ai_provider="anthropic",
+            anthropic_api_key="test-key",
+            dry_run=True,
+        )
+        store = SQLiteStore(settings.sqlite_path)
+        registry = BrokerRegistry(_make_brokers())
+        init_app(store, registry, settings)
+        test_client = TestClient(app)
+        store.upsert(
+            OptOutRecord(
+                broker_id="spokeo",
+                status=BrokerStatus.NEEDS_MANUAL,
+                previous_status=BrokerStatus.AWAITING_RESPONSE,
+                thread_id="thread-123",
+                last_message_id="message-123",
+                notes="Subject: Request rejected\n\nBroker says no.",
+                needs_manual_reason=NeedsManualReason(
+                    reason_code="broker_rejected",
+                    short_summary="Broker rejected the deletion request.",
+                    broker_reply_excerpt="Broker says no.",
+                    classifier_output={
+                        "classification": "REJECTED",
+                        "other_details": "They claimed the request is invalid.",
+                    },
+                ),
+            )
+        )
+        captured: dict[str, object] = {}
+
+        def fake_compose_response_skeleton(**kwargs):
+            captured.update(kwargs)
+            return ResponseSkeleton(
+                subject="Re: {{ broker_subject }}",
+                body=(
+                    "Dear {{ broker_name }} Privacy Team,\n\n"
+                    "Please reconsider under CCPA.\n\n"
+                    "Sincerely,\n{{ sender_name }}"
+                ),
+                notes="uses user context",
+            )
+
+        monkeypatch.setattr(
+            "smokescreen.jobs.poll._build_classifier_client",
+            lambda settings: object(),
+        )
+        monkeypatch.setattr(
+            "smokescreen.jobs.poll.compose_response_skeleton",
+            fake_compose_response_skeleton,
+        )
+
+        resp = test_client.post(
+            "/api/optouts/spokeo/escalate_rejection",
+            json={"context": "Listing belongs to a minor household member."},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "REJECTED_REBUTTED"
+        assert data["needs_manual_reason"] is None
+        assert captured["target_action"].value == "REJECTION_REBUTTAL"
+        assert captured["user_context"] == (
+            "Listing belongs to a minor household member."
+        )
+        assert captured["broker_body"] == "Broker says no."
+        saved = get_store().get("spokeo")
+        assert saved is not None
+        assert saved.status == BrokerStatus.REJECTED_REBUTTED
+        assert saved.needs_manual_reason is None
+        store.close()
+
+
 @pytest.mark.parametrize(
     "status",
-    [BrokerStatus.NEEDS_MANUAL, BrokerStatus.REJECTED, BrokerStatus.FAILED],
+    [BrokerStatus.NEEDS_MANUAL, BrokerStatus.FAILED],
 )
 def test_mark_optout_handled_from_attention_states(client, status):
     from smokescreen.api import get_store

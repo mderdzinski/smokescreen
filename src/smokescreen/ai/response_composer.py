@@ -99,6 +99,7 @@ def compose_response_skeleton(
     broker_body: str,
     classifier_result: ReplyAnalysis,
     target_action: ResponseTargetAction | str,
+    user_context: str | None = None,
 ) -> ResponseSkeleton:
     """Ask the configured LLM provider for a structured response skeleton.
 
@@ -113,6 +114,7 @@ def compose_response_skeleton(
         broker_body=broker_body,
         classifier_result=classifier_result,
         target_action=target,
+        user_context=user_context,
     )
 
     normalized_provider = provider.strip().lower()
@@ -154,9 +156,11 @@ def build_response_composer_user_prompt(
     broker_body: str,
     classifier_result: ReplyAnalysis,
     target_action: ResponseTargetAction | str,
+    user_context: str | None = None,
 ) -> str:
     """Build the privacy-preserving user prompt for response composition."""
     target = ResponseTargetAction(target_action)
+    trimmed_user_context = (user_context or "").strip()
     classifier_payload = {
         "classification": classifier_result.classification.value,
         "requested_fields": [
@@ -165,11 +169,20 @@ def build_response_composer_user_prompt(
         ],
         "other_details": classifier_result.other_details,
     }
+    user_context_section = ""
+    if target == ResponseTargetAction.REJECTION_REBUTTAL and trimmed_user_context:
+        user_context_section = (
+            "The user provides this additional context to strengthen the "
+            "rebuttal. Integrate it politely without adding stored profile "
+            "values, sender email, or other stored PII:\n"
+            f"{trimmed_user_context}\n\n"
+        )
     return (
         f"Target action: {target.value}\n"
         f"Broker name: {broker_name}\n\n"
         "Broker reply excerpt (truncated):\n"
         f"{_broker_reply_excerpt(broker_subject, broker_body)}\n\n"
+        f"{user_context_section}"
         "Classifier result JSON:\n"
         f"{json.dumps(classifier_payload, sort_keys=True)}\n\n"
         f"{_ALLOWED_PLACEHOLDERS}\n"

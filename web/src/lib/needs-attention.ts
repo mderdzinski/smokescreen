@@ -58,6 +58,13 @@ export function getAttentionViewState({
 }
 
 export function getAttentionGuidance(record: AttentionRecord): AttentionGuidance {
+  if (record.needs_manual_reason?.reason_code === "broker_rejected") {
+    return {
+      title: "Broker rejected the request",
+      recommendedStep: "Review the reply, accept the rejection, or escalate with additional context.",
+    };
+  }
+
   if (record.status === "REJECTED") {
     return {
       title: "Broker rejected the request",

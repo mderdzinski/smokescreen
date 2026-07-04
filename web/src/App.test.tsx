@@ -448,7 +448,7 @@ describe("OverviewPage", () => {
             REJECTED: 1,
           },
           completed_count: 1,
-          needs_attention: 2,
+          needs_attention: 1,
           total: 8,
         },
         path: "/api/stats/extended",
@@ -494,7 +494,7 @@ describe("OverviewPage", () => {
     expect(within(workingColumn).getByText("Info Request Broker")).toBeInTheDocument();
     expect(within(workingColumn).getByText("Follow Up Broker")).toBeInTheDocument();
     expect(within(doneColumn).getByText("Done Broker")).toBeInTheDocument();
-    expect(within(attentionColumn).getByText("Rejected Broker")).toBeInTheDocument();
+    expect(within(doneColumn).getByText("Rejected Broker")).toBeInTheDocument();
     expect(within(attentionColumn).getByText("Failed Broker")).toBeInTheDocument();
   });
 
@@ -1791,8 +1791,16 @@ describe("NeedsAttentionPage", () => {
           optOut({
             broker_id: "rejected",
             broker_name: "Rejected Broker",
+            needs_manual_reason: {
+              reason_code: "broker_rejected",
+              short_summary: "Broker rejected the deletion request.",
+              broker_reply_excerpt: "The broker declined the request.",
+              classifier_output: { classification: "REJECTED" },
+              missing_fields: [],
+              transitioned_at: "2026-06-22T15:30:00Z",
+            },
             notes: "The broker declined the request.",
-            status: "REJECTED",
+            status: "NEEDS_MANUAL",
           }),
           optOut({
             broker_id: "manual",
@@ -1818,7 +1826,9 @@ describe("NeedsAttentionPage", () => {
 
     expect(await screen.findByText("Rejected Broker")).toBeInTheDocument();
     expect(screen.getByText("Broker rejected the request")).toBeInTheDocument();
-    expect(screen.getByText("Read the reply, change the request details, then retry — or mark handled.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Review the reply, accept the rejection, or escalate with additional context."),
+    ).toBeInTheDocument();
     expect(screen.getByText("Review the broker reply")).toBeInTheDocument();
     expect(
       screen.getByText("Open the source email. Resolve it yourself and mark handled, or retry the request."),
@@ -1832,6 +1842,160 @@ describe("NeedsAttentionPage", () => {
     );
     expect(screen.getByText("Retry after checking details")).toBeInTheDocument();
     expect(screen.getByText("Check the broker contact and reply. Retry when fixed, or mark handled.")).toBeInTheDocument();
+  });
+
+  it("test_needs_attention_shows_accept_and_escalate_for_broker_rejected", async () => {
+    mockApi([
+      {
+        body: [
+          optOut({
+            broker_id: "rejected",
+            broker_name: "Rejected Broker",
+            needs_manual_reason: {
+              reason_code: "broker_rejected",
+              short_summary: "Broker rejected the deletion request.",
+              broker_reply_excerpt: "The broker declined the request.",
+              classifier_output: { classification: "REJECTED" },
+              missing_fields: [],
+              transitioned_at: "2026-06-22T15:30:00Z",
+            },
+            status: "NEEDS_MANUAL",
+          }),
+        ],
+        path: "/api/optouts?status=needs_attention",
+      },
+      { body: brokerSelectionResponse(["rejected"]), path: "/api/brokers/selections" },
+    ]);
+
+    renderWithProviders(<NeedsAttentionPage />);
+
+    expect(await screen.findByText("Rejected Broker")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Accept rejection" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Escalate" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Mark handled" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Needs Attention Details"));
+    expect(screen.getByText("broker_rejected")).toBeInTheDocument();
+    expect(screen.getByText("The broker declined the request.")).toBeInTheDocument();
+  });
+
+  it("test_accept_rejection_confirmation_and_mutation", async () => {
+    const user = userEvent.setup();
+    const acceptPaths: string[] = [];
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    let attentionLoads = 0;
+    mockApi([
+      {
+        path: "/api/optouts?status=needs_attention",
+        respond: () => {
+          attentionLoads += 1;
+          return jsonResponse(
+            attentionLoads > 1
+              ? []
+              : [
+                  optOut({
+                    broker_id: "acme",
+                    broker_name: "Acme Data",
+                    needs_manual_reason: {
+                      reason_code: "broker_rejected",
+                      short_summary: "Broker rejected the deletion request.",
+                      broker_reply_excerpt: "The broker declined the request.",
+                      classifier_output: { classification: "REJECTED" },
+                      missing_fields: [],
+                      transitioned_at: "2026-06-22T15:30:00Z",
+                    },
+                    status: "NEEDS_MANUAL",
+                  }),
+                ],
+          );
+        },
+      },
+      {
+        assert: (request) => acceptPaths.push(request.path),
+        method: "POST",
+        path: "/api/optouts/acme/accept_rejection",
+        body: optOut({ broker_id: "acme", needs_manual_reason: null, status: "REJECTED" }),
+      },
+      { body: brokerSelectionResponse(["acme"]), path: "/api/brokers/selections" },
+    ]);
+
+    renderWithProviders(<NeedsAttentionPage />);
+
+    expect(await screen.findByText("Acme Data")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Accept rejection" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "Accept this rejection? The record will be marked REJECTED and excluded from future outreach cycles.",
+    );
+    await waitFor(() => expect(acceptPaths).toEqual(["/api/optouts/acme/accept_rejection"]));
+    await waitFor(() => expect(attentionLoads).toBeGreaterThan(1));
+    expect(await screen.findByText("Queue clear")).toBeInTheDocument();
+  });
+
+  it("test_escalate_rejection_form_validation_and_submission", async () => {
+    const user = userEvent.setup();
+    const escalationBodies: unknown[] = [];
+    let attentionLoads = 0;
+    mockApi([
+      {
+        path: "/api/optouts?status=needs_attention",
+        respond: () => {
+          attentionLoads += 1;
+          return jsonResponse(
+            attentionLoads > 1
+              ? []
+              : [
+                  optOut({
+                    broker_id: "acme",
+                    broker_name: "Acme Data",
+                    needs_manual_reason: {
+                      reason_code: "broker_rejected",
+                      short_summary: "Broker rejected the deletion request.",
+                      broker_reply_excerpt: "The broker declined the request.",
+                      classifier_output: { classification: "REJECTED" },
+                      missing_fields: [],
+                      transitioned_at: "2026-06-22T15:30:00Z",
+                    },
+                    status: "NEEDS_MANUAL",
+                  }),
+                ],
+          );
+        },
+      },
+      {
+        assert: (request) => escalationBodies.push(parseJsonBody(request)),
+        method: "POST",
+        path: "/api/optouts/acme/escalate_rejection",
+        body: optOut({ broker_id: "acme", needs_manual_reason: null, status: "REJECTED_REBUTTED" }),
+      },
+      { body: brokerSelectionResponse(["acme"]), path: "/api/brokers/selections" },
+    ]);
+
+    renderWithProviders(<NeedsAttentionPage />);
+
+    expect(await screen.findByText("Acme Data")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Escalate" }));
+    await user.click(screen.getByRole("button", { name: "Submit escalation" }));
+
+    expect(screen.getByText("Context is required before escalating.")).toBeInTheDocument();
+    expect(escalationBodies).toEqual([]);
+
+    await user.type(
+      screen.getByLabelText(
+        "Provide additional context to strengthen your escalation. This will be used by the AI to compose a stronger rebuttal.",
+      ),
+      "This listing exposes a minor household member.",
+    );
+    await user.click(screen.getByRole("button", { name: "Submit escalation" }));
+
+    await waitFor(() =>
+      expect(escalationBodies).toEqual([
+        { context: "This listing exposes a minor household member." },
+      ]),
+    );
+    await waitFor(() => expect(attentionLoads).toBeGreaterThan(1));
+    expect(await screen.findByText("Queue clear")).toBeInTheDocument();
   });
 
   it("filters disabled broker records out of the review queue", async () => {
