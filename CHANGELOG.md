@@ -1,3 +1,10 @@
+## [0.25.6](https://github.com/mderdzinski/smokescreen/compare/v0.25.5...v0.25.6) (2026-07-04)
+
+
+### Bug Fixes
+
+* retry on needs attention re-classifies existing thread instead of resetting ([4a7c4bd](https://github.com/mderdzinski/smokescreen/commit/4a7c4bdcdb6f46232fdfd6a72f1ec878747b38dc))
+
 ## [0.25.5](https://github.com/mderdzinski/smokescreen/compare/v0.25.4...v0.25.5) (2026-07-04)
 
 
