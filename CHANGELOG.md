@@ -1,3 +1,10 @@
+## [0.25.5](https://github.com/mderdzinski/smokescreen/compare/v0.25.4...v0.25.5) (2026-07-04)
+
+
+### Bug Fixes
+
+* default artifact image variables ([ee16cfe](https://github.com/mderdzinski/smokescreen/commit/ee16cfefbe0ae919070c59adf630eee8da2df9f7))
+
 ## [0.25.4](https://github.com/mderdzinski/smokescreen/compare/v0.25.3...v0.25.4) (2026-07-04)
 
 
