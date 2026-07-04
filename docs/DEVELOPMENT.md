@@ -70,6 +70,15 @@ Build the web dashboard:
 npm --prefix web run build
 ```
 
+### Regenerating the hero banner
+
+The README hero banner is regenerated manually, not in CI. After editing
+`docs/assets/_hero.html` or related image assets, run:
+
+```bash
+uv run python scripts/render_hero.py
+```
+
 For the full local quality gate used by this repository when Docker is
 available, run:
 

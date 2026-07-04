@@ -2,7 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<link rel="stylesheet" href="../../styles.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600;700&family=Silkscreen:wght@400;700&display=swap"
+  rel="stylesheet"
+/>
 <style>
   html, body { margin: 0; width: 900px; height: 300px; overflow: hidden; background: #14181a; }
   .banner {
@@ -24,17 +29,17 @@
   }
   .mark img { width: 200px; image-rendering: pixelated; filter: drop-shadow(0 18px 34px rgba(0,0,0,0.55)); }
   .copy { position: relative; z-index: 2; max-width: 460px; }
-  .word { font-family: var(--font-pixel); font-size: 44px; color: var(--smoke-50); line-height: 1; }
-  .word b { color: var(--olive-300); font-weight: 400; }
+  .word { font-family: "Silkscreen", "Courier New", monospace; font-size: 44px; color: #f3f4ee; line-height: 1; }
+  .word b { color: #a4ad84; font-weight: 400; }
   .tag {
-    font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: 0.16em;
-    text-transform: uppercase; color: var(--steel-300); margin-top: 15px;
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.16em;
+    text-transform: uppercase; color: #9aa098; margin-top: 15px;
   }
-  .lede { font-family: var(--font-display); font-size: 17px; color: var(--text-body); line-height: 1.5; margin-top: 16px; max-width: 30ch; }
+  .lede { font-family: "IBM Plex Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 17px; color: #c3c9be; line-height: 1.5; margin-top: 16px; max-width: 30ch; }
   .chips { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
   .chip {
-    font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
-    color: var(--brand-strong); border: 1px solid var(--bd-olive); background: var(--fill-olive);
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: #a9b288; border: 1px solid rgba(132, 145, 96, 0.34); background: rgba(132, 145, 96, 0.16);
     padding: 5px 10px; border-radius: 2px;
   }
 </style>
