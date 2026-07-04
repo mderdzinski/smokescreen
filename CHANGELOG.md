@@ -1,3 +1,10 @@
+## [0.24.1](https://github.com/mderdzinski/smokescreen/compare/v0.24.0...v0.24.1) (2026-07-04)
+
+
+### Bug Fixes
+
+* disabled brokers are authoritatively excluded from outreach queue ([de7a332](https://github.com/mderdzinski/smokescreen/commit/de7a332946703bc10fbf8a5a36bf84d354540fe0))
+
 # [0.24.0](https://github.com/mderdzinski/smokescreen/compare/v0.23.0...v0.24.0) (2026-07-04)
 
 
