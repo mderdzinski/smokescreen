@@ -37,6 +37,7 @@ export interface OptOutRecord {
   retries: number;
   thread_id: string | null;
   last_message_id: string | null;
+  last_completed_at: string | null;
   notes: string;
   needs_manual_reason: NeedsManualReason | null;
   requested_fields: string[];

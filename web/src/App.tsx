@@ -56,6 +56,7 @@ import { Metric } from "./components/ui/metric";
 import { Poof, ScanSweep, SplashScreen, useCountUp } from "./components/ui/motion";
 import { StatusPill } from "./components/ui/status-pill";
 import { EmptyState, ErrorState, LoadingState } from "./components/status-state";
+import { BrokerInspectAction } from "./components/broker-inspect";
 import { SettingsPage as SettingsConsolePage } from "./pages/SettingsPage";
 
 type BrokerStatusGroup = "working" | "done" | "attention";
@@ -594,7 +595,10 @@ function BrokerStatusCard({ record }: { record: OptOutRecord }) {
             {record.broker_domain || "Domain not listed"}
           </div>
         </div>
-        <StatusPill className="shrink-0" status={record.status} />
+        <div className="flex shrink-0 items-center gap-2">
+          <StatusPill status={record.status} />
+          <BrokerInspectAction brokerName={record.broker_name} record={record} />
+        </div>
       </div>
       <div className="relative z-[1] flex items-center gap-[6px] font-mono text-xs text-content-faint">
         <Clock3 className="h-[13px] w-[13px]" />
@@ -612,15 +616,18 @@ function ManualStatusCard({ record }: { record: OptOutRecord }) {
 
   return (
     <Card className="grid gap-[10px] overflow-hidden" pad>
-      <div className="relative z-[1] min-w-0 break-words">
-        <div className="font-display text-base font-semibold leading-snug text-content-strong">{record.broker_name}</div>
-        <p className="mt-[7px] break-words text-sm font-medium leading-relaxed text-content-body">{summary}</p>
-        {transitionedAge ? (
-          <div className="mt-[8px] flex items-center gap-[6px] font-mono text-xs text-content-faint">
-            <Clock3 className="h-[13px] w-[13px]" />
-            {transitionedAge}
-          </div>
-        ) : null}
+      <div className="relative z-[1] flex items-start justify-between gap-[10px]">
+        <div className="min-w-0 break-words">
+          <div className="font-display text-base font-semibold leading-snug text-content-strong">{record.broker_name}</div>
+          <p className="mt-[7px] break-words text-sm font-medium leading-relaxed text-content-body">{summary}</p>
+          {transitionedAge ? (
+            <div className="mt-[8px] flex items-center gap-[6px] font-mono text-xs text-content-faint">
+              <Clock3 className="h-[13px] w-[13px]" />
+              {transitionedAge}
+            </div>
+          ) : null}
+        </div>
+        <BrokerInspectAction brokerName={record.broker_name} record={record} />
       </div>
       <ManualReasonDetails record={record} />
     </Card>
@@ -1292,6 +1299,7 @@ function AttentionItem({
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <BrokerInspectAction brokerName={record.broker_name} record={record} />
           {isBrokerRejectedReview ? (
             <>
               <Button variant="danger" size="sm" onClick={onAcceptRejection} disabled={actionPending}>

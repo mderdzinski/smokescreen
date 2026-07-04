@@ -15,6 +15,7 @@ import { StatusPill } from "../components/ui/status-pill";
 import { Switch } from "../components/ui/switch";
 import { TextField } from "../components/ui/text-field";
 import { ErrorState, LoadingState } from "../components/status-state";
+import { BrokerInspectAction } from "../components/broker-inspect";
 
 interface BrokerFormState {
   name: string;
@@ -650,6 +651,7 @@ export function BrokerRegistryPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
+                          <BrokerInspectAction brokerName={broker.name} record={optOutRecord} />
                           {optOutRecord && enabled ? (
                             <Button
                               aria-label={

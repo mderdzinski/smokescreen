@@ -111,6 +111,7 @@ function optOut(overrides: Partial<OptOutRecord>): OptOutRecord {
     broker_name: "Acme Data",
     broker_privacy_email: "privacy@acme.example",
     created_at: "2026-06-20T12:00:00Z",
+    last_completed_at: null,
     last_message_id: "msg-1",
     missing_fields: [],
     needs_manual_reason: null,
@@ -406,6 +407,7 @@ describe("OverviewPage", () => {
 
     expect(await screen.findByRole("heading", { name: "0 brokers requesting removal of your data" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Review requests/ })).toHaveAttribute("href", "/needs-attention");
+    expect(screen.getByRole("button", { name: "Inspect Acme Data record" })).toBeInTheDocument();
     expect(screen.getByText("Needs Attention Details")).toBeInTheDocument();
     expect(screen.getByText("Broker requested a signed identity form.")).toBeInTheDocument();
   });
@@ -719,9 +721,14 @@ describe("BrokerRegistryPage", () => {
     expect(secondRow).not.toBeNull();
     expect(within(acmeRow as HTMLTableRowElement).getByRole("button", { name: "Reset opt-out for Acme Data" }))
       .toBeInTheDocument();
+    expect(within(acmeRow as HTMLTableRowElement).getByRole("button", { name: "Inspect Acme Data record" }))
+      .toBeInTheDocument();
     expect(within(acmeRow as HTMLTableRowElement).getByText("Removed")).toBeInTheDocument();
     expect(
       within(secondRow as HTMLTableRowElement).queryByRole("button", { name: "Reset opt-out for Second Broker" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(secondRow as HTMLTableRowElement).queryByRole("button", { name: "Inspect Second Broker record" }),
     ).not.toBeInTheDocument();
     expect(within(secondRow as HTMLTableRowElement).getByText("No record")).toBeInTheDocument();
   });
@@ -1557,6 +1564,9 @@ describe("NeedsAttentionPage", () => {
     renderWithProviders(<NeedsAttentionPage />);
 
     expect(await screen.findByText("Rejected Broker")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Inspect Rejected Broker record" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Inspect Manual Broker record" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Inspect Failed Broker record" })).toBeInTheDocument();
     screen.getAllByText("Needs Attention Details").forEach((summary) => fireEvent.click(summary));
     expect(screen.getByText("Broker rejected the request")).toBeInTheDocument();
     expect(

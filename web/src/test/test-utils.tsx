@@ -66,6 +66,7 @@ const DEFAULT_ROUTES: MockApiRoute[] = [
   },
   { body: [], path: "/api/optouts" },
   { body: [], path: "/api/optouts?include_disabled=true" },
+  { body: { rerequest_interval_days: 30 }, path: "/api/settings" },
   { body: [], path: "/api/whitelist" },
   { body: [], path: "/api/whitelist/pending" },
 ];
