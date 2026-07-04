@@ -1,3 +1,10 @@
+# [0.28.0](https://github.com/mderdzinski/smokescreen/compare/v0.27.4...v0.28.0) (2026-07-04)
+
+
+### Features
+
+* per-broker inspect affordance with thread link and metadata ([aa94794](https://github.com/mderdzinski/smokescreen/commit/aa94794306b6270e67a29c48a06d86162be68faf))
+
 ## [0.27.4](https://github.com/mderdzinski/smokescreen/compare/v0.27.3...v0.27.4) (2026-07-04)
 
 
