@@ -168,6 +168,7 @@ const statusEmptyDescriptions: Record<BrokerStatusGroup, string> = {
   done: "Empty for now.",
   attention: "Empty for now.",
 };
+const noEnabledBrokersStatusCopy = "No enabled brokers. Enable brokers in Settings to see their status here.";
 
 function formatUpdatedAt(value: string): string {
   return new Date(value).toLocaleString(undefined, {
@@ -330,15 +331,19 @@ export function OverviewPage() {
   const statsQuery = useExtendedStats();
   const optOutsQuery = useOptOuts();
   const selectionsQuery = useBrokerSelections();
-  const stats = statsQuery.data;
   const optOuts = optOutsQuery.data ?? [];
-  const loading = statsQuery.isLoading || optOutsQuery.isLoading;
+  const enabledBrokerIds = selectionsQuery.data?.enabled_broker_ids;
+  const visibleOptOuts = useMemo(
+    () => filterOptOutsByEnabledBrokerIds(optOuts, enabledBrokerIds),
+    [enabledBrokerIds, optOuts],
+  );
+  const loading = statsQuery.isLoading || optOutsQuery.isLoading || selectionsQuery.isLoading;
   const error = statsQuery.error ?? optOutsQuery.error;
   const noBrokersEnabled =
     selectionsQuery.isSuccess &&
     (selectionsQuery.data?.enabled_broker_ids?.length ?? 0) === 0;
-  const groupedOptOuts = useMemo(() => groupOptOuts(optOuts), [optOuts]);
-  const totalCount = stats?.total ?? optOuts.length;
+  const groupedOptOuts = useMemo(() => groupOptOuts(visibleOptOuts), [visibleOptOuts]);
+  const totalCount = visibleOptOuts.length;
   const workingCount = groupedOptOuts.working.length;
   const doneCount = groupedOptOuts.done.length;
   const attentionCount = groupedOptOuts.attention.length;
@@ -348,6 +353,7 @@ export function OverviewPage() {
   const retryOverview = () => {
     void statsQuery.refetch();
     void optOutsQuery.refetch();
+    void selectionsQuery.refetch();
   };
 
   return (
@@ -369,15 +375,9 @@ export function OverviewPage() {
             <div>
               <div className="flex items-center gap-2 text-content-strong">
                 <AlertTriangle aria-hidden="true" className="h-5 w-5 text-rust-500" />
-                <span className="font-display text-base font-semibold">
-                  No brokers configured — outreach will not run
-                </span>
+                <span className="font-display text-base font-semibold">No enabled brokers</span>
               </div>
-              <p className="mt-1 max-w-[62ch] text-sm text-content-muted">
-                Scheduled outreach only contacts brokers you have explicitly
-                enabled. Pick brokers in Setup or toggle them in the Broker
-                registry before Smokescreen can send opt-out requests.
-              </p>
+              <p className="mt-1 max-w-[62ch] text-sm text-content-muted">{noEnabledBrokersStatusCopy}</p>
             </div>
             <div className="flex flex-wrap gap-[10px]">
               <Button asChild variant="primary">
@@ -442,9 +442,24 @@ export function OverviewPage() {
       </div>
 
       <div id="broker-status" className="grid scroll-mt-6 gap-[18px] lg:grid-cols-3">
-        <StatusGroup group="working" records={groupedOptOuts.working} loading={loading} />
-        <StatusGroup group="done" records={groupedOptOuts.done} loading={loading} />
-        <StatusGroup group="attention" records={groupedOptOuts.attention} loading={loading} />
+        <StatusGroup
+          group="working"
+          records={groupedOptOuts.working}
+          loading={loading}
+          emptyDescription={noBrokersEnabled ? noEnabledBrokersStatusCopy : undefined}
+        />
+        <StatusGroup
+          group="done"
+          records={groupedOptOuts.done}
+          loading={loading}
+          emptyDescription={noBrokersEnabled ? noEnabledBrokersStatusCopy : undefined}
+        />
+        <StatusGroup
+          group="attention"
+          records={groupedOptOuts.attention}
+          loading={loading}
+          emptyDescription={noBrokersEnabled ? noEnabledBrokersStatusCopy : undefined}
+        />
       </div>
     </section>
   );
@@ -462,6 +477,17 @@ function groupOptOuts(records: OptOutRecord[]): Record<BrokerStatusGroup, OptOut
       attention: [],
     },
   );
+}
+
+function filterOptOutsByEnabledBrokerIds(
+  records: OptOutRecord[],
+  enabledBrokerIds: string[] | undefined,
+): OptOutRecord[] {
+  if (!enabledBrokerIds) {
+    return records;
+  }
+  const enabled = new Set(enabledBrokerIds);
+  return records.filter((record) => enabled.has(record.broker_id));
 }
 
 function statusHeadline({
@@ -505,10 +531,12 @@ function StatusGroup({
   group,
   records,
   loading,
+  emptyDescription,
 }: {
   group: BrokerStatusGroup;
   records: OptOutRecord[];
   loading: boolean;
+  emptyDescription?: ReactNode;
 }) {
   const copy = statusGroupLabels[group];
 
@@ -528,7 +556,10 @@ function StatusGroup({
         <StatusColumnPlaceholder description="Fetching latest broker status." title="Loading requests" />
       ) : null}
       {!loading && records.length === 0 ? (
-        <StatusColumnPlaceholder description={statusEmptyDescriptions[group]} title="Nothing here" />
+        <StatusColumnPlaceholder
+          description={emptyDescription ?? statusEmptyDescriptions[group]}
+          title="Nothing here"
+        />
       ) : null}
       {records.map((record) => (
         <BrokerStatusCard key={record.broker_id} record={record} />
@@ -971,12 +1002,15 @@ function PendingApprovalItem({
 export function NeedsAttentionPage() {
   const queryClient = useQueryClient();
   const attentionQuery = useOptOuts("needs_attention");
+  const selectionsQuery = useBrokerSelections();
+  const attentionRecords = attentionQuery.data ?? [];
+  const enabledBrokerIds = selectionsQuery.data?.enabled_broker_ids;
   const records = useMemo(
     () =>
-      (attentionQuery.data ?? []).filter((record) =>
-        record.status === "REJECTED" || record.status === "NEEDS_MANUAL" || record.status === "FAILED",
+      filterOptOutsByEnabledBrokerIds(attentionRecords, enabledBrokerIds).filter(
+        (record) => record.status === "REJECTED" || record.status === "NEEDS_MANUAL" || record.status === "FAILED",
       ),
-    [attentionQuery.data],
+    [attentionRecords, enabledBrokerIds],
   );
   const [resolvingBrokerId, setResolvingBrokerId] = useState<string | null>(null);
   const [resolvedBrokerIds, setResolvedBrokerIds] = useState<Set<string>>(() => new Set());
@@ -1000,11 +1034,12 @@ export function NeedsAttentionPage() {
   });
   const viewState = getAttentionViewState({
     hasError: Boolean(attentionQuery.error),
-    isLoading: attentionQuery.isLoading,
+    isLoading: attentionQuery.isLoading || selectionsQuery.isLoading,
     recordCount: visibleRecords.length,
   });
   const retryAttention = () => {
     void attentionQuery.refetch();
+    void selectionsQuery.refetch();
   };
 
   function retryRecord(record: OptOutRecord) {

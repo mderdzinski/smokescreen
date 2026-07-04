@@ -65,6 +65,7 @@ const DEFAULT_ROUTES: MockApiRoute[] = [
     path: "/api/brokers/selections",
   },
   { body: [], path: "/api/optouts" },
+  { body: [], path: "/api/optouts?include_disabled=true" },
   { body: [], path: "/api/whitelist" },
   { body: [], path: "/api/whitelist/pending" },
 ];

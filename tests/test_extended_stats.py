@@ -41,6 +41,7 @@ def client(tmp_path):
     registry = BrokerRegistry(_make_brokers())
     settings = Settings(sender_email="test@example.com", sender_name="Test")
     init_app(store, registry, settings)
+    store.set_enabled_brokers(["spokeo", "beenverified", "whitepages"])
     yield TestClient(app), store
     store.close()
 
@@ -91,6 +92,29 @@ def test_extended_stats_with_records(client):
     assert data["avg_completion_hours"] is not None
     assert data["needs_attention"] == 2
     assert len(data["recent_activity"]) == 3
+
+
+def test_extended_stats_excludes_disabled_brokers_by_default(client):
+    c, store = client
+    store.upsert(OptOutRecord(broker_id="spokeo", status=BrokerStatus.COMPLETED))
+    store.upsert(OptOutRecord(broker_id="beenverified", status=BrokerStatus.FAILED))
+    store.set_enabled_brokers(["spokeo"])
+
+    resp = c.get("/api/stats/extended")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 1
+    assert data["completed_count"] == 1
+    assert data["needs_attention"] == 0
+    assert data["by_status"] == {"COMPLETED": 1}
+    assert [entry["broker_id"] for entry in data["recent_activity"]] == ["spokeo"]
+
+    include_resp = c.get("/api/stats/extended?include_disabled=true")
+    assert include_resp.status_code == 200
+    include_data = include_resp.json()
+    assert include_data["total"] == 2
+    assert include_data["needs_attention"] == 1
 
 
 def test_extended_stats_counts_rejected_as_needs_attention(client):

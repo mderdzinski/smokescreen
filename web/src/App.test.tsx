@@ -143,6 +143,8 @@ function brokerSelectionResponse(enabledBrokerIds: string[], warning: string | n
   };
 }
 
+const optOutsIncludeDisabledPath = "/api/optouts?include_disabled=true";
+
 function LocationProbe() {
   const location = useLocation();
 
@@ -311,6 +313,7 @@ describe("OverviewPage", () => {
     mockApi([
       { body: emptyStats, path: "/api/stats/extended" },
       { body: [], path: "/api/optouts" },
+      { body: brokerSelectionResponse(["acme"]), path: "/api/brokers/selections" },
     ]);
 
     renderWithProviders(<OverviewPage />);
@@ -334,7 +337,7 @@ describe("OverviewPage", () => {
     renderWithProviders(<OverviewPage />);
 
     const banner = await screen.findByTestId("no-brokers-enabled-banner");
-    expect(banner).toHaveTextContent(/No brokers configured/i);
+    expect(banner).toHaveTextContent("No enabled brokers. Enable brokers in Settings to see their status here.");
     expect(within(banner).getByRole("link", { name: /Configure brokers/i })).toHaveAttribute(
       "href",
       "/setup",
@@ -385,6 +388,7 @@ describe("OverviewPage", () => {
         ],
         path: "/api/optouts",
       },
+      { body: brokerSelectionResponse(["acme", "done"]), path: "/api/brokers/selections" },
     ]);
 
     renderWithProviders(<OverviewPage />);
@@ -393,6 +397,36 @@ describe("OverviewPage", () => {
     expect(screen.getByRole("link", { name: /Review requests/ })).toHaveAttribute("href", "/needs-attention");
     expect(screen.getByText("Review")).toBeInTheDocument();
     expect(screen.getByText("Broker requested a signed identity form.")).toBeInTheDocument();
+  });
+
+  it("filters disabled broker opt-out records before grouping status columns", async () => {
+    mockApi([
+      {
+        body: {
+          ...emptyStats,
+          by_status: { AWAITING_RESPONSE: 1, FAILED: 1 },
+          needs_attention: 1,
+          total: 2,
+        },
+        path: "/api/stats/extended",
+      },
+      {
+        body: [
+          optOut({ broker_id: "acme", broker_name: "Acme Data", status: "AWAITING_RESPONSE" }),
+          optOut({ broker_id: "second", broker_name: "Disabled Broker", status: "FAILED" }),
+        ],
+        path: "/api/optouts",
+      },
+      { body: brokerSelectionResponse(["acme"]), path: "/api/brokers/selections" },
+    ]);
+
+    renderWithProviders(<OverviewPage />);
+
+    expect(await screen.findByRole("heading", { name: "1 broker requesting removal of your data" })).toBeInTheDocument();
+    expect(screen.getByText("Acme Data")).toBeInTheDocument();
+    expect(screen.queryByText("Disabled Broker")).not.toBeInTheDocument();
+    const attentionColumn = screen.getByRole("heading", { name: "Needs attention" }).closest("section") as HTMLElement;
+    expect(within(attentionColumn).getByText("Nothing here")).toBeInTheDocument();
   });
 
   it("maps every broker status into the correct T4 dashboard column", async () => {
@@ -428,6 +462,19 @@ describe("OverviewPage", () => {
           optOut({ broker_id: "failed", broker_name: "Failed Broker", status: "FAILED" }),
         ],
         path: "/api/optouts",
+      },
+      {
+        body: brokerSelectionResponse([
+          "queued",
+          "sent",
+          "awaiting",
+          "id-requested",
+          "id-sent",
+          "done",
+          "rejected",
+          "failed",
+        ]),
+        path: "/api/brokers/selections",
       },
     ]);
 
@@ -472,6 +519,7 @@ describe("OverviewPage", () => {
         ],
         path: "/api/optouts",
       },
+      { body: brokerSelectionResponse(["a", "b", "c", "d"]), path: "/api/brokers/selections" },
     ]);
 
     renderWithProviders(<OverviewPage />);
@@ -870,7 +918,7 @@ describe("BrokerRegistryPage", () => {
           optOut({ broker_id: "acme", broker_name: "Acme Data", status: "COMPLETED" }),
           optOut({ broker_id: "second", broker_name: "Second Broker", status: "FAILED" }),
         ],
-        path: "/api/optouts",
+        path: optOutsIncludeDisabledPath,
       },
       {
         assert: (request) => resetPaths.push(request.path),
@@ -924,7 +972,7 @@ describe("BrokerRegistryPage", () => {
       { body: brokerSelectionResponse(["acme"]), path: "/api/brokers/selections" },
       {
         body: [optOut({ broker_id: "acme", broker_name: "Acme Data", status: "COMPLETED" })],
-        path: "/api/optouts",
+        path: optOutsIncludeDisabledPath,
       },
     ]);
 
@@ -952,7 +1000,7 @@ describe("BrokerRegistryPage", () => {
           optOut({ broker_id: "acme", broker_name: "Acme Data", status: "COMPLETED" }),
           optOut({ broker_id: "second", broker_name: "Second Broker", status: "FAILED" }),
         ],
-        path: "/api/optouts",
+        path: optOutsIncludeDisabledPath,
       },
     ]);
 
@@ -965,6 +1013,12 @@ describe("BrokerRegistryPage", () => {
     expect(
       within(acmeRow as HTMLTableRowElement).queryByRole("button", { name: "Reset opt-out for Acme Data" }),
     ).not.toBeInTheDocument();
+    expect(acmeRow).toHaveAttribute(
+      "title",
+      "This broker is disabled. Enable it in Settings to include in outreach.",
+    );
+    expect(acmeRow).toHaveClass("bg-surface-sunken");
+    expect(within(acmeRow as HTMLTableRowElement).getByText("Removed")).toHaveClass("opacity-60", "grayscale");
     expect(within(secondRow as HTMLTableRowElement).getByRole("button", { name: "Reset opt-out for Second Broker" }))
       .toBeInTheDocument();
   });
@@ -983,7 +1037,7 @@ describe("BrokerRegistryPage", () => {
       { body: brokerSelectionResponse(["acme"]), path: "/api/brokers/selections" },
       {
         assert: (request) => optOutLoads.push(request),
-        path: "/api/optouts",
+        path: optOutsIncludeDisabledPath,
         respond: () =>
           jsonResponse([
             optOut({
@@ -1029,7 +1083,7 @@ describe("BrokerRegistryPage", () => {
       { body: brokerSelectionResponse(["acme"]), path: "/api/brokers/selections" },
       {
         body: [optOut({ broker_id: "acme", broker_name: "Acme Data", status: "COMPLETED" })],
-        path: "/api/optouts",
+        path: optOutsIncludeDisabledPath,
       },
       {
         method: "POST",
@@ -1746,6 +1800,7 @@ describe("NeedsAttentionPage", () => {
         ],
         path: "/api/optouts?status=needs_attention",
       },
+      { body: brokerSelectionResponse(["rejected", "manual", "failed"]), path: "/api/brokers/selections" },
     ]);
 
     renderWithProviders(<NeedsAttentionPage />);
@@ -1768,6 +1823,35 @@ describe("NeedsAttentionPage", () => {
     expect(screen.getByText("Check the broker contact and reply. Retry when fixed, or mark handled.")).toBeInTheDocument();
   });
 
+  it("filters disabled broker records out of the review queue", async () => {
+    mockApi([
+      {
+        body: [
+          optOut({
+            broker_id: "manual",
+            broker_name: "Manual Broker",
+            notes: "The broker asked for a signed form.",
+            status: "NEEDS_MANUAL",
+          }),
+          optOut({
+            broker_id: "disabled",
+            broker_name: "Disabled Broker",
+            notes: "This disabled broker should stay hidden.",
+            status: "FAILED",
+          }),
+        ],
+        path: "/api/optouts?status=needs_attention",
+      },
+      { body: brokerSelectionResponse(["manual"]), path: "/api/brokers/selections" },
+    ]);
+
+    renderWithProviders(<NeedsAttentionPage />);
+
+    expect(await screen.findByText("Manual Broker")).toBeInTheDocument();
+    expect(screen.queryByText("Disabled Broker")).not.toBeInTheDocument();
+    expect(screen.queryByText("This disabled broker should stay hidden.")).not.toBeInTheDocument();
+  });
+
   it("marks an item handled after manual review", async () => {
     const user = userEvent.setup();
     const handledIds: string[] = [];
@@ -1787,6 +1871,7 @@ describe("NeedsAttentionPage", () => {
         path: "/api/optouts/acme/handled",
         body: { broker_id: "acme", status: "handled" },
       },
+      { body: brokerSelectionResponse(["acme"]), path: "/api/brokers/selections" },
     ]);
 
     const { container } = renderWithProviders(<NeedsAttentionPage />);

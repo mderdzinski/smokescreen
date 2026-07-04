@@ -27,6 +27,7 @@ const emptyBrokerForm: BrokerFormState = {
 };
 const RESET_CONFIRMATION_WINDOW_MS = 3000;
 const SEARCH_DEBOUNCE_MS = 200;
+const DISABLED_BROKER_TITLE = "This broker is disabled. Enable it in Settings to include in outreach.";
 
 function brokerMatchesSearch(broker: Broker, query: string): boolean {
   const text = [broker.name, broker.id, broker.domain, broker.privacy_email].join(" ").toLowerCase();
@@ -74,7 +75,7 @@ export function BrokerRegistryPage() {
   const navigate = useNavigate();
   const brokersQuery = useBrokers();
   const selectionsQuery = useBrokerSelections();
-  const optOutsQuery = useOptOuts();
+  const optOutsQuery = useOptOuts(undefined, { includeDisabled: true });
   const brokers = brokersQuery.data ?? [];
   const optOutRecordsByBrokerId = useMemo(
     () => new Map((optOutsQuery.data ?? []).map((record) => [record.broker_id, record])),
@@ -578,9 +579,24 @@ export function BrokerRegistryPage() {
                     resetAllMutation.isPending && resetAllMutation.variables?.includes(broker.id);
                   const resetConfirming = confirmingResetBrokerId === broker.id;
                   return (
-                    <tr key={broker.id} className={cn(broker.id === justAddedId && "ss-rowin")}>
+                    <tr
+                      key={broker.id}
+                      className={cn(
+                        broker.id === justAddedId && "ss-rowin",
+                        !enabled && "bg-surface-sunken",
+                      )}
+                      data-testid={`broker-row-${broker.id}`}
+                      title={!enabled ? DISABLED_BROKER_TITLE : undefined}
+                    >
                       <TableCell>
-                        <div className="font-semibold text-content-strong">{broker.name}</div>
+                        <div
+                          className={cn(
+                            "font-semibold",
+                            enabled ? "text-content-strong" : "text-content-muted",
+                          )}
+                        >
+                          {broker.name}
+                        </div>
                         <div className="break-all font-mono text-xs text-content-muted">{broker.domain}</div>
                       </TableCell>
                       <TableCell className="break-all font-mono text-xs text-content-muted">
@@ -624,7 +640,10 @@ export function BrokerRegistryPage() {
                       </TableCell>
                       <TableCell>
                         {optOutRecord ? (
-                          <StatusPill status={optOutRecord.status} />
+                          <StatusPill
+                            className={cn(!enabled && "opacity-60 grayscale")}
+                            status={optOutRecord.status}
+                          />
                         ) : (
                           <span className="text-content-faint">No record</span>
                         )}

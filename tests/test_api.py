@@ -241,6 +241,37 @@ def test_list_optouts(seeded_client):
     assert len(resp.json()) == 2
 
 
+def test_list_optouts_excludes_disabled_brokers_by_default(client):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    store.upsert(OptOutRecord(broker_id="spokeo", status=BrokerStatus.INITIAL_SENT))
+    store.upsert(OptOutRecord(broker_id="beenverified", status=BrokerStatus.COMPLETED))
+    store.set_enabled_brokers(["spokeo"])
+
+    resp = client.get("/api/optouts")
+
+    assert resp.status_code == 200
+    assert [record["broker_id"] for record in resp.json()] == ["spokeo"]
+
+
+def test_list_optouts_includes_disabled_when_flag_set(client):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    store.upsert(OptOutRecord(broker_id="spokeo", status=BrokerStatus.INITIAL_SENT))
+    store.upsert(OptOutRecord(broker_id="beenverified", status=BrokerStatus.COMPLETED))
+    store.set_enabled_brokers(["spokeo"])
+
+    resp = client.get("/api/optouts?include_disabled=true")
+
+    assert resp.status_code == 200
+    assert {record["broker_id"] for record in resp.json()} == {
+        "spokeo",
+        "beenverified",
+    }
+
+
 def test_list_optouts_by_status(seeded_client):
     resp = seeded_client.get("/api/optouts?status=COMPLETED")
     assert resp.status_code == 200
@@ -257,6 +288,7 @@ def test_list_optouts_by_needs_attention_group(client):
     store.upsert(OptOutRecord(broker_id="beenverified", status=BrokerStatus.FAILED))
     store.upsert(OptOutRecord(broker_id="whitepages", status=BrokerStatus.REJECTED))
     store.upsert(OptOutRecord(broker_id="radaris", status=BrokerStatus.COMPLETED))
+    store.set_enabled_brokers(["spokeo", "beenverified", "whitepages", "radaris"])
 
     resp = client.get("/api/optouts?status=needs_attention")
     assert resp.status_code == 200
@@ -271,6 +303,20 @@ def test_list_optouts_by_needs_attention_group(client):
         "FAILED",
         "REJECTED",
     }
+
+
+def test_list_optouts_needs_attention_excludes_disabled_brokers(client):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    store.upsert(OptOutRecord(broker_id="spokeo", status=BrokerStatus.NEEDS_MANUAL))
+    store.upsert(OptOutRecord(broker_id="beenverified", status=BrokerStatus.FAILED))
+    store.set_enabled_brokers(["spokeo"])
+
+    resp = client.get("/api/optouts?status=needs_attention")
+
+    assert resp.status_code == 200
+    assert [record["broker_id"] for record in resp.json()] == ["spokeo"]
 
 
 def test_list_optouts_invalid_status(client):
@@ -431,6 +477,7 @@ def test_run_outreach_empty_broker_ids_is_noop_dry_run(settings_client):
 def test_run_outreach_selected_brokers_dry_run(settings_client):
     client, _ = settings_client
     client.put("/api/settings", json={"dry_run": True})
+    client.put("/api/brokers/selections", json={"enabled_broker_ids": ["spokeo"]})
 
     resp = client.post("/api/outreach", json={"broker_ids": ["spokeo"]})
 

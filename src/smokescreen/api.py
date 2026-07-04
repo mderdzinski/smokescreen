@@ -26,6 +26,7 @@ from smokescreen.config import (
 from smokescreen.models import (
     Broker,
     BrokerStatus,
+    OptOutRecord,
     PendingWhitelistStatus,
     VerificationProfile,
     WhitelistEntry,
@@ -434,8 +435,9 @@ async def import_brokers_csv(
 
 
 @app.get("/api/optouts")
-async def list_optouts(status: str | None = None):
+async def list_optouts(status: str | None = None, include_disabled: bool = False):
     store = get_store()
+    registry = get_registry()
     if status:
         normalized_status = status.strip().upper().replace("-", "_")
         if normalized_status == "NEEDS_ATTENTION":
@@ -452,7 +454,9 @@ async def list_optouts(status: str | None = None):
             records = store.list_by_status(bs)
     else:
         records = store.list_all()
-    registry = get_registry()
+    records = _filter_enabled_optout_records(
+        records, store, registry, include_disabled=include_disabled
+    )
     result = []
     for r in records:
         d = r.model_dump()
@@ -464,6 +468,19 @@ async def list_optouts(status: str | None = None):
         d["broker_privacy_email"] = broker.privacy_email if broker else ""
         result.append(d)
     return result
+
+
+def _filter_enabled_optout_records(
+    records: list[OptOutRecord],
+    store: StateStore,
+    registry: BrokerRegistry,
+    *,
+    include_disabled: bool,
+) -> list[OptOutRecord]:
+    if include_disabled:
+        return records
+    enabled = set(list_or_seed_enabled_brokers(store, registry))
+    return [record for record in records if record.broker_id in enabled]
 
 
 @app.post("/api/optouts/{broker_id}/reset")
@@ -596,9 +613,12 @@ async def get_version() -> dict[str, str]:
 
 
 @app.get("/api/stats")
-async def get_stats():
+async def get_stats(include_disabled: bool = False):
     store = get_store()
-    records = store.list_all()
+    registry = get_registry()
+    records = _filter_enabled_optout_records(
+        store.list_all(), store, registry, include_disabled=include_disabled
+    )
     total = len(records)
     by_status: dict[str, int] = {}
     for r in records:
@@ -609,10 +629,13 @@ async def get_stats():
 
 
 @app.get("/api/stats/extended")
-async def get_extended_stats():
+async def get_extended_stats(include_disabled: bool = False):
     """Return extended statistics for dashboard charts and metrics."""
     store = get_store()
-    records = store.list_all()
+    registry = get_registry()
+    records = _filter_enabled_optout_records(
+        store.list_all(), store, registry, include_disabled=include_disabled
+    )
     total = len(records)
 
     by_status: dict[str, int] = {}
@@ -644,7 +667,6 @@ async def get_extended_stats():
     sorted_records = sorted(
         records, key=lambda r: as_aware_utc(r.updated_at), reverse=True
     )[:5]
-    registry = get_registry()
     for r in sorted_records:
         broker = registry.get(r.broker_id)
         recent_activity.append(

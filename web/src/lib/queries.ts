@@ -53,10 +53,11 @@ export function useVerificationProfile() {
   });
 }
 
-export function useOptOuts(status?: OptOutStatusFilter) {
+export function useOptOuts(status?: OptOutStatusFilter, options: { includeDisabled?: boolean } = {}) {
+  const includeDisabled = options.includeDisabled ?? false;
   return useQuery({
-    queryKey: ["opt-outs", status ?? "all"],
-    queryFn: () => api.listOptOuts(status),
+    queryKey: ["opt-outs", status ?? "all", includeDisabled ? "include-disabled" : "enabled-only"],
+    queryFn: () => api.listOptOuts(status, { includeDisabled }),
   });
 }
 

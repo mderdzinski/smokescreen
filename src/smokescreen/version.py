@@ -32,7 +32,10 @@ def _read_pyproject_version() -> str | None:
 def get_app_version() -> str:
     """Return the currently running smokescreen version string."""
     try:
-        return _pkg_version(_PACKAGE_NAME)
+        installed_version = _pkg_version(_PACKAGE_NAME)
     except PackageNotFoundError:
-        fallback = _read_pyproject_version()
-        return fallback or _UNKNOWN
+        installed_version = None
+    if installed_version:
+        return installed_version
+    fallback = _read_pyproject_version()
+    return fallback or _UNKNOWN

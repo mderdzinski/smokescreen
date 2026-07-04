@@ -16,6 +16,10 @@ export type BrokerStatus =
   | "FAILED";
 export type OptOutStatusFilter = BrokerStatus | "needs_attention";
 
+interface ListOptOutsOptions {
+  includeDisabled?: boolean;
+}
+
 export interface OptOutRecord {
   broker_id: string;
   status: BrokerStatus;
@@ -306,9 +310,16 @@ export const api = {
     }),
   runOutreach: (brokerIds: string[]) =>
     requestJson<OutreachResult>("/api/outreach", jsonRequest("POST", { broker_ids: brokerIds })),
-  listOptOuts: (status?: OptOutStatusFilter) => {
-    const params = status ? `?status=${encodeURIComponent(status)}` : "";
-    return requestJson<OptOutRecord[]>(`/api/optouts${params}`);
+  listOptOuts: (status?: OptOutStatusFilter, options: ListOptOutsOptions = {}) => {
+    const params = new URLSearchParams();
+    if (status) {
+      params.set("status", status);
+    }
+    if (options.includeDisabled) {
+      params.set("include_disabled", "true");
+    }
+    const query = params.toString();
+    return requestJson<OptOutRecord[]>(`/api/optouts${query ? `?${query}` : ""}`);
   },
   resetOptOut: (brokerId: string) =>
     requestJson<{ status: "reset"; broker_id: string }>(`/api/optouts/${encodeURIComponent(brokerId)}/reset`, {
