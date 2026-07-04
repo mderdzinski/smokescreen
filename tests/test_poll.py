@@ -486,6 +486,63 @@ def test_process_thread_persists_manual_review_reply_details(tmp_path):
     store.close()
 
 
+def test_broker_reply_excerpt_uses_parsed_reply(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    record = _record(status=BrokerStatus.AWAITING_RESPONSE)
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Re: request",
+                    body=(
+                        "Please upload a signed authorization form.\n\n"
+                        "On Sat, Jul 4, 2026 at 1:53 PM "
+                        "Mark Derdzinski <mark@example.com> wrote:\n"
+                        "> Please delete my profile.\n"
+                        "> This is the original outreach."
+                    ),
+                )
+            ]
+        }
+    )
+    anthropic_client = _mock_anthropic("NEEDS_MANUAL")
+
+    processed = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        ai_client=anthropic_client,
+    )
+
+    assert processed is True
+    updated = store.get("labeled")
+    assert updated.needs_manual_reason is not None
+    assert (
+        updated.needs_manual_reason.broker_reply_excerpt
+        == "Please upload a signed authorization form."
+    )
+    assert "Please delete my profile" not in (
+        updated.needs_manual_reason.broker_reply_excerpt
+    )
+    classifier_prompt = anthropic_client.messages.create.call_args.kwargs["messages"][
+        0
+    ]["content"]
+    assert "Please upload a signed authorization form." in classifier_prompt
+    assert "Please delete my profile" not in classifier_prompt
+    store.close()
+
+
 def test_needs_manual_transition_records_previous_status(tmp_path):
     settings = _settings(tmp_path)
     store = SQLiteStore(settings.sqlite_path)

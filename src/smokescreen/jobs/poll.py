@@ -19,6 +19,7 @@ from smokescreen.ai.response_composer import (
 from smokescreen.brokers.registry import BrokerRegistry
 from smokescreen.config import Settings
 from smokescreen.email.client import GmailClient
+from smokescreen.email.reply_parser import parse_latest_reply
 from smokescreen.email.templates import (
     render_rejection_rebuttal,
     render_silent_ping,
@@ -245,6 +246,7 @@ def _process_thread(
         return False
 
     latest = new_messages[-1]
+    latest_reply_body = parse_latest_reply(latest.body)
     log.info(
         "poll_new_message",
         broker=record.broker_id,
@@ -276,7 +278,7 @@ def _process_thread(
                 f"Reply received from untrusted sender {latest_sender} - "
                 "approve in Trusted Senders if legitimate"
             ),
-            broker_reply_excerpt=_broker_reply_excerpt(latest),
+            broker_reply_excerpt=_broker_reply_excerpt(latest, latest_reply_body),
         )
         store.upsert(record)
         log.warning(
@@ -298,7 +300,7 @@ def _process_thread(
             reason_code="other",
             short_summary=notes,
             notes=notes,
-            broker_reply_excerpt=_broker_reply_excerpt(latest),
+            broker_reply_excerpt=_broker_reply_excerpt(latest, latest_reply_body),
             classifier_output={
                 "provider": settings.ai_provider,
                 "error": "classifier_unavailable",
@@ -314,7 +316,7 @@ def _process_thread(
             model=settings.anthropic_model,
             broker_name=broker_name,
             subject=latest.subject,
-            body=latest.body,
+            body=latest_reply_body,
         )
     else:
         analysis = classify_reply_gemini(
@@ -322,7 +324,7 @@ def _process_thread(
             model=settings.gemini_model,
             broker_name=broker_name,
             subject=latest.subject,
-            body=latest.body,
+            body=latest_reply_body,
         )
 
     log.info(
@@ -339,6 +341,7 @@ def _process_thread(
         broker_name=broker_name,
         broker_email=broker_email,
         latest=latest,
+        latest_reply_body=latest_reply_body,
         analysis=analysis,
         store=store,
         gmail=gmail,
@@ -364,6 +367,7 @@ def _handle_classification(
     broker_name: str,
     broker_email: str,
     latest: EmailMessage,
+    latest_reply_body: str,
     analysis: ReplyAnalysis,
     store: StateStore,
     gmail: GmailClient,
@@ -402,7 +406,7 @@ def _handle_classification(
                 "accept or escalate."
             ),
             notes=_manual_review_notes(latest),
-            broker_reply_excerpt=_broker_reply_excerpt(latest),
+            broker_reply_excerpt=_broker_reply_excerpt(latest, latest_reply_body),
             classifier_output=_classifier_output(analysis),
             missing_fields=[],
             now=now,
@@ -418,7 +422,7 @@ def _handle_classification(
             reason_code="classifier_returned_needs_manual",
             short_summary="Classifier flagged the broker reply for manual review.",
             notes=_manual_review_notes(latest),
-            broker_reply_excerpt=_broker_reply_excerpt(latest),
+            broker_reply_excerpt=_broker_reply_excerpt(latest, latest_reply_body),
             classifier_output=_classifier_output(analysis),
             now=now,
         )
@@ -449,6 +453,7 @@ def _handle_classification(
             broker_name=broker_name,
             broker_email=broker_email,
             latest=latest,
+            latest_reply_body=latest_reply_body,
             requested_fields=analysis.requested_fields,
             other_details=analysis.other_details,
             store=store,
@@ -475,8 +480,15 @@ def _manual_review_notes(message: EmailMessage) -> str:
     )
 
 
-def _broker_reply_excerpt(message: EmailMessage) -> str:
-    body = message.body.strip() or message.subject.strip()
+def _broker_reply_excerpt(
+    message: EmailMessage, latest_reply_body: str | None = None
+) -> str:
+    parsed_body = (
+        latest_reply_body
+        if latest_reply_body is not None
+        else parse_latest_reply(message.body)
+    )
+    body = parsed_body.strip() or message.subject.strip()
     return body[:500]
 
 
@@ -524,6 +536,7 @@ def _handle_info_request(
     broker_name: str,
     broker_email: str,
     latest: EmailMessage,
+    latest_reply_body: str,
     requested_fields: list[VerificationField],
     other_details: str,
     store: StateStore,
@@ -568,7 +581,7 @@ def _handle_info_request(
                 latest=latest,
                 other_details=other_details,
             ),
-            broker_reply_excerpt=_broker_reply_excerpt(latest),
+            broker_reply_excerpt=_broker_reply_excerpt(latest, latest_reply_body),
             classifier_output={
                 "classification": ReplyClassification.INFO_REQUEST.value,
                 "requested_fields": [field.value for field in requested_fields],

@@ -406,8 +406,51 @@ describe("OverviewPage", () => {
 
     expect(await screen.findByRole("heading", { name: "0 brokers requesting removal of your data" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Review requests/ })).toHaveAttribute("href", "/needs-attention");
-    expect(screen.getByText("Review")).toBeInTheDocument();
+    expect(screen.getByText("Needs Attention Details")).toBeInTheDocument();
     expect(screen.getByText("Broker requested a signed identity form.")).toBeInTheDocument();
+  });
+
+  it("keeps overview broker reply excerpts in expanded details", async () => {
+    mockApi([
+      {
+        body: {
+          ...emptyStats,
+          by_status: { NEEDS_MANUAL: 1 },
+          needs_attention: 1,
+          total: 1,
+        },
+        path: "/api/stats/extended",
+      },
+      {
+        body: [
+          optOut({
+            broker_id: "acme",
+            needs_manual_reason: {
+              reason_code: "classifier_returned_needs_manual",
+              short_summary: "Broker reply needs a manual review.",
+              broker_reply_excerpt: "Broker-only latest reply excerpt.",
+              classifier_output: { classification: "NEEDS_MANUAL" },
+              missing_fields: [],
+              transitioned_at: "2026-06-22T15:30:00Z",
+            },
+            notes: "Saved reply body should stay expanded.",
+            status: "NEEDS_MANUAL",
+          }),
+        ],
+        path: "/api/optouts",
+      },
+      { body: brokerSelectionResponse(["acme"]), path: "/api/brokers/selections" },
+    ]);
+
+    renderWithProviders(<OverviewPage />);
+
+    expect(await screen.findByText("Broker reply needs a manual review.")).toBeInTheDocument();
+    expect(screen.queryByText("Broker-only latest reply excerpt.")).not.toBeInTheDocument();
+
+    const attentionColumn = screen.getByRole("heading", { name: "Needs attention" }).closest("section") as HTMLElement;
+    fireEvent.click(within(attentionColumn).getByText("Needs Attention Details"));
+
+    expect(screen.getByText("Broker-only latest reply excerpt.")).toBeInTheDocument();
   });
 
   it("filters disabled broker opt-out records before grouping status columns", async () => {
@@ -1514,6 +1557,7 @@ describe("NeedsAttentionPage", () => {
     renderWithProviders(<NeedsAttentionPage />);
 
     expect(await screen.findByText("Rejected Broker")).toBeInTheDocument();
+    screen.getAllByText("Needs Attention Details").forEach((summary) => fireEvent.click(summary));
     expect(screen.getByText("Broker rejected the request")).toBeInTheDocument();
     expect(
       screen.getByText("Review the reply, accept the rejection, or escalate with additional context."),
@@ -1563,6 +1607,7 @@ describe("NeedsAttentionPage", () => {
     expect(screen.getByRole("button", { name: "Escalate" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Mark handled" })).not.toBeInTheDocument();
+    expect(screen.queryByText("The broker declined the request.")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Needs Attention Details"));
     expect(screen.getByText("broker_rejected")).toBeInTheDocument();
@@ -1751,6 +1796,7 @@ describe("NeedsAttentionPage", () => {
     expect(
       await screen.findByText("Broker requested a phone number missing from the Verification Profile."),
     ).toBeInTheDocument();
+    expect(screen.queryByText("Please send the phone number associated with this listing.")).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("Needs Attention Details"));
 
     expect(screen.getByText("info_request_missing_fields")).toBeInTheDocument();

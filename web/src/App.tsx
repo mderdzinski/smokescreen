@@ -579,8 +579,10 @@ function StatusGroup({
 function BrokerStatusCard({ record }: { record: OptOutRecord }) {
   const copy = brokerStatusCopy[record.status];
   const isWorking = copy.group === "working";
-  const isAttention = copy.group === "attention";
-  const brokerReply = record.notes.trim() || "No broker reply saved.";
+
+  if (copy.group === "attention") {
+    return <ManualStatusCard record={record} />;
+  }
 
   return (
     <Card className="grid gap-[10px] overflow-hidden" pad>
@@ -598,12 +600,29 @@ function BrokerStatusCard({ record }: { record: OptOutRecord }) {
         <Clock3 className="h-[13px] w-[13px]" />
         Updated {formatUpdatedAgo(record.updated_at)}
       </div>
-      {isAttention ? (
-        <div className="relative z-[1] rounded-sm border border-border bg-surface-sunken px-[11px] py-[9px]">
-          <div className="ss-label mb-1">Broker reply</div>
-          <div className="break-words text-sm leading-relaxed text-content-body">{brokerReply}</div>
-        </div>
-      ) : null}
+    </Card>
+  );
+}
+
+function ManualStatusCard({ record }: { record: OptOutRecord }) {
+  const summary = getNeedsManualSummary(record);
+  const transitionedAge = record.needs_manual_reason
+    ? formatTransitionAge(record.needs_manual_reason.transitioned_at)
+    : null;
+
+  return (
+    <Card className="grid gap-[10px] overflow-hidden" pad>
+      <div className="relative z-[1] min-w-0 break-words">
+        <div className="font-display text-base font-semibold leading-snug text-content-strong">{record.broker_name}</div>
+        <p className="mt-[7px] break-words text-sm font-medium leading-relaxed text-content-body">{summary}</p>
+        {transitionedAge ? (
+          <div className="mt-[8px] flex items-center gap-[6px] font-mono text-xs text-content-faint">
+            <Clock3 className="h-[13px] w-[13px]" />
+            {transitionedAge}
+          </div>
+        ) : null}
+      </div>
+      <ManualReasonDetails record={record} />
     </Card>
   );
 }
@@ -1218,14 +1237,10 @@ function AttentionItem({
   const [escalationError, setEscalationError] = useState("");
   const guidance = getAttentionGuidance(record);
   const manualSummary = getNeedsManualSummary(record);
-  const replyText = getBrokerReplyText(record);
   const reason = record.needs_manual_reason;
   const isBrokerRejectedReview = reason?.reason_code === "broker_rejected";
-  const classifierOutputText = reason ? formatClassifierOutput(reason.classifier_output) : "";
   const transitionedAge = reason ? formatTransitionAge(reason.transitioned_at) : null;
-  const transitionedAt = reason ? formatFriendlyTimestamp(reason.transitioned_at) : null;
   const sourceEmailHref = getSourceEmailHref(record.thread_id);
-  const verificationGap = getVerificationProfileGap(record);
   const actionLabels = getAttentionActionLabels({ isMarkingHandled: isMarkingHandled || isResolving, isRetrying });
   const actionPending = isMarkingHandled || isRetrying || isResolving || isAcceptingRejection || isEscalatingRejection;
   const escalationContextId = `escalation-context-${record.broker_id}`;
@@ -1264,13 +1279,7 @@ function AttentionItem({
       {isResolving ? <Poof count={9} onDone={onResolveDone} /> : null}
       <div className="flex flex-wrap items-start justify-between gap-[14px]">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-[10px]">
-            <h2 className="break-words text-lg font-semibold tracking-normal">{record.broker_name}</h2>
-            <StatusPill status={record.status} />
-          </div>
-          <p className="mt-[3px] break-words font-mono text-xs text-content-muted">
-            {record.broker_privacy_email || "No opt-out email listed"}
-          </p>
+          <h2 className="break-words text-lg font-semibold tracking-normal">{record.broker_name}</h2>
           <div className="mt-[9px] flex flex-wrap items-center gap-2">
             <p className="max-w-3xl break-words text-sm font-medium leading-relaxed text-content-body">
               {manualSummary}
@@ -1283,19 +1292,6 @@ function AttentionItem({
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {sourceEmailHref ? (
-            <Button asChild variant="outline" size="sm">
-              <a href={sourceEmailHref} target="_blank" rel="noreferrer">
-                <ExternalLink className="h-4 w-4" />
-                {actionLabels.sourceEmail}
-              </a>
-            </Button>
-          ) : (
-            <Button variant="outline" size="sm" disabled>
-              <ExternalLink className="h-4 w-4" />
-              {actionLabels.sourceEmail}
-            </Button>
-          )}
           {isBrokerRejectedReview ? (
             <>
               <Button variant="danger" size="sm" onClick={onAcceptRejection} disabled={actionPending}>
@@ -1322,73 +1318,13 @@ function AttentionItem({
         </div>
       </div>
 
-      {reason ? (
-        <details className="group mt-[14px] rounded-sm border border-border bg-surface-sunken">
-          <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-[13px] py-[10px] [&::-webkit-details-marker]:hidden">
-            <ChevronDown className="h-4 w-4 text-content-muted transition-transform duration-base group-open:rotate-180" />
-            <span className="ss-label text-content-muted">Needs Attention Details</span>
-            <Badge className="max-w-full whitespace-normal break-all leading-snug" variant="outline">
-              {reason.reason_code}
-            </Badge>
-          </summary>
-          <div className="grid gap-3 border-t border-border px-[13px] py-[11px] lg:grid-cols-2">
-            {reason.broker_reply_excerpt ? (
-              <div className="lg:col-span-2">
-                <div className="ss-label mb-[5px]">Broker reply excerpt</div>
-                <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-sm border border-border bg-surface px-[11px] py-[9px] font-mono text-xs leading-relaxed text-content-body">
-                  {reason.broker_reply_excerpt}
-                </pre>
-              </div>
-            ) : null}
-            {reason.missing_fields.length ? (
-              <div>
-                <div className="ss-label mb-[5px]">Missing fields</div>
-                <div className="flex flex-wrap gap-1">
-                  {reason.missing_fields.map((field) => (
-                    <Badge key={field} variant="amber">
-                      {field}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            {transitionedAt ? (
-              <div>
-                <div className="ss-label mb-[5px]">Transitioned at</div>
-                <p className="font-mono text-xs text-content-muted">{transitionedAt}</p>
-              </div>
-            ) : null}
-            {classifierOutputText ? (
-              <div className="lg:col-span-2">
-                <div className="ss-label mb-[5px]">Classifier output</div>
-                <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-sm border border-border bg-surface px-[11px] py-[9px] font-mono text-xs leading-relaxed text-content-body">
-                  {classifierOutputText}
-                </pre>
-              </div>
-            ) : null}
-          </div>
-        </details>
-      ) : null}
-
-      {verificationGap ? (
-        <div className="mt-[14px] rounded-sm border border-bd-amber bg-fill-amber px-[13px] py-[11px]">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="ss-label text-soft-amber">Verification profile gap</div>
-            <Button asChild variant="outline" size="sm">
-              <Link to="/settings#settings-verification-profile">
-                <ShieldCheck className="h-4 w-4" />
-                Verification Profile
-              </Link>
-            </Button>
-          </div>
-          <p className="mt-[7px] text-sm leading-relaxed text-soft-amber">
-            Broker asked for: {verificationGap.askedFor}. You are missing: {verificationGap.missing}.
-          </p>
-          {verificationGap.otherDetails ? (
-            <p className="mt-[5px] text-xs leading-relaxed text-content-body">{verificationGap.otherDetails}</p>
-          ) : null}
-        </div>
-      ) : null}
+      <ManualReasonDetails
+        className="mt-[14px]"
+        guidance={guidance}
+        record={record}
+        sourceEmailHref={sourceEmailHref}
+        sourceEmailLabel={actionLabels.sourceEmail}
+      />
 
       {isBrokerRejectedReview && isEscalationOpen ? (
         <form className="mt-[14px] rounded-sm border border-border bg-surface-sunken px-[13px] py-[11px]" onSubmit={submitEscalation}>
@@ -1420,17 +1356,152 @@ function AttentionItem({
         </form>
       ) : null}
 
-      <div className="mt-[14px] grid gap-3 lg:grid-cols-2">
-        <div>
-          <div className="ss-label mb-[5px]">{guidance.title}</div>
-          <p className="text-sm leading-relaxed text-content-body">{guidance.recommendedStep}</p>
-        </div>
-        <div className="rounded-sm border border-border bg-surface-sunken px-[13px] py-[11px]">
-          <div className="ss-label mb-[5px]">Saved broker reply</div>
-          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-content-body">{replyText}</p>
-        </div>
-      </div>
     </Card>
+  );
+}
+
+function ManualReasonDetails({
+  className,
+  guidance,
+  record,
+  sourceEmailHref,
+  sourceEmailLabel,
+}: {
+  className?: string;
+  guidance?: { recommendedStep: string; title: string };
+  record: OptOutRecord;
+  sourceEmailHref?: string | null;
+  sourceEmailLabel?: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const reason = record.needs_manual_reason;
+  const classifierOutputText = reason ? formatClassifierOutput(reason.classifier_output) : "";
+  const transitionedAt = reason ? formatFriendlyTimestamp(reason.transitioned_at) : null;
+  const brokerReplyExcerpt = reason?.broker_reply_excerpt.trim() ?? "";
+  const savedReply = record.notes.trim();
+  const showSavedReply = savedReply.length > 0 && savedReply !== brokerReplyExcerpt;
+  const showMissingReplyFallback = !reason && !savedReply;
+  const verificationGap = getVerificationProfileGap(record);
+
+  return (
+    <details
+      className={cn("group rounded-sm border border-border bg-surface-sunken", className)}
+      onToggle={(event) => setIsOpen(event.currentTarget.open)}
+    >
+      <summary
+        className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-[13px] py-[10px] [&::-webkit-details-marker]:hidden"
+        onClick={(event) => {
+          const details = event.currentTarget.parentElement as HTMLDetailsElement | null;
+          setIsOpen(!(details?.open ?? false));
+        }}
+      >
+        <ChevronDown className="h-4 w-4 text-content-muted transition-transform duration-base group-open:rotate-180" />
+        <span className="ss-label text-content-muted">Needs Attention Details</span>
+      </summary>
+      {isOpen ? (
+        <div className="grid gap-3 border-t border-border px-[13px] py-[11px] lg:grid-cols-2">
+          {guidance ? (
+            <div>
+              <div className="ss-label mb-[5px]">{guidance.title}</div>
+              <p className="text-sm leading-relaxed text-content-body">{guidance.recommendedStep}</p>
+            </div>
+          ) : null}
+          {sourceEmailLabel ? (
+            <div>
+              <div className="ss-label mb-[5px]">Source email</div>
+              {sourceEmailHref ? (
+                <Button asChild variant="outline" size="sm">
+                  <a href={sourceEmailHref} target="_blank" rel="noreferrer">
+                    <ExternalLink className="h-4 w-4" />
+                    {sourceEmailLabel}
+                  </a>
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" disabled>
+                  <ExternalLink className="h-4 w-4" />
+                  {sourceEmailLabel}
+                </Button>
+              )}
+            </div>
+          ) : null}
+          {verificationGap ? (
+            <div className="rounded-sm border border-bd-amber bg-fill-amber px-[13px] py-[11px] lg:col-span-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="ss-label text-soft-amber">Verification profile gap</div>
+                <Button asChild variant="outline" size="sm">
+                  <Link to="/settings#settings-verification-profile">
+                    <ShieldCheck className="h-4 w-4" />
+                    Verification Profile
+                  </Link>
+                </Button>
+              </div>
+              <p className="mt-[7px] text-sm leading-relaxed text-soft-amber">
+                Broker asked for: {verificationGap.askedFor}. You are missing: {verificationGap.missing}.
+              </p>
+              {verificationGap.otherDetails ? (
+                <p className="mt-[5px] text-xs leading-relaxed text-content-body">{verificationGap.otherDetails}</p>
+              ) : null}
+            </div>
+          ) : null}
+          {reason ? (
+            <div>
+              <div className="ss-label mb-[5px]">Reason code</div>
+              <Badge className="max-w-full whitespace-normal break-all leading-snug" variant="outline">
+                {reason.reason_code}
+              </Badge>
+            </div>
+          ) : null}
+          {reason?.missing_fields.length ? (
+            <div>
+              <div className="ss-label mb-[5px]">Missing fields</div>
+              <div className="flex flex-wrap gap-1">
+                {reason.missing_fields.map((field) => (
+                  <Badge key={field} variant="amber">
+                    {field}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {transitionedAt ? (
+            <div>
+              <div className="ss-label mb-[5px]">Transitioned at</div>
+              <p className="font-mono text-xs text-content-muted">{transitionedAt}</p>
+            </div>
+          ) : null}
+          {brokerReplyExcerpt ? (
+            <div className="lg:col-span-2">
+              <div className="ss-label mb-[5px]">Broker reply excerpt</div>
+              <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-sm border border-border bg-surface px-[11px] py-[9px] font-mono text-xs leading-relaxed text-content-body">
+                {brokerReplyExcerpt}
+              </pre>
+            </div>
+          ) : null}
+          {showSavedReply ? (
+            <div className="lg:col-span-2">
+              <div className="ss-label mb-[5px]">Saved broker reply</div>
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-sm border border-border bg-surface px-[11px] py-[9px] font-mono text-xs leading-relaxed text-content-body">
+                {savedReply}
+              </pre>
+            </div>
+          ) : null}
+          {showMissingReplyFallback ? (
+            <div className="lg:col-span-2">
+              <div className="ss-label mb-[5px]">Saved broker reply</div>
+              <p className="text-sm leading-relaxed text-content-body">{getBrokerReplyText(record)}</p>
+            </div>
+          ) : null}
+          {classifierOutputText ? (
+            <div className="lg:col-span-2">
+              <div className="ss-label mb-[5px]">Classifier output</div>
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-sm border border-border bg-surface px-[11px] py-[9px] font-mono text-xs leading-relaxed text-content-body">
+                {classifierOutputText}
+              </pre>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </details>
   );
 }
 
