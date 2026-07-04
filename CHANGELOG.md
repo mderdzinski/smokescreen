@@ -1,3 +1,10 @@
+# [0.25.0](https://github.com/mderdzinski/smokescreen/compare/v0.24.1...v0.25.0) (2026-07-04)
+
+
+### Features
+
+* replace identity docs with verification profile and smart INFO_REQUEST handling ([1d750e7](https://github.com/mderdzinski/smokescreen/commit/1d750e737dce672b019abda77e32880270eb590d))
+
 ## [0.24.1](https://github.com/mderdzinski/smokescreen/compare/v0.24.0...v0.24.1) (2026-07-04)
 
 
