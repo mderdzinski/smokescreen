@@ -26,6 +26,7 @@ from smokescreen.models import (
     ReplyAnalysis,
     ReplyClassification,
     VerificationAddress,
+    VerificationDocument,
     VerificationField,
     VerificationProfile,
     as_aware_utc,
@@ -505,6 +506,7 @@ def _handle_info_request(
         broker_name=broker_name,
         sender_name=settings.sender_name,
         verification_lines=_verification_lines(profile, requested_fields),
+        document_labels=_requested_document_labels(profile, requested_fields),
     )
 
     if settings.dry_run:
@@ -562,12 +564,6 @@ def _profile_gap(
 
     missing_fields: list[VerificationField] = []
     reasons: list[str] = []
-    if VerificationField.DOCUMENTS in requested_fields:
-        missing_fields.append(VerificationField.DOCUMENTS)
-        reasons.append(
-            "Broker requested documents. Smokescreen no longer stores or "
-            "sends identity documents."
-        )
     if VerificationField.OTHER in requested_fields:
         missing_fields.append(VerificationField.OTHER)
         detail = other_details.strip()
@@ -581,10 +577,15 @@ def _profile_gap(
         )
 
     for field in requested_fields:
-        if field in {VerificationField.DOCUMENTS, VerificationField.OTHER}:
+        if field == VerificationField.OTHER:
             continue
         if not _profile_has_field(profile, field):
             missing_fields.append(field)
+            if field == VerificationField.DOCUMENTS:
+                reasons.append(
+                    "documents-not-available: The verification profile does not "
+                    "list any available document labels."
+                )
 
     if not reasons and missing_fields:
         reasons.append(
@@ -610,6 +611,8 @@ def _profile_has_field(
         return bool((profile.last_four_ssn or "").strip())
     if field == VerificationField.EMPLOYER_NAME:
         return bool((profile.employer_name or "").strip())
+    if field == VerificationField.DOCUMENTS:
+        return bool(_available_document_labels(profile))
     return False
 
 
@@ -660,6 +663,27 @@ def _format_address(address: VerificationAddress) -> str:
     city_line = ", ".join(part for part in [address.city.strip(), state_zip] if part)
     parts = [address.street.strip(), city_line, address.country.strip()]
     return "; ".join(part for part in parts if part)
+
+
+def _requested_document_labels(
+    profile: VerificationProfile,
+    requested_fields: list[VerificationField],
+) -> list[str]:
+    if VerificationField.DOCUMENTS not in requested_fields:
+        return []
+    return _available_document_labels(profile)
+
+
+def _available_document_labels(profile: VerificationProfile) -> list[str]:
+    return [
+        label
+        for label in (_document_label(doc) for doc in profile.documents)
+        if label
+    ]
+
+
+def _document_label(document: VerificationDocument) -> str:
+    return document.label.strip()
 
 
 def _non_empty(values: list[str]) -> list[str]:

@@ -44,6 +44,7 @@ import {
   type FriendlySettings,
   type SettingsUpdate,
   type VerificationAddress,
+  type VerificationDocument,
   type VerificationProfile,
 } from "../lib/api";
 import {
@@ -150,11 +151,19 @@ function emptyAddress(): VerificationAddress {
   };
 }
 
+function emptyDocument(): VerificationDocument {
+  return {
+    label: "",
+    storage_note: "",
+  };
+}
+
 function emptyVerificationProfile(): VerificationProfile {
   return {
     home_addresses: [emptyAddress()],
     phone_numbers: [""],
     email_aliases: [""],
+    documents: [emptyDocument()],
     date_of_birth: null,
     last_four_ssn: null,
     employer_name: null,
@@ -169,6 +178,7 @@ function hydrateVerificationProfile(profile?: VerificationProfile | null): Verif
     home_addresses: normalized.home_addresses.length ? normalized.home_addresses : [emptyAddress()],
     phone_numbers: normalized.phone_numbers.length ? normalized.phone_numbers : [""],
     email_aliases: normalized.email_aliases.length ? normalized.email_aliases : [""],
+    documents: normalized.documents.length ? normalized.documents : [emptyDocument()],
   };
 }
 
@@ -187,6 +197,12 @@ function normalizeVerificationProfile(profile: VerificationProfile): Verificatio
       ),
     phone_numbers: profile.phone_numbers.map((value) => value.trim()).filter(Boolean),
     email_aliases: profile.email_aliases.map((value) => value.trim()).filter(Boolean),
+    documents: (profile.documents ?? [])
+      .map((document) => ({
+        label: document.label.trim(),
+        storage_note: document.storage_note.trim(),
+      }))
+      .filter((document) => Boolean(document.label || document.storage_note)),
     date_of_birth: trimToNull(profile.date_of_birth),
     last_four_ssn: trimToNull(profile.last_four_ssn)?.replace(/\D/g, "").slice(0, 4) ?? null,
     employer_name: trimToNull(profile.employer_name),
@@ -895,6 +911,22 @@ function VerificationProfileForm({
     onChange({ ...draft, home_addresses: home_addresses.length ? home_addresses : [emptyAddress()] });
   }
 
+  function setDocument(index: number, key: keyof VerificationDocument, value: string) {
+    const documents = draft.documents.map((document, currentIndex) =>
+      currentIndex === index ? { ...document, [key]: value } : document,
+    );
+    onChange({ ...draft, documents });
+  }
+
+  function addDocument() {
+    onChange({ ...draft, documents: [...draft.documents, emptyDocument()] });
+  }
+
+  function removeDocument(index: number) {
+    const documents = draft.documents.filter((_, currentIndex) => currentIndex !== index);
+    onChange({ ...draft, documents: documents.length ? documents : [emptyDocument()] });
+  }
+
   function setStringList(key: "phone_numbers" | "email_aliases", index: number, value: string) {
     const nextValues = draft[key].map((item, currentIndex) => (currentIndex === index ? value : item));
     onChange({ ...draft, [key]: nextValues });
@@ -988,6 +1020,49 @@ function VerificationProfileForm({
           type="email"
           values={draft.email_aliases}
         />
+      </div>
+
+      <div className="grid gap-[14px]">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-display text-base font-semibold text-content-strong">Documents</h3>
+          <Button size="sm" type="button" variant="outline" onClick={addDocument}>
+            <Plus aria-hidden="true" />
+            Add document
+          </Button>
+        </div>
+        <div className="grid gap-3">
+          {draft.documents.map((document, index) => (
+            <div className="rounded-sm border border-border bg-surface-sunken p-3" key={index}>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <span className="ss-label">Document {index + 1}</span>
+                <Button
+                  aria-label={`Remove document ${index + 1}`}
+                  iconOnly
+                  onClick={() => removeDocument(index)}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  <X aria-hidden="true" />
+                </Button>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <TextField
+                  label="Document label"
+                  placeholder="Utility Bill"
+                  value={document.label}
+                  onChange={(event) => setDocument(index, "label", event.currentTarget.value)}
+                />
+                <TextField
+                  label="Storage note"
+                  placeholder="Offline file"
+                  value={document.storage_note}
+                  onChange={(event) => setDocument(index, "storage_note", event.currentTarget.value)}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">

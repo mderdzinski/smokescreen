@@ -87,6 +87,7 @@ const verificationProfile: VerificationProfile = {
   home_addresses: [],
   phone_numbers: [],
   email_aliases: [],
+  documents: [],
   date_of_birth: null,
   last_four_ssn: null,
   employer_name: null,
@@ -1465,6 +1466,8 @@ describe("SettingsPage", () => {
     await user.type(screen.getByLabelText("Country"), "US");
     await user.type(screen.getByLabelText("Phone numbers 1"), "+1 555 0100");
     await user.type(screen.getByLabelText("Email aliases 1"), "old@example.com");
+    await user.type(screen.getByLabelText("Document label"), "Utility Bill");
+    await user.type(screen.getByLabelText("Storage note"), "Offline file cabinet");
     await user.type(screen.getByLabelText("Date of birth"), "1990-01-01");
     await user.type(screen.getByLabelText("Last four SSN"), "1234");
     await user.type(screen.getByLabelText("Employer name"), "Acme");
@@ -1476,6 +1479,12 @@ describe("SettingsPage", () => {
     expect(savedProfiles[0]).toEqual({
       additional_notes: null,
       date_of_birth: "1990-01-01",
+      documents: [
+        {
+          label: "Utility Bill",
+          storage_note: "Offline file cabinet",
+        },
+      ],
       email_aliases: ["old@example.com"],
       employer_name: "Acme",
       home_addresses: [

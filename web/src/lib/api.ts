@@ -111,10 +111,16 @@ export interface VerificationAddress {
   country: string;
 }
 
+export interface VerificationDocument {
+  label: string;
+  storage_note: string;
+}
+
 export interface VerificationProfile {
   home_addresses: VerificationAddress[];
   phone_numbers: string[];
   email_aliases: string[];
+  documents: VerificationDocument[];
   date_of_birth: string | null;
   last_four_ssn: string | null;
   employer_name: string | null;

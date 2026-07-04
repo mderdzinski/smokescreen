@@ -1,7 +1,6 @@
 """Tests for email templates."""
 
 from smokescreen.email.templates import (
-    render_follow_up,
     render_initial_opt_out,
     render_silent_ping,
     render_verification_profile_follow_up,
@@ -32,15 +31,16 @@ def test_follow_up_response_template():
     assert "attached" not in result.lower()
 
 
-def test_follow_up_template():
-    result = render_follow_up(
+def test_verification_follow_up_includes_documents_offer():
+    result = render_verification_profile_follow_up(
         broker_name="Spokeo",
         sender_name="John Doe",
-        original_date="2024-01-15",
+        verification_lines=[],
+        document_labels=["Utility Bill", "Driver License"],
     )
     assert "Spokeo" in result
-    assert "2024-01-15" in result
-    assert "follow" in result.lower()
+    assert "Available documents on request: Utility Bill, Driver License" in result
+    assert "attached" not in result.lower()
 
 
 def test_silent_ping_template():

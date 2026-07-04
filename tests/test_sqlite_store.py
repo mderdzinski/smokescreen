@@ -9,6 +9,7 @@ from smokescreen.models import (
     BrokerStatus,
     OptOutRecord,
     VerificationAddress,
+    VerificationDocument,
     VerificationProfile,
 )
 from smokescreen.state.sqlite import SQLiteStore
@@ -148,4 +149,22 @@ def test_verification_profile_default_and_persist(store):
     stored = store.set_verification_profile(profile)
 
     assert stored == profile
+    assert store.get_verification_profile() == profile
+
+
+def test_profile_documents_field_persists(store):
+    profile = VerificationProfile(
+        documents=[
+            VerificationDocument(
+                label="Utility Bill",
+                storage_note="Offline file cabinet",
+            ),
+            VerificationDocument(
+                label="Driver License",
+                storage_note="Physical wallet",
+            ),
+        ],
+    )
+
+    assert store.set_verification_profile(profile) == profile
     assert store.get_verification_profile() == profile

@@ -108,12 +108,20 @@ class VerificationAddress(BaseModel):
     country: str = ""
 
 
+class VerificationDocument(BaseModel):
+    """Document availability metadata; actual files are never stored."""
+
+    label: str = ""
+    storage_note: str = ""
+
+
 class VerificationProfile(BaseModel):
     """Optional verification details stored separately from runtime settings."""
 
     home_addresses: list[VerificationAddress] = Field(default_factory=list)
     phone_numbers: list[str] = Field(default_factory=list)
     email_aliases: list[str] = Field(default_factory=list)
+    documents: list[VerificationDocument] = Field(default_factory=list)
     date_of_birth: str | None = None
     last_four_ssn: str | None = None
     employer_name: str | None = None

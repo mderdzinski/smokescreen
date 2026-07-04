@@ -16,6 +16,7 @@ from smokescreen.models import (
     BrokerStatus,
     OptOutRecord,
     VerificationAddress,
+    VerificationDocument,
     VerificationProfile,
 )
 from smokescreen.state.sqlite import SQLiteStore
@@ -927,6 +928,12 @@ def test_verification_profile_endpoint_round_trip(settings_client):
         ],
         phone_numbers=["+1 555 0100"],
         email_aliases=["old@example.com"],
+        documents=[
+            VerificationDocument(
+                label="Utility Bill",
+                storage_note="Offline file cabinet",
+            )
+        ],
         date_of_birth="1990-01-01",
         last_four_ssn="1234",
         employer_name="Acme",

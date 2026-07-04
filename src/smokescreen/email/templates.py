@@ -42,6 +42,9 @@ needed to proceed with my data deletion request:
 {% for line in verification_lines -%}
 - {{ line }}
 {% endfor %}
+{% if document_labels -%}
+- Available documents on request: {{ document_labels | join(", ") }}
+{% endif %}
 {% if additional_notes %}
 Additional notes: {{ additional_notes }}
 
@@ -65,19 +68,6 @@ Thank you,
 {{ sender_name }}
 """)
 
-FOLLOW_UP = _env.from_string("""\
-Dear {{ broker_name }} Privacy Team,
-
-I am following up on my data deletion request sent on {{ original_date }}. \
-I have not yet received confirmation that my personal information has been removed.
-
-As a reminder, applicable privacy laws require a response within 30 days of the \
-original request. I would appreciate an update on the status of my request.
-
-Thank you,
-{{ sender_name }}
-""")
-
 
 def render_initial_opt_out(
     broker_name: str, sender_name: str, sender_email: str
@@ -93,12 +83,14 @@ def render_verification_profile_follow_up(
     broker_name: str,
     sender_name: str,
     verification_lines: list[str],
+    document_labels: list[str] | None = None,
     additional_notes: str | None = None,
 ) -> str:
     return VERIFICATION_PROFILE_FOLLOW_UP.render(
         broker_name=broker_name,
         sender_name=sender_name,
         verification_lines=verification_lines,
+        document_labels=document_labels or [],
         additional_notes=(additional_notes or "").strip(),
     )
 
@@ -107,14 +99,4 @@ def render_silent_ping(broker_name: str, sender_name: str) -> str:
     return SILENT_PING.render(
         broker_name=broker_name,
         sender_name=sender_name,
-    )
-
-
-def render_follow_up(
-    broker_name: str, sender_name: str, original_date: str
-) -> str:
-    return FOLLOW_UP.render(
-        broker_name=broker_name,
-        sender_name=sender_name,
-        original_date=original_date,
     )

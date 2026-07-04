@@ -17,6 +17,7 @@ from smokescreen.models import (
     OptOutRecord,
     PendingWhitelistStatus,
     VerificationAddress,
+    VerificationDocument,
     VerificationProfile,
     WhitelistEntry,
 )
@@ -662,7 +663,74 @@ def test_process_thread_sends_follow_up_reply_from_verification_profile(tmp_path
     store.close()
 
 
-def test_process_thread_info_request_documents_needs_manual(tmp_path):
+def test_info_request_documents_available_auto_responds(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    store.set_verification_profile(
+        VerificationProfile(
+            documents=[
+                VerificationDocument(
+                    label="Utility Bill",
+                    storage_note="Offline file cabinet",
+                ),
+                VerificationDocument(
+                    label="Driver License",
+                    storage_note="Physical wallet",
+                ),
+            ],
+        )
+    )
+    record = _record(status=BrokerStatus.AWAITING_RESPONSE)
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Identity verification",
+                    body="Please send proof of address and a copy of your ID.",
+                )
+            ]
+        }
+    )
+
+    processed = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        ai_client=_mock_anthropic(_info_request_response(["documents"])),
+    )
+
+    assert processed is True
+    assert len(gmail.sent_messages) == 1
+    sent = gmail.sent_messages[0]
+    assert sent["to"] == "privacy@labeled.example"
+    assert sent["subject"] == "Re: Identity verification"
+    assert sent["thread_id"] == "thread-labeled"
+    assert (
+        "Available documents on request: Utility Bill, Driver License"
+        in sent["body"]
+    )
+    assert "Offline file cabinet" not in sent["body"]
+    assert "Physical wallet" not in sent["body"]
+    assert "attachment_paths" not in sent
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.FOLLOW_UP_SENT
+    assert updated.requested_fields == ["documents"]
+    assert updated.missing_fields == []
+    assert updated.retries == 1
+    store.close()
+
+
+def test_info_request_documents_missing_needs_manual(tmp_path):
     settings = _settings(tmp_path)
     store = SQLiteStore(settings.sqlite_path)
     record = _record(status=BrokerStatus.AWAITING_RESPONSE)
@@ -700,7 +768,7 @@ def test_process_thread_info_request_documents_needs_manual(tmp_path):
     assert updated.status == BrokerStatus.NEEDS_MANUAL
     assert updated.requested_fields == ["documents"]
     assert updated.missing_fields == ["documents"]
-    assert "no longer stores or sends identity documents" in updated.notes
+    assert "documents-not-available" in updated.notes
     store.close()
 
 

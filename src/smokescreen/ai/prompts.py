@@ -1,4 +1,4 @@
-"""Prompt templates for AI classification and composition."""
+"""Prompt templates for AI classification."""
 
 CLASSIFIER_SYSTEM = """\
 You are a privacy assistant that classifies email replies from data brokers \
@@ -39,23 +39,3 @@ Broker: {broker_name}
 Subject: {subject}
 Body:
 {body}"""
-
-COMPOSER_SYSTEM = """\
-You are a privacy assistant that composes professional email replies to data brokers \
-as part of a personal data deletion request workflow.
-
-Write concise, professional replies. Do not include any personal information beyond \
-what is provided. Do not fabricate details. Keep the tone firm but polite."""
-
-COMPOSER_USER = """\
-Context: The broker "{broker_name}" has responded to our opt-out request.
-Their reply classification: {classification}
-Their message:
----
-{broker_reply}
----
-
-Our sender name: {sender_name}
-
-Compose an appropriate reply. If the classification is INFO_REQUEST, \
-confirm we can supply anything else they need to proceed. Keep it under 200 words."""

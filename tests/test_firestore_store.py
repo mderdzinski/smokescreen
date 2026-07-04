@@ -20,6 +20,7 @@ from smokescreen.models import (
     PendingWhitelistEntry,
     PendingWhitelistStatus,
     VerificationAddress,
+    VerificationDocument,
     VerificationProfile,
     WhitelistEntry,
     WhitelistSource,
@@ -217,6 +218,12 @@ def test_firestore_verification_profile_default_and_persist():
         ],
         phone_numbers=["+1 555 0100"],
         email_aliases=["old@example.com"],
+        documents=[
+            VerificationDocument(
+                label="Utility Bill",
+                storage_note="Offline file cabinet",
+            )
+        ],
         date_of_birth="1990-01-01",
         last_four_ssn="1234",
         employer_name="Acme",
