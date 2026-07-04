@@ -1,3 +1,10 @@
+## [0.27.3](https://github.com/mderdzinski/smokescreen/compare/v0.27.2...v0.27.3) (2026-07-04)
+
+
+### Bug Fixes
+
+* compact rows show summary only and strip quoted history from broker replies ([35b3a65](https://github.com/mderdzinski/smokescreen/commit/35b3a6518bb08fe38a6b602b848ef632df49b73d))
+
 ## [0.27.2](https://github.com/mderdzinski/smokescreen/compare/v0.27.1...v0.27.2) (2026-07-04)
 
 
