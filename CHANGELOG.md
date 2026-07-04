@@ -1,3 +1,10 @@
+## [0.27.2](https://github.com/mderdzinski/smokescreen/compare/v0.27.1...v0.27.2) (2026-07-04)
+
+
+### Bug Fixes
+
+* replace stale Configure brokers link and remove obsolete Setup pages ([cad5288](https://github.com/mderdzinski/smokescreen/commit/cad52887135f5738f38f9482b22252663af84f34))
+
 ## [0.27.1](https://github.com/mderdzinski/smokescreen/compare/v0.27.0...v0.27.1) (2026-07-04)
 
 
