@@ -20,6 +20,15 @@ interface ListOptOutsOptions {
   includeDisabled?: boolean;
 }
 
+export interface NeedsManualReason {
+  reason_code: string;
+  short_summary: string;
+  broker_reply_excerpt: string;
+  classifier_output: Record<string, unknown>;
+  missing_fields: string[];
+  transitioned_at: string;
+}
+
 export interface OptOutRecord {
   broker_id: string;
   status: BrokerStatus;
@@ -28,6 +37,7 @@ export interface OptOutRecord {
   thread_id: string | null;
   last_message_id: string | null;
   notes: string;
+  needs_manual_reason: NeedsManualReason | null;
   requested_fields: string[];
   missing_fields: string[];
   requested_other_details: string;

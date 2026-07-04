@@ -6,6 +6,7 @@ from smokescreen.models import (
     Broker,
     BrokerStatus,
     EmailMessage,
+    NeedsManualReason,
     OptOutRecord,
     PendingWhitelistEntry,
     ReplyClassification,
@@ -27,6 +28,32 @@ def test_opt_out_record_defaults():
     assert record.notes == ""
     assert record.created_at.tzinfo is UTC
     assert record.updated_at.tzinfo is UTC
+    assert record.needs_manual_reason is None
+
+
+def test_opt_out_record_accepts_missing_or_null_needs_manual_reason():
+    old_record = OptOutRecord.model_validate(
+        {
+            "broker_id": "test-broker",
+            "status": "NEEDS_MANUAL",
+            "created_at": "2026-06-20T12:00:00Z",
+            "updated_at": "2026-06-21T12:00:00Z",
+        }
+    )
+    null_record = OptOutRecord(
+        broker_id="test-broker",
+        status=BrokerStatus.NEEDS_MANUAL,
+        needs_manual_reason=None,
+    )
+
+    assert old_record.needs_manual_reason is None
+    assert null_record.needs_manual_reason is None
+
+
+def test_needs_manual_reason_defaults_transitioned_at_to_aware_utc():
+    reason = NeedsManualReason(reason_code="other", short_summary="Manual review.")
+
+    assert reason.transitioned_at.tzinfo is UTC
 
 
 def test_timestamp_defaults_are_aware_utc():

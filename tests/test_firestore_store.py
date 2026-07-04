@@ -16,6 +16,7 @@ from smokescreen.models import (
     Broker,
     BrokerStatus,
     EmailMessage,
+    NeedsManualReason,
     OptOutRecord,
     PendingWhitelistEntry,
     PendingWhitelistStatus,
@@ -188,6 +189,17 @@ def test_firestore_upsert_persists_info_request_metadata():
             broker_id="spokeo",
             status=BrokerStatus.NEEDS_MANUAL,
             previous_status=BrokerStatus.INFO_REQUESTED,
+            needs_manual_reason=NeedsManualReason(
+                reason_code="info_request_missing_fields",
+                short_summary="Broker requested missing information.",
+                broker_reply_excerpt="Please send an account number.",
+                classifier_output={
+                    "classification": "INFO_REQUEST",
+                    "requested_fields": ["home_address", "other"],
+                    "other_details": "Account number",
+                },
+                missing_fields=["other"],
+            ),
             requested_fields=["home_address", "other"],
             missing_fields=["other"],
             requested_other_details="Account number",
@@ -197,6 +209,11 @@ def test_firestore_upsert_persists_info_request_metadata():
     fetched = store.get("spokeo")
     assert fetched is not None
     assert fetched.previous_status == BrokerStatus.INFO_REQUESTED
+    assert fetched.needs_manual_reason is not None
+    assert fetched.needs_manual_reason.reason_code == "info_request_missing_fields"
+    assert fetched.needs_manual_reason.broker_reply_excerpt == (
+        "Please send an account number."
+    )
     assert fetched.requested_fields == ["home_address", "other"]
     assert fetched.missing_fields == ["other"]
     assert fetched.requested_other_details == "Account number"

@@ -21,6 +21,7 @@ from smokescreen.email.templates import (
 from smokescreen.models import (
     BrokerStatus,
     EmailMessage,
+    NeedsManualReason,
     OptOutRecord,
     PendingWhitelistEntry,
     ReplyAnalysis,
@@ -262,10 +263,13 @@ def _process_thread(
         )
         transition_to_needs_manual(
             record,
+            reason_code="untrusted_sender_reply",
+            short_summary=f"Reply came from untrusted sender {latest_sender}.",
             notes=(
                 f"Reply received from untrusted sender {latest_sender} - "
                 "approve in Trusted Senders if legitimate"
             ),
+            broker_reply_excerpt=_broker_reply_excerpt(latest),
         )
         store.upsert(record)
         log.warning(
@@ -276,12 +280,23 @@ def _process_thread(
         return True
 
     if ai_client is None:
+        notes = _missing_classifier_notes(settings)
         log.warning(
             "poll_no_ai_classifier",
             broker=record.broker_id,
             provider=settings.ai_provider,
         )
-        transition_to_needs_manual(record, notes=_missing_classifier_notes(settings))
+        transition_to_needs_manual(
+            record,
+            reason_code="other",
+            short_summary=notes,
+            notes=notes,
+            broker_reply_excerpt=_broker_reply_excerpt(latest),
+            classifier_output={
+                "provider": settings.ai_provider,
+                "error": "classifier_unavailable",
+            },
+        )
         store.upsert(record)
         return True
 
@@ -371,7 +386,13 @@ def _handle_classification(
     if classification == ReplyClassification.NEEDS_MANUAL:
         record.last_message_id = latest.message_id
         transition_to_needs_manual(
-            record, notes=_manual_review_notes(latest), now=now
+            record,
+            reason_code="classifier_returned_needs_manual",
+            short_summary="Classifier flagged the broker reply for manual review.",
+            notes=_manual_review_notes(latest),
+            broker_reply_excerpt=_broker_reply_excerpt(latest),
+            classifier_output=_classifier_output(analysis),
+            now=now,
         )
         store.upsert(record)
         log.info("poll_needs_manual", broker=record.broker_id)
@@ -425,20 +446,47 @@ def _manual_review_notes(message: EmailMessage) -> str:
     )
 
 
+def _broker_reply_excerpt(message: EmailMessage) -> str:
+    body = message.body.strip() or message.subject.strip()
+    return body[:500]
+
+
+def _classifier_output(analysis: ReplyAnalysis) -> dict[str, Any]:
+    return {
+        "classification": analysis.classification.value,
+        "requested_fields": [field.value for field in analysis.requested_fields],
+        "other_details": analysis.other_details,
+    }
+
+
 def transition_to_needs_manual(
     record: OptOutRecord,
     *,
+    reason_code: str,
+    short_summary: str,
     notes: str | None = None,
+    broker_reply_excerpt: str = "",
+    classifier_output: dict[str, Any] | None = None,
+    missing_fields: list[str] | None = None,
     now: datetime | None = None,
 ) -> None:
-    """Atomically remember the current state before moving to manual review."""
+    """Atomically remember state and reason before moving to manual review."""
+    transitioned_at = now or utc_now()
     previous_status = record.status
     validate_transition(previous_status, BrokerStatus.NEEDS_MANUAL)
     record.previous_status = previous_status
     record.status = BrokerStatus.NEEDS_MANUAL
     if notes is not None:
         record.notes = notes
-    record.updated_at = now or utc_now()
+    record.needs_manual_reason = NeedsManualReason(
+        reason_code=reason_code,
+        short_summary=short_summary,
+        broker_reply_excerpt=broker_reply_excerpt[:500],
+        classifier_output=classifier_output or {},
+        missing_fields=missing_fields or [],
+        transitioned_at=transitioned_at,
+    )
+    record.updated_at = transitioned_at
 
 
 def _handle_info_request(
@@ -478,6 +526,11 @@ def _handle_info_request(
     if missing_fields:
         transition_to_needs_manual(
             record,
+            reason_code=_info_request_reason_code(missing_fields),
+            short_summary=_info_request_short_summary(
+                missing_fields=missing_fields,
+                manual_reason=manual_reason,
+            ),
             notes=_info_request_manual_notes(
                 requested_fields=requested_fields,
                 missing_fields=missing_fields,
@@ -485,6 +538,13 @@ def _handle_info_request(
                 latest=latest,
                 other_details=other_details,
             ),
+            broker_reply_excerpt=_broker_reply_excerpt(latest),
+            classifier_output={
+                "classification": ReplyClassification.INFO_REQUEST.value,
+                "requested_fields": [field.value for field in requested_fields],
+                "other_details": other_details,
+            },
+            missing_fields=[field.value for field in missing_fields],
             now=now,
         )
         store.upsert(record)
@@ -718,6 +778,28 @@ def _info_request_manual_notes(
     return f"{notes}\n\nBroker reply:\n{message_notes}"
 
 
+def _info_request_reason_code(missing_fields: list[VerificationField]) -> str:
+    if VerificationField.DOCUMENTS in missing_fields:
+        return "documents_requested_none_available"
+    return "info_request_missing_fields"
+
+
+def _info_request_short_summary(
+    *,
+    missing_fields: list[VerificationField],
+    manual_reason: str,
+) -> str:
+    if VerificationField.DOCUMENTS in missing_fields:
+        return "Broker requested documents, but no documents are available to send."
+    fields = _format_field_list(missing_fields)
+    if fields:
+        return (
+            "Broker requested information missing from the Verification Profile: "
+            f"{fields}."
+        )
+    return manual_reason or "Broker requested information Smokescreen cannot provide."
+
+
 def _format_field_list(fields: list[VerificationField]) -> str:
     return ", ".join(_PROFILE_FIELD_LABELS[field] for field in fields)
 
@@ -839,7 +921,13 @@ def _escalate_to_needs_manual(
 ) -> None:
     transition_to_needs_manual(
         record,
+        reason_code="timeout_escalation_second_window",
+        short_summary="No broker reply after two timeout windows.",
         notes=f"escalated after two silent periods on {previous_state.value}",
+        classifier_output={
+            "previous_state": previous_state.value,
+            "timed_out_status": record.status.value,
+        },
         now=now,
     )
     store.upsert(record)

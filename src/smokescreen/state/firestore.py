@@ -112,6 +112,7 @@ class FirestoreStore:
             updated_at=self._datetime_or_default(data.get("updated_at")),
             last_completed_at=self._optional_datetime(data.get("last_completed_at")),
             notes=data.get("notes", ""),
+            needs_manual_reason=data.get("needs_manual_reason"),
             requested_fields=self._string_list(data.get("requested_fields")),
             missing_fields=self._string_list(data.get("missing_fields")),
             requested_other_details=data.get("requested_other_details", ""),
@@ -173,6 +174,11 @@ class FirestoreStore:
                 "updated_at": record.updated_at,
                 "last_completed_at": record.last_completed_at,
                 "notes": record.notes,
+                "needs_manual_reason": (
+                    record.needs_manual_reason.model_dump(mode="json")
+                    if record.needs_manual_reason
+                    else None
+                ),
                 "requested_fields": record.requested_fields,
                 "missing_fields": record.missing_fields,
                 "requested_other_details": record.requested_other_details,

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from smokescreen.models import (
     BrokerStatus,
+    NeedsManualReason,
     OptOutRecord,
     PendingWhitelistEntry,
     PendingWhitelistStatus,
@@ -42,6 +43,7 @@ class SQLiteStore:
                 updated_at TEXT NOT NULL,
                 last_completed_at TEXT,
                 notes TEXT NOT NULL DEFAULT '',
+                needs_manual_reason TEXT,
                 previous_status TEXT,
                 requested_fields TEXT NOT NULL DEFAULT '[]',
                 missing_fields TEXT NOT NULL DEFAULT '[]',
@@ -55,6 +57,10 @@ class SQLiteStore:
             self._conn.execute("ALTER TABLE opt_outs ADD COLUMN last_completed_at TEXT")
         if "previous_status" not in cols:
             self._conn.execute("ALTER TABLE opt_outs ADD COLUMN previous_status TEXT")
+        if "needs_manual_reason" not in cols:
+            self._conn.execute(
+                "ALTER TABLE opt_outs ADD COLUMN needs_manual_reason TEXT"
+            )
         if "requested_fields" not in cols:
             self._conn.execute(
                 """
@@ -152,6 +158,7 @@ class SQLiteStore:
                 as_aware_utc(datetime.fromisoformat(lca)) if lca else None
             ),
             notes=row["notes"],
+            needs_manual_reason=self._needs_manual_reason(row["needs_manual_reason"]),
             requested_fields=self._json_list(row["requested_fields"]),
             missing_fields=self._json_list(row["missing_fields"]),
             requested_other_details=row["requested_other_details"],
@@ -167,6 +174,17 @@ class SQLiteStore:
         if not isinstance(parsed, list):
             return []
         return [str(item) for item in parsed if isinstance(item, str)]
+
+    def _needs_manual_reason(self, raw: str | None) -> NeedsManualReason | None:
+        if not raw:
+            return None
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        return NeedsManualReason.model_validate(parsed)
 
     def get(self, broker_id: str) -> OptOutRecord | None:
         row = self._conn.execute(
@@ -194,10 +212,10 @@ class SQLiteStore:
             """
             INSERT INTO opt_outs (broker_id, status, retries, thread_id,
                                   last_message_id, created_at, updated_at,
-                                  last_completed_at, notes, previous_status,
-                                  requested_fields, missing_fields,
-                                  requested_other_details)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  last_completed_at, notes, needs_manual_reason,
+                                  previous_status, requested_fields,
+                                  missing_fields, requested_other_details)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(broker_id) DO UPDATE SET
                 status = excluded.status,
                 previous_status = excluded.previous_status,
@@ -207,6 +225,7 @@ class SQLiteStore:
                 updated_at = excluded.updated_at,
                 last_completed_at = excluded.last_completed_at,
                 notes = excluded.notes,
+                needs_manual_reason = excluded.needs_manual_reason,
                 requested_fields = excluded.requested_fields,
                 missing_fields = excluded.missing_fields,
                 requested_other_details = excluded.requested_other_details
@@ -223,6 +242,11 @@ class SQLiteStore:
                 if record.last_completed_at
                 else None,
                 record.notes,
+                (
+                    json.dumps(record.needs_manual_reason.model_dump(mode="json"))
+                    if record.needs_manual_reason
+                    else None
+                ),
                 record.previous_status.value if record.previous_status else None,
                 json.dumps(record.requested_fields),
                 json.dumps(record.missing_fields),

@@ -6,6 +6,7 @@ type AttentionRecord = Pick<
   OptOutRecord,
   | "broker_name"
   | "missing_fields"
+  | "needs_manual_reason"
   | "notes"
   | "requested_fields"
   | "requested_other_details"
@@ -82,6 +83,10 @@ export function getBrokerReplyText(record: AttentionRecord): string {
     record.notes.trim() ||
     "No saved broker reply is available for this item. Open the source email if a thread is linked, then choose the safest next action."
   );
+}
+
+export function getNeedsManualSummary(record: AttentionRecord): string {
+  return record.needs_manual_reason?.short_summary.trim() || getBrokerReplyText(record);
 }
 
 export function getVerificationProfileGap(record: AttentionRecord): VerificationProfileGap | null {

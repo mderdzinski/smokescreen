@@ -14,6 +14,7 @@ from smokescreen.config import Settings
 from smokescreen.models import (
     Broker,
     BrokerStatus,
+    NeedsManualReason,
     OptOutRecord,
     VerificationAddress,
     VerificationDocument,
@@ -306,6 +307,44 @@ def test_list_optouts_by_needs_attention_group(client):
     }
 
 
+def test_list_optouts_includes_needs_manual_reason(client):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    store.upsert(
+        OptOutRecord(
+            broker_id="spokeo",
+            status=BrokerStatus.NEEDS_MANUAL,
+            needs_manual_reason=NeedsManualReason(
+                reason_code="info_request_missing_fields",
+                short_summary="Broker requested a missing phone number.",
+                broker_reply_excerpt="Please send your phone number.",
+                classifier_output={
+                    "classification": "INFO_REQUEST",
+                    "requested_fields": ["phone_number"],
+                    "other_details": "",
+                },
+                missing_fields=["phone_number"],
+            ),
+        )
+    )
+    store.set_enabled_brokers(["spokeo"])
+
+    resp = client.get("/api/optouts")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data[0]["needs_manual_reason"]["reason_code"] == (
+        "info_request_missing_fields"
+    )
+    assert data[0]["needs_manual_reason"]["missing_fields"] == ["phone_number"]
+    assert data[0]["needs_manual_reason"]["classifier_output"] == {
+        "classification": "INFO_REQUEST",
+        "requested_fields": ["phone_number"],
+        "other_details": "",
+    }
+
+
 def test_list_optouts_needs_attention_excludes_disabled_brokers(client):
     from smokescreen.api import get_store
 
@@ -367,6 +406,10 @@ def test_retry_classification_restores_previous_status(client):
             thread_id="thread-123",
             last_message_id="message-123",
             notes="Missing phone number",
+            needs_manual_reason=NeedsManualReason(
+                reason_code="info_request_missing_fields",
+                short_summary="Broker requested a missing phone number.",
+            ),
             retries=3,
         )
     )
@@ -381,6 +424,7 @@ def test_retry_classification_restores_previous_status(client):
     assert data["thread_id"] == "thread-123"
     assert data["last_message_id"] is None
     assert data["notes"] == ""
+    assert data["needs_manual_reason"] is None
     assert data["retries"] == 0
     saved = store.get("spokeo")
     assert saved is not None
@@ -389,6 +433,7 @@ def test_retry_classification_restores_previous_status(client):
     assert saved.thread_id == "thread-123"
     assert saved.last_message_id is None
     assert saved.notes == ""
+    assert saved.needs_manual_reason is None
     assert saved.retries == 0
 
 

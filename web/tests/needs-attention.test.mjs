@@ -51,6 +51,25 @@ test("pending-review guidance explains the broker reply and next step", () => {
   assert.equal(helpers.getBrokerReplyText(record), "Please send a signed form before we can continue.");
 });
 
+test("needs-manual summary prefers structured summary and falls back to notes", () => {
+  assert.equal(
+    helpers.getNeedsManualSummary({
+      needs_manual_reason: {
+        short_summary: "Broker asked for a missing phone number.",
+      },
+      notes: "Legacy note",
+    }),
+    "Broker asked for a missing phone number.",
+  );
+  assert.equal(
+    helpers.getNeedsManualSummary({
+      needs_manual_reason: null,
+      notes: "Legacy note",
+    }),
+    "Legacy note",
+  );
+});
+
 test("attention actions use user-intent labels while pending", () => {
   assert.deepEqual(
     helpers.getAttentionActionLabels({

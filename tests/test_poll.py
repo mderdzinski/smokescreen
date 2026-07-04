@@ -405,6 +405,13 @@ def test_process_thread_marks_manual_without_anthropic_key(tmp_path):
     assert updated.status == BrokerStatus.NEEDS_MANUAL
     assert updated.previous_status == BrokerStatus.INITIAL_SENT
     assert updated.notes == "No Anthropic API key configured"
+    assert updated.needs_manual_reason is not None
+    assert updated.needs_manual_reason.reason_code == "other"
+    assert (
+        updated.needs_manual_reason.short_summary
+        == "No Anthropic API key configured"
+    )
+    assert updated.needs_manual_reason.broker_reply_excerpt == "We need more context."
     assert store.list_pending_whitelist(PendingWhitelistStatus.PENDING) == []
     assert gmail.sent_messages == []
     store.close()
@@ -451,6 +458,18 @@ def test_process_thread_persists_manual_review_reply_details(tmp_path):
     assert (
         updated.notes == "Subject: Portal action required\n\n"
         "Please log in to our privacy portal to finish the opt-out."
+    )
+    assert updated.needs_manual_reason is not None
+    assert (
+        updated.needs_manual_reason.reason_code
+        == "classifier_returned_needs_manual"
+    )
+    assert updated.needs_manual_reason.broker_reply_excerpt == (
+        "Please log in to our privacy portal to finish the opt-out."
+    )
+    assert (
+        updated.needs_manual_reason.classifier_output["classification"]
+        == "NEEDS_MANUAL"
     )
     store.close()
 
@@ -768,6 +787,11 @@ def test_info_request_documents_missing_needs_manual(tmp_path):
     assert updated.status == BrokerStatus.NEEDS_MANUAL
     assert updated.requested_fields == ["documents"]
     assert updated.missing_fields == ["documents"]
+    assert updated.needs_manual_reason is not None
+    assert (
+        updated.needs_manual_reason.reason_code
+        == "documents_requested_none_available"
+    )
     assert "documents-not-available" in updated.notes
     store.close()
 
@@ -811,6 +835,13 @@ def test_process_thread_info_request_missing_profile_field_needs_manual(tmp_path
     assert updated.requested_fields == ["phone_number"]
     assert updated.missing_fields == ["phone_number"]
     assert updated.previous_status == BrokerStatus.AWAITING_RESPONSE
+    assert updated.needs_manual_reason is not None
+    assert updated.needs_manual_reason.reason_code == "info_request_missing_fields"
+    assert updated.needs_manual_reason.missing_fields == ["phone_number"]
+    assert (
+        updated.needs_manual_reason.classifier_output["classification"]
+        == "INFO_REQUEST"
+    )
     assert "You are missing: Phone number" in updated.notes
     store.close()
 
@@ -1011,6 +1042,9 @@ def test_process_thread_marks_needs_manual_for_unknown_sender(tmp_path):
     updated = store.get("labeled")
     assert updated.status == BrokerStatus.NEEDS_MANUAL
     assert updated.previous_status == BrokerStatus.INITIAL_SENT
+    assert updated.needs_manual_reason is not None
+    assert updated.needs_manual_reason.reason_code == "untrusted_sender_reply"
+    assert updated.needs_manual_reason.broker_reply_excerpt == "x" * 250
     assert (
         updated.notes
         == "Reply received from untrusted sender reply@labeled.example - "
@@ -1195,6 +1229,15 @@ def test_timeout_escalation_second_strike_moves_to_needs_manual(tmp_path):
     assert updated.status == BrokerStatus.NEEDS_MANUAL
     assert "AWAITING_RESPONSE" in updated.notes
     assert updated.previous_status == BrokerStatus.AWAITING_RESPONSE_PINGED
+    assert updated.needs_manual_reason is not None
+    assert (
+        updated.needs_manual_reason.reason_code
+        == "timeout_escalation_second_window"
+    )
+    assert (
+        updated.needs_manual_reason.classifier_output["timed_out_status"]
+        == "AWAITING_RESPONSE_PINGED"
+    )
     store.close()
 
 

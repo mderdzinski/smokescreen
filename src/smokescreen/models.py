@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import enum
 from datetime import UTC, datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -139,6 +140,17 @@ class Broker(BaseModel):
     notes: str = Field(default="", description="Notes about this broker's process")
 
 
+class NeedsManualReason(BaseModel):
+    """Structured context captured when an opt-out needs manual review."""
+
+    reason_code: str
+    short_summary: str
+    broker_reply_excerpt: str = ""
+    classifier_output: dict[str, Any] = Field(default_factory=dict)
+    missing_fields: list[str] = Field(default_factory=list)
+    transitioned_at: datetime = Field(default_factory=utc_now)
+
+
 class OptOutRecord(BaseModel):
     """Tracks opt-out progress for a single broker."""
 
@@ -152,6 +164,7 @@ class OptOutRecord(BaseModel):
     updated_at: datetime = Field(default_factory=utc_now)
     last_completed_at: datetime | None = None
     notes: str = ""
+    needs_manual_reason: NeedsManualReason | None = None
     requested_fields: list[str] = Field(default_factory=list)
     missing_fields: list[str] = Field(default_factory=list)
     requested_other_details: str = ""

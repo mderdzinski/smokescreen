@@ -514,6 +514,7 @@ async def reset_optout(broker_id: str):
     record.thread_id = None
     record.last_message_id = None
     record.notes = ""
+    record.needs_manual_reason = None
     record.requested_fields = []
     record.missing_fields = []
     record.requested_other_details = ""
@@ -549,6 +550,7 @@ async def retry_optout_classification(broker_id: str):
     record.previous_status = None
     record.last_message_id = None
     record.notes = ""
+    record.needs_manual_reason = None
     record.retries = 0
     record.updated_at = utc_now()
     store.upsert(record)
@@ -568,6 +570,7 @@ async def mark_optout_handled(broker_id: str):
     now = utc_now()
     record.status = BrokerStatus.COMPLETED
     record.previous_status = None
+    record.needs_manual_reason = None
     record.last_completed_at = now
     record.updated_at = now
     store.upsert(record)

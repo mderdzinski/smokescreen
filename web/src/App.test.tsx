@@ -113,6 +113,7 @@ function optOut(overrides: Partial<OptOutRecord>): OptOutRecord {
     created_at: "2026-06-20T12:00:00Z",
     last_message_id: "msg-1",
     missing_fields: [],
+    needs_manual_reason: null,
     notes: "",
     previous_status: null,
     requested_fields: [],
@@ -1862,6 +1863,50 @@ describe("NeedsAttentionPage", () => {
     expect(screen.queryByText("This disabled broker should stay hidden.")).not.toBeInTheDocument();
   });
 
+  it("renders structured needs-manual summary with expandable details", async () => {
+    mockApi([
+      {
+        body: [
+          optOut({
+            broker_id: "manual",
+            broker_name: "Manual Broker",
+            missing_fields: ["phone_number"],
+            needs_manual_reason: {
+              reason_code: "info_request_missing_fields",
+              short_summary: "Broker requested a phone number missing from the Verification Profile.",
+              broker_reply_excerpt: "Please send the phone number associated with this listing.",
+              classifier_output: {
+                classification: "INFO_REQUEST",
+                requested_fields: ["phone_number"],
+                other_details: "Use the listing phone.",
+              },
+              missing_fields: ["phone_number"],
+              transitioned_at: "2026-06-22T15:30:00Z",
+            },
+            notes: "Legacy note should not be the compact summary.",
+            requested_fields: ["phone_number"],
+            status: "NEEDS_MANUAL",
+          }),
+        ],
+        path: "/api/optouts?status=needs_attention",
+      },
+      { body: brokerSelectionResponse(["manual"]), path: "/api/brokers/selections" },
+    ]);
+
+    renderWithProviders(<NeedsAttentionPage />);
+
+    expect(
+      await screen.findByText("Broker requested a phone number missing from the Verification Profile."),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Needs Attention Details"));
+
+    expect(screen.getByText("info_request_missing_fields")).toBeInTheDocument();
+    expect(screen.getByText("Please send the phone number associated with this listing.")).toBeInTheDocument();
+    expect(screen.getAllByText("phone_number").length).toBeGreaterThan(0);
+    expect(screen.getByText(/"classification": "INFO_REQUEST"/)).toBeInTheDocument();
+    expect(screen.getByText(/2026/)).toBeInTheDocument();
+  });
+
   it("marks an item handled after manual review", async () => {
     const user = userEvent.setup();
     const handledIds: string[] = [];
@@ -1886,7 +1931,9 @@ describe("NeedsAttentionPage", () => {
 
     const { container } = renderWithProviders(<NeedsAttentionPage />);
 
-    expect(await screen.findByText("Broker wants a signed form before continuing.")).toBeInTheDocument();
+    expect(
+      (await screen.findAllByText("Broker wants a signed form before continuing.")).length,
+    ).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: "Mark handled" }));
 
     expect(await screen.findByRole("button", { name: "Marking handled" })).toBeDisabled();
@@ -1934,7 +1981,7 @@ describe("NeedsAttentionPage", () => {
 
     renderWithProviders(<NeedsAttentionPage />);
 
-    expect(await screen.findByText("Broker asked for a phone number.")).toBeInTheDocument();
+    expect((await screen.findAllByText("Broker asked for a phone number.")).length).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: "Retry" }));
 
     expect(await screen.findByRole("button", { name: "Retrying" })).toBeDisabled();
@@ -1990,7 +2037,7 @@ describe("NeedsAttentionPage", () => {
 
     renderWithProviders(<NeedsAttentionPage />);
 
-    expect(await screen.findByText("Old manual record with no source thread.")).toBeInTheDocument();
+    expect((await screen.findAllByText("Old manual record with no source thread.")).length).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: "Retry" }));
 
     expect(await screen.findByText("Request was not retried")).toBeInTheDocument();

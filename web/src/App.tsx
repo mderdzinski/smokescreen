@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
+  ChevronDown,
   Clock3,
   ExternalLink,
   LogOut,
@@ -42,6 +43,7 @@ import {
   getAttentionGuidance,
   getAttentionViewState,
   getBrokerReplyText,
+  getNeedsManualSummary,
   getSourceEmailHref,
   getVerificationProfileGap,
 } from "./lib/needs-attention";
@@ -1141,7 +1143,12 @@ function AttentionItem({
   onRetry: () => void;
 }) {
   const guidance = getAttentionGuidance(record);
+  const manualSummary = getNeedsManualSummary(record);
   const replyText = getBrokerReplyText(record);
+  const reason = record.needs_manual_reason;
+  const classifierOutputText = reason ? formatClassifierOutput(reason.classifier_output) : "";
+  const transitionedAge = reason ? formatTransitionAge(reason.transitioned_at) : null;
+  const transitionedAt = reason ? formatFriendlyTimestamp(reason.transitioned_at) : null;
   const sourceEmailHref = getSourceEmailHref(record.thread_id);
   const verificationGap = getVerificationProfileGap(record);
   const actionLabels = getAttentionActionLabels({ isMarkingHandled: isMarkingHandled || isResolving, isRetrying });
@@ -1166,6 +1173,16 @@ function AttentionItem({
           <p className="mt-[3px] break-words font-mono text-xs text-content-muted">
             {record.broker_privacy_email || "No opt-out email listed"}
           </p>
+          <div className="mt-[9px] flex flex-wrap items-center gap-2">
+            <p className="max-w-3xl break-words text-sm font-medium leading-relaxed text-content-body">
+              {manualSummary}
+            </p>
+            {transitionedAge ? (
+              <span className="rounded-sm border border-border bg-surface-sunken px-2 py-1 font-mono text-2xs uppercase tracking-label text-content-muted">
+                {transitionedAge}
+              </span>
+            ) : null}
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           {sourceEmailHref ? (
@@ -1191,6 +1208,54 @@ function AttentionItem({
           </Button>
         </div>
       </div>
+
+      {reason ? (
+        <details className="group mt-[14px] rounded-sm border border-border bg-surface-sunken">
+          <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-[13px] py-[10px] [&::-webkit-details-marker]:hidden">
+            <ChevronDown className="h-4 w-4 text-content-muted transition-transform duration-base group-open:rotate-180" />
+            <span className="ss-label text-content-muted">Needs Attention Details</span>
+            <Badge className="max-w-full whitespace-normal break-all leading-snug" variant="outline">
+              {reason.reason_code}
+            </Badge>
+          </summary>
+          <div className="grid gap-3 border-t border-border px-[13px] py-[11px] lg:grid-cols-2">
+            {reason.broker_reply_excerpt ? (
+              <div className="lg:col-span-2">
+                <div className="ss-label mb-[5px]">Broker reply excerpt</div>
+                <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-sm border border-border bg-surface px-[11px] py-[9px] font-mono text-xs leading-relaxed text-content-body">
+                  {reason.broker_reply_excerpt}
+                </pre>
+              </div>
+            ) : null}
+            {reason.missing_fields.length ? (
+              <div>
+                <div className="ss-label mb-[5px]">Missing fields</div>
+                <div className="flex flex-wrap gap-1">
+                  {reason.missing_fields.map((field) => (
+                    <Badge key={field} variant="amber">
+                      {field}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {transitionedAt ? (
+              <div>
+                <div className="ss-label mb-[5px]">Transitioned at</div>
+                <p className="font-mono text-xs text-content-muted">{transitionedAt}</p>
+              </div>
+            ) : null}
+            {classifierOutputText ? (
+              <div className="lg:col-span-2">
+                <div className="ss-label mb-[5px]">Classifier output</div>
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-sm border border-border bg-surface px-[11px] py-[9px] font-mono text-xs leading-relaxed text-content-body">
+                  {classifierOutputText}
+                </pre>
+              </div>
+            ) : null}
+          </div>
+        </details>
+      ) : null}
 
       {verificationGap ? (
         <div className="mt-[14px] rounded-sm border border-bd-amber bg-fill-amber px-[13px] py-[11px]">
@@ -1224,6 +1289,50 @@ function AttentionItem({
       </div>
     </Card>
   );
+}
+
+function formatTransitionAge(value: string): string | null {
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) {
+    return null;
+  }
+
+  const elapsedMs = Date.now() - timestamp;
+  if (elapsedMs < 0) {
+    return null;
+  }
+
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (elapsedMs < minute) {
+    return "just now";
+  }
+  if (elapsedMs < hour) {
+    return `${Math.floor(elapsedMs / minute)}m ago`;
+  }
+  if (elapsedMs < day) {
+    return `${Math.floor(elapsedMs / hour)}h ago`;
+  }
+  return `${Math.floor(elapsedMs / day)}d ago`;
+}
+
+function formatFriendlyTimestamp(value: string): string | null {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function formatClassifierOutput(output: Record<string, unknown>): string {
+  if (!Object.keys(output).length) {
+    return "";
+  }
+  return JSON.stringify(output, null, 2);
 }
 
 function EmptyAttentionState() {
