@@ -242,15 +242,13 @@ Terraform state must live in GCS so both local operators and CI apply
 against the same state. The bucket is created manually, not by Terraform,
 to avoid a chicken-and-egg with the backend it configures.
 
-Bucket names are globally unique across all of GCS. `smokescreen-app-tfstate`
-is claimed by the overseer deployment; forks must pick a variant and update
-`infra/backend.tf` to match.
-
-For forks, replace the `TFSTATE_BUCKET` value with your own globally unique
-bucket name.
+Bucket names are globally unique across all of GCS. Pick something distinctive
+for your project, then pass it to Terraform at init time with
+`terraform init -backend-config="bucket=YOUR_BUCKET_NAME"`.
 
 ```bash
-export TFSTATE_BUCKET="smokescreen-app-tfstate"
+# Bucket names are globally unique in GCS; pick something distinctive for your project.
+export TFSTATE_BUCKET="YOUR_PROJECT_ID-tfstate"
 
 gcloud storage buckets create "gs://${TFSTATE_BUCKET}" \
   --project="${PROJECT_ID}" \
@@ -360,16 +358,21 @@ in Secrets — they are not confidential and repository variables are the
 correct GitHub surface for them.
 
 The release workflow validates these variables before authenticating to Google
-Cloud or running Terraform. If any value is missing or blank, the deploy job
-fails fast with a message naming the missing variables instead of passing empty
-`TF_VAR_project_id` or `TF_VAR_region` values into the Google providers.
+Cloud, publishing an image, or running Terraform. If any value is missing or
+blank, the workflow fails fast with a message naming the missing variables
+instead of passing empty project, image, backend, or dashboard allowlist values
+into the deploy.
 
 | Variable | Example | Description |
 | --- | --- | --- |
 | `WIF_PROVIDER` | `projects/123/locations/global/workloadIdentityPools/gh/providers/github` | Already set for the docker-publish workflow. Deploy reuses it. |
 | `WIF_SERVICE_ACCOUNT` | `smokescreen-ci@YOUR_PROJECT_ID.iam.gserviceaccount.com` | Already set for docker-publish. Deploy reuses it. |
-| `GCP_PROJECT_ID` | `smokescreen-app` | Target project for `terraform apply`. |
+| `GCP_PROJECT_ID` | `YOUR_PROJECT_ID` | Target project for image publishing and `terraform apply`. |
 | `GCP_REGION` | `us-central1` | Terraform region. |
+| `ARTIFACT_REPO_NAME` | `smokescreen` | Artifact Registry repository name. Use `smokescreen` if keeping the default repo name. |
+| `ARTIFACT_IMAGE_NAME` | `smokescreen` | Artifact Registry image name. Use `smokescreen` if keeping the default image name. |
+| `TFSTATE_BUCKET` | `YOUR_PROJECT_ID-tfstate` | GCS bucket used by Terraform's remote backend. Must match the bucket you created above. |
+| `DASHBOARD_ALLOWED_USER` | `you@example.com` | Google account authorized to access the IAP-protected dashboard. |
 | `SMOKESCREEN_SENDER_EMAIL` | `you@example.com` | Value passed as `sender_email`. |
 | `SMOKESCREEN_SENDER_NAME` | `Your Legal Name` | Value passed as `sender_name`. |
 
@@ -389,7 +392,7 @@ backend:
 ```bash
 gcloud auth application-default login
 cd infra
-terraform init -migrate-state
+terraform init -migrate-state -backend-config="bucket=${TFSTATE_BUCKET}"
 ```
 
 Terraform detects the new backend block, prompts you to copy the local

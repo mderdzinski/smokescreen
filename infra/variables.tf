@@ -48,9 +48,13 @@ variable "gemini_location" {
 }
 
 variable "dashboard_allowed_user" {
-  description = "Google account email granted IAP access to the dashboard Cloud Run service"
+  description = "Email of the Google account authorized to access the IAP-protected dashboard. Must be provided by the deployer; no default value."
   type        = string
-  default     = "mark.derdzinski@gmail.com"
+
+  validation {
+    condition     = length(var.dashboard_allowed_user) > 0 && can(regex("^[^@]+@[^@]+$", var.dashboard_allowed_user))
+    error_message = "dashboard_allowed_user must be a valid email address."
+  }
 }
 
 variable "rerequest_interval_days" {

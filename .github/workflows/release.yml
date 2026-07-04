@@ -80,7 +80,7 @@ jobs:
     env:
       TF_INPUT: "0"
       TF_IN_AUTOMATION: "1"
-      IMAGE_REPO: us-central1-docker.pkg.dev/smokescreen-app/smokescreen/smokescreen
+      IMAGE_REPO: us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REPO_NAME }}/${{ vars.ARTIFACT_IMAGE_NAME }}
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v4
@@ -92,6 +92,10 @@ jobs:
         env:
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           GCP_REGION: ${{ vars.GCP_REGION }}
+          ARTIFACT_REPO_NAME: ${{ vars.ARTIFACT_REPO_NAME }}
+          ARTIFACT_IMAGE_NAME: ${{ vars.ARTIFACT_IMAGE_NAME }}
+          TFSTATE_BUCKET: ${{ vars.TFSTATE_BUCKET }}
+          DASHBOARD_ALLOWED_USER: ${{ vars.DASHBOARD_ALLOWED_USER }}
           SMOKESCREEN_SENDER_EMAIL: ${{ vars.SMOKESCREEN_SENDER_EMAIL }}
           SMOKESCREEN_SENDER_NAME: ${{ vars.SMOKESCREEN_SENDER_NAME }}
           WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
@@ -100,6 +104,10 @@ jobs:
           required_vars=(
             GCP_PROJECT_ID
             GCP_REGION
+            ARTIFACT_REPO_NAME
+            ARTIFACT_IMAGE_NAME
+            TFSTATE_BUCKET
+            DASHBOARD_ALLOWED_USER
             SMOKESCREEN_SENDER_EMAIL
             SMOKESCREEN_SENDER_NAME
             WIF_PROVIDER
@@ -136,7 +144,7 @@ jobs:
 
       - name: Terraform init
         working-directory: infra
-        run: terraform init -input=false
+        run: terraform init -input=false -backend-config="bucket=${{ vars.TFSTATE_BUCKET }}"
 
       - name: Terraform apply
         working-directory: infra
@@ -145,5 +153,6 @@ jobs:
           TF_VAR_region: ${{ vars.GCP_REGION }}
           TF_VAR_sender_email: ${{ vars.SMOKESCREEN_SENDER_EMAIL }}
           TF_VAR_sender_name: ${{ vars.SMOKESCREEN_SENDER_NAME }}
+          TF_VAR_dashboard_allowed_user: ${{ vars.DASHBOARD_ALLOWED_USER }}
           TF_VAR_image: ${{ env.IMAGE_REPO }}:${{ needs.release.outputs.tag }}
         run: terraform apply -auto-approve -input=false

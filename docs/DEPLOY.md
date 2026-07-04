@@ -12,8 +12,10 @@ Normal deployments after the first one are automatic:
 1. A conventional-commit merge to `main` triggers `release.yml`. Semantic-release
    analyzes commits and, when appropriate, cuts a new `vX.Y.Z` git tag.
 2. The `publish-release-image` job builds and pushes
-   `us-central1-docker.pkg.dev/smokescreen-app/smokescreen/smokescreen:vX.Y.Z`
-   to Artifact Registry using Workload Identity Federation.
+   `us-central1-docker.pkg.dev/YOUR_PROJECT_ID/smokescreen/smokescreen:vX.Y.Z`
+   to Artifact Registry using Workload Identity Federation. If you changed the
+   default Artifact Registry repository or image name, the path uses your
+   `ARTIFACT_REPO_NAME` and `ARTIFACT_IMAGE_NAME` repository variables instead.
 3. The `deploy` job runs `terraform apply -auto-approve` against the shared GCS
    backend state, wiring the new image tag into Cloud Run and Scheduler.
 
@@ -62,8 +64,10 @@ export REGION="YOUR_REGION"
 export DEPLOYER_EMAIL="YOUR_EMAIL"
 export DEPLOYER_NAME="YOUR_LEGAL_NAME"
 export ARTIFACT_REPO="smokescreen"
+export ARTIFACT_IMAGE_NAME="smokescreen"
+export TFSTATE_BUCKET="${PROJECT_ID}-tfstate"
 export IMAGE_TAG="YOUR_IMAGE_TAG"
-export IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/smokescreen:${IMAGE_TAG}"
+export IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/${ARTIFACT_IMAGE_NAME}:${IMAGE_TAG}"
 ```
 
 Use `gcloud config configurations activate smokescreen` before running the
@@ -203,8 +207,11 @@ Initialize Terraform once:
 
 ```bash
 cd infra
-terraform init
+terraform init -backend-config="bucket=${TFSTATE_BUCKET}"
 ```
+
+For a literal bucket name, use the same backend-config pattern:
+`terraform init -backend-config="bucket=YOUR_BUCKET_NAME"`.
 
 #### Phase 1 — Apply secret containers only
 
@@ -554,7 +561,7 @@ break-glass path in the next section with the previous tag:
 
 ```bash
 export IMAGE_TAG="v0.18.0"
-export IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/smokescreen:${IMAGE_TAG}"
+export IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/${ARTIFACT_IMAGE_NAME}:${IMAGE_TAG}"
 terraform apply -var="image=${IMAGE}" ...
 ```
 
@@ -580,6 +587,10 @@ Actions > Variables** and rerun the Release workflow:
 
 - `GCP_PROJECT_ID`
 - `GCP_REGION`
+- `ARTIFACT_REPO_NAME`
+- `ARTIFACT_IMAGE_NAME`
+- `TFSTATE_BUCKET`
+- `DASHBOARD_ALLOWED_USER`
 - `SMOKESCREEN_SENDER_EMAIL`
 - `SMOKESCREEN_SENDER_NAME`
 - `WIF_PROVIDER`
@@ -605,8 +616,9 @@ scope problems:
   tfstate bucket. Confirm the grant from
   [SETUP.md](SETUP.md#grant-deploy-roles-to-the-ci-service-account) is
   present on the bucket, not just project-wide.
-- The bucket name in `infra/backend.tf` does not match the bucket you
-  created. Forks must edit `backend.tf` to match their unique bucket name.
+- The `TFSTATE_BUCKET` repository variable, or the local
+  `terraform init -backend-config="bucket=YOUR_BUCKET_NAME"` value, does not
+  match the bucket you created.
 - Workload Identity Federation is misconfigured. Re-run `docker-publish`
   in isolation; if it can push images, WIF is working and the problem is
   scoped to Terraform/bucket IAM.
