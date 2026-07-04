@@ -1,3 +1,10 @@
+## [0.25.4](https://github.com/mderdzinski/smokescreen/compare/v0.25.3...v0.25.4) (2026-07-04)
+
+
+### Bug Fixes
+
+* parameterize deployer specific values for public repository release ([b8d33f0](https://github.com/mderdzinski/smokescreen/commit/b8d33f01b0b4370915574fe442087dcaf51f291c))
+
 ## [0.25.3](https://github.com/mderdzinski/smokescreen/compare/v0.25.2...v0.25.3) (2026-07-04)
 
 
