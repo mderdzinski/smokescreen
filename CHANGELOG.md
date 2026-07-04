@@ -1,3 +1,10 @@
+# [0.24.0](https://github.com/mderdzinski/smokescreen/compare/v0.23.0...v0.24.0) (2026-07-04)
+
+
+### Features
+
+* complete broker replies and trusted sender removal ([4c9d4f1](https://github.com/mderdzinski/smokescreen/commit/4c9d4f1a07e55be61baff59e3a14c9a49f7de917))
+
 # [0.23.0](https://github.com/mderdzinski/smokescreen/compare/v0.22.0...v0.23.0) (2026-07-03)
 
 
