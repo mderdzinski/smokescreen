@@ -242,7 +242,20 @@ def _process_thread(
                 message_snippet=latest.body[:200] if latest.body else "",
             )
         )
-        return False
+        validate_transition(record.status, BrokerStatus.NEEDS_MANUAL)
+        record.status = BrokerStatus.NEEDS_MANUAL
+        record.notes = (
+            f"Reply received from untrusted sender {latest_sender} - "
+            "approve in Trusted Senders if legitimate"
+        )
+        record.updated_at = utc_now()
+        store.upsert(record)
+        log.warning(
+            "poll_needs_manual_untrusted_sender",
+            broker=record.broker_id,
+            sender=latest_sender,
+        )
+        return True
 
     if ai_client is None:
         log.warning(

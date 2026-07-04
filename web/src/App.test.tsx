@@ -1063,6 +1063,7 @@ describe("BrokerRegistryPage", () => {
     await waitFor(() => expect(screen.queryByText("Acme Data")).not.toBeInTheDocument());
 
     await user.clear(screen.getByLabelText("Search brokers"));
+    await waitFor(() => expect(screen.getByText("Acme Data")).toBeInTheDocument());
     await user.type(screen.getByLabelText("Broker name"), " New Broker ");
     await user.type(screen.getByLabelText("Domain"), " new.example ");
     await user.click(screen.getByRole("button", { name: "Add broker" }));
@@ -1395,8 +1396,7 @@ describe("SettingsPage", () => {
       email: "junk@relay.example",
       id: 8,
     };
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    mockApi([
+    const apiMock = mockApi([
       ...settingsPageRoutes({
         pendingBody: [pendingSender, rejectedSender],
         whitelistBody: [trustedSender, manualSender],
@@ -1443,9 +1443,19 @@ describe("SettingsPage", () => {
     await user.click(screen.getByRole("button", { name: "Add sender" }));
     await waitFor(() => expect(manualBodies).toEqual([{ broker_id: "acme", email: "new@acme.example" }]));
 
-    await user.click(screen.getByRole("button", { name: "Remove manual@acme.example" }));
+    const initialWhitelistGets = apiMock.calls.filter(
+      (call) => call.method === "GET" && call.path === "/api/whitelist",
+    ).length;
+    await user.click(screen.getByRole("button", { name: "Remove trusted sender manual@acme.example" }));
+    expect(screen.getByRole("button", { name: "Confirm remove trusted sender manual@acme.example" })).toBeInTheDocument();
+    expect(deletedIds).toEqual([]);
+    await user.click(screen.getByRole("button", { name: "Confirm remove trusted sender manual@acme.example" }));
     await waitFor(() => expect(deletedIds).toEqual([2]));
-    confirmSpy.mockRestore();
+    await waitFor(() =>
+      expect(
+        apiMock.calls.filter((call) => call.method === "GET" && call.path === "/api/whitelist").length,
+      ).toBeGreaterThan(initialWhitelistGets),
+    );
   });
 
   it("batches changed fields into one sticky save-bar PUT", async () => {

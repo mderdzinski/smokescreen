@@ -709,7 +709,7 @@ def test_run_poll_handles_first_reply_info_request(tmp_path):
     store.close()
 
 
-def test_process_thread_adds_pending_whitelist_for_unknown_sender(tmp_path):
+def test_process_thread_marks_needs_manual_for_unknown_sender(tmp_path):
     settings = _settings(tmp_path)
     store = SQLiteStore(settings.sqlite_path)
     record = _record()
@@ -729,24 +729,36 @@ def test_process_thread_adds_pending_whitelist_for_unknown_sender(tmp_path):
     )
     anthropic_client = _mock_anthropic("COMPLETED")
 
-    processed = _process_thread(
-        settings=settings,
-        record=record,
-        broker_name="Labeled Broker",
-        broker_email="privacy@labeled.example",
-        store=store,
-        gmail=gmail,
-        ai_client=anthropic_client,
-    )
+    with patch("smokescreen.jobs.poll.log") as log:
+        processed = _process_thread(
+            settings=settings,
+            record=record,
+            broker_name="Labeled Broker",
+            broker_email="privacy@labeled.example",
+            store=store,
+            gmail=gmail,
+            ai_client=anthropic_client,
+        )
 
-    assert processed is False
+    assert processed is True
     pending = store.list_pending_whitelist(PendingWhitelistStatus.PENDING)
     assert len(pending) == 1
     assert pending[0].broker_id == "labeled"
     assert pending[0].email == "reply@labeled.example"
     assert pending[0].message_subject == "Re: request"
     assert pending[0].message_snippet == "x" * 200
-    assert store.get("labeled").status == BrokerStatus.INITIAL_SENT
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.NEEDS_MANUAL
+    assert (
+        updated.notes
+        == "Reply received from untrusted sender reply@labeled.example - "
+        "approve in Trusted Senders if legitimate"
+    )
+    log.warning.assert_any_call(
+        "poll_needs_manual_untrusted_sender",
+        broker="labeled",
+        sender="reply@labeled.example",
+    )
     anthropic_client.messages.create.assert_not_called()
     store.close()
 
@@ -788,13 +800,15 @@ def test_run_poll_deduplicates_pending_whitelist_for_repeated_unknown_reply(
     first = run_poll(settings, _registry(), store, gmail=gmail)
     second = run_poll(settings, _registry(), store, gmail=gmail)
 
-    assert first == []
+    assert first == ["labeled"]
     assert second == []
     pending = store.list_pending_whitelist(PendingWhitelistStatus.PENDING)
     assert len(pending) == 1
     assert pending[0].email == "caseworker@vendor.example"
     assert pending[0].message_subject == "Verify identity"
-    assert store.get("labeled").last_message_id == "sent-labeled"
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.NEEDS_MANUAL
+    assert updated.last_message_id == "sent-labeled"
     store.close()
 
 

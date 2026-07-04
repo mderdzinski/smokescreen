@@ -328,10 +328,17 @@ def test_poll_adds_pending_whitelist_for_firestore_store():
         ai_client=None,
     )
 
-    assert processed is False
+    assert processed is True
     pending = store.list_pending_whitelist(PendingWhitelistStatus.PENDING)
     assert len(pending) == 1
     assert pending[0].email == "verify@spokeo.com"
+    updated = store.get("spokeo")
+    assert updated.status == BrokerStatus.NEEDS_MANUAL
+    assert (
+        updated.notes
+        == "Reply received from untrusted sender verify@spokeo.com - "
+        "approve in Trusted Senders if legitimate"
+    )
 
 
 def test_poll_updates_firestore_record_for_completed_reply():

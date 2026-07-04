@@ -25,56 +25,53 @@ PINGED_STATE: dict[BrokerStatus, BrokerStatus] = {
 
 
 # Explicit transition table: current_state -> set of valid next states
+TERMINAL_OR_ATTENTION_STATES: set[BrokerStatus] = {
+    BrokerStatus.COMPLETED,
+    BrokerStatus.REJECTED,
+    BrokerStatus.FAILED,
+    BrokerStatus.NEEDS_MANUAL,
+}
+
+
 TRANSITIONS: dict[BrokerStatus, set[BrokerStatus]] = {
     BrokerStatus.PENDING: {BrokerStatus.INITIAL_SENT, BrokerStatus.FAILED},
     BrokerStatus.INITIAL_SENT: {
         BrokerStatus.INITIAL_SENT_PINGED,
         BrokerStatus.AWAITING_RESPONSE,
         BrokerStatus.INFO_REQUESTED,
-        BrokerStatus.FAILED,
+        *TERMINAL_OR_ATTENTION_STATES,
     },
     BrokerStatus.INITIAL_SENT_PINGED: {
         BrokerStatus.AWAITING_RESPONSE,
         BrokerStatus.INFO_REQUESTED,
-        BrokerStatus.NEEDS_MANUAL,
-        BrokerStatus.FAILED,
+        *TERMINAL_OR_ATTENTION_STATES,
     },
     BrokerStatus.AWAITING_RESPONSE: {
         BrokerStatus.AWAITING_RESPONSE_PINGED,
         BrokerStatus.INFO_REQUESTED,
-        BrokerStatus.COMPLETED,
-        BrokerStatus.REJECTED,
-        BrokerStatus.NEEDS_MANUAL,
-        BrokerStatus.FAILED,
+        *TERMINAL_OR_ATTENTION_STATES,
     },
     BrokerStatus.AWAITING_RESPONSE_PINGED: {
         BrokerStatus.INFO_REQUESTED,
-        BrokerStatus.COMPLETED,
-        BrokerStatus.REJECTED,
-        BrokerStatus.NEEDS_MANUAL,
-        BrokerStatus.FAILED,
+        *TERMINAL_OR_ATTENTION_STATES,
     },
     BrokerStatus.INFO_REQUESTED: {
         BrokerStatus.INFO_REQUESTED_PINGED,
         BrokerStatus.FOLLOW_UP_SENT,
-        BrokerStatus.NEEDS_MANUAL,
-        BrokerStatus.FAILED,
+        *TERMINAL_OR_ATTENTION_STATES,
     },
     BrokerStatus.INFO_REQUESTED_PINGED: {
         BrokerStatus.FOLLOW_UP_SENT,
-        BrokerStatus.NEEDS_MANUAL,
-        BrokerStatus.FAILED,
+        *TERMINAL_OR_ATTENTION_STATES,
     },
     BrokerStatus.FOLLOW_UP_SENT: {
         BrokerStatus.FOLLOW_UP_SENT_PINGED,
         BrokerStatus.AWAITING_RESPONSE,
-        BrokerStatus.NEEDS_MANUAL,
-        BrokerStatus.FAILED,
+        *TERMINAL_OR_ATTENTION_STATES,
     },
     BrokerStatus.FOLLOW_UP_SENT_PINGED: {
         BrokerStatus.AWAITING_RESPONSE,
-        BrokerStatus.NEEDS_MANUAL,
-        BrokerStatus.FAILED,
+        *TERMINAL_OR_ATTENTION_STATES,
     },
     # Terminal states (COMPLETED allows re-request back to PENDING)
     BrokerStatus.COMPLETED: {BrokerStatus.PENDING},

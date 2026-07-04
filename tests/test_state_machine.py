@@ -5,6 +5,24 @@ import pytest
 from smokescreen.models import BrokerStatus
 from smokescreen.state.machine import InvalidTransition, validate_transition
 
+WAITING_REPLY_STATES = (
+    BrokerStatus.INITIAL_SENT,
+    BrokerStatus.INITIAL_SENT_PINGED,
+    BrokerStatus.AWAITING_RESPONSE,
+    BrokerStatus.AWAITING_RESPONSE_PINGED,
+    BrokerStatus.INFO_REQUESTED,
+    BrokerStatus.INFO_REQUESTED_PINGED,
+    BrokerStatus.FOLLOW_UP_SENT,
+    BrokerStatus.FOLLOW_UP_SENT_PINGED,
+)
+
+TERMINAL_OR_ATTENTION_STATES = (
+    BrokerStatus.COMPLETED,
+    BrokerStatus.REJECTED,
+    BrokerStatus.FAILED,
+    BrokerStatus.NEEDS_MANUAL,
+)
+
 
 def test_valid_transitions():
     validate_transition(BrokerStatus.PENDING, BrokerStatus.INITIAL_SENT)
@@ -14,6 +32,15 @@ def test_valid_transitions():
     validate_transition(BrokerStatus.AWAITING_RESPONSE, BrokerStatus.INFO_REQUESTED)
     validate_transition(BrokerStatus.INFO_REQUESTED, BrokerStatus.FOLLOW_UP_SENT)
     validate_transition(BrokerStatus.FOLLOW_UP_SENT, BrokerStatus.AWAITING_RESPONSE)
+
+
+@pytest.mark.parametrize("current", WAITING_REPLY_STATES)
+@pytest.mark.parametrize("target", TERMINAL_OR_ATTENTION_STATES)
+def test_waiting_reply_states_can_transition_directly_to_terminal_or_attention(
+    current,
+    target,
+):
+    validate_transition(current, target)
 
 
 def test_invalid_transition_pending_to_completed():

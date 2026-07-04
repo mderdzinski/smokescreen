@@ -25,6 +25,7 @@ export function TrustedSendersSection({ onPendingChange }: TrustedSendersSection
   const [email, setEmail] = useState("");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [confirmingRemovalId, setConfirmingRemovalId] = useState<number | null>(null);
   const trustedSenders = useMemo(
     () => [...(whitelistQuery.data ?? [])].sort((a, b) => a.email.localeCompare(b.email)),
     [whitelistQuery.data],
@@ -68,6 +69,7 @@ export function TrustedSendersSection({ onPendingChange }: TrustedSendersSection
   const deleteMutation = useMutation({
     mutationFn: api.deleteWhitelist,
     onSuccess: async () => {
+      setConfirmingRemovalId(null);
       await queryClient.invalidateQueries({ queryKey: ["whitelist"] });
     },
   });
@@ -97,14 +99,18 @@ export function TrustedSendersSection({ onPendingChange }: TrustedSendersSection
     addMutation.mutate({ broker_id: trimmedBrokerId, email: trimmedEmail });
   }
 
-  function removeTrustedSender(entry: WhitelistEntry) {
+  function requestRemoveTrustedSender(entry: WhitelistEntry) {
     if (entry.source === "registry") {
       return;
     }
-    const confirmed = window.confirm(`Remove ${entry.email} from trusted senders?`);
-    if (confirmed) {
-      deleteMutation.mutate(entry.id);
+    setConfirmingRemovalId(entry.id);
+  }
+
+  function confirmRemoveTrustedSender(entry: WhitelistEntry) {
+    if (entry.source === "registry" || entry.id == null) {
+      return;
     }
+    deleteMutation.mutate(entry.id);
   }
 
   const retryTrustedSenders = () => {
@@ -271,8 +277,11 @@ export function TrustedSendersSection({ onPendingChange }: TrustedSendersSection
                 brokerName={brokerDisplayName(entry.broker_id, brokerById)}
                 entry={entry}
                 hasDivider={index > 0}
+                isConfirming={confirmingRemovalId === entry.id}
                 isRemoving={deleteMutation.isPending && deleteMutation.variables === entry.id}
-                onRemove={() => removeTrustedSender(entry)}
+                onCancelRemove={() => setConfirmingRemovalId(null)}
+                onConfirmRemove={() => confirmRemoveTrustedSender(entry)}
+                onRequestRemove={() => requestRemoveTrustedSender(entry)}
               />
             ))}
           </div>
@@ -357,14 +366,20 @@ function TrustedSenderRow({
   brokerName,
   entry,
   hasDivider,
+  isConfirming,
   isRemoving,
-  onRemove,
+  onCancelRemove,
+  onConfirmRemove,
+  onRequestRemove,
 }: {
   brokerName: string;
   entry: WhitelistEntry;
   hasDivider: boolean;
+  isConfirming: boolean;
   isRemoving: boolean;
-  onRemove: () => void;
+  onCancelRemove: () => void;
+  onConfirmRemove: () => void;
+  onRequestRemove: () => void;
 }) {
   return (
     <div
@@ -384,16 +399,33 @@ function TrustedSenderRow({
       </div>
       <Badge variant={entry.source === "registry" ? "olive" : "outline"}>{sourceLabel(entry.source)}</Badge>
       {entry.source === "manual" ? (
-        <Button
-          iconOnly
-          aria-label={`Remove ${entry.email}`}
-          variant="ghost"
-          size="sm"
-          onClick={onRemove}
-          disabled={isRemoving}
-        >
-          <Trash2 aria-hidden="true" />
-        </Button>
+        isConfirming ? (
+          <div className="flex shrink-0 items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={onCancelRemove} disabled={isRemoving}>
+              Cancel
+            </Button>
+            <Button
+              aria-label={`Confirm remove trusted sender ${entry.email}`}
+              variant="danger"
+              size="sm"
+              onClick={onConfirmRemove}
+              disabled={isRemoving}
+            >
+              {isRemoving ? "Removing" : "Confirm"}
+            </Button>
+          </div>
+        ) : (
+          <Button
+            iconOnly
+            aria-label={`Remove trusted sender ${entry.email}`}
+            variant="ghost"
+            size="sm"
+            onClick={onRequestRemove}
+            disabled={isRemoving}
+          >
+            <Trash2 aria-hidden="true" />
+          </Button>
+        )
       ) : (
         <span
           className="inline-grid h-[30px] w-[30px] shrink-0 place-items-center text-content-faint"
