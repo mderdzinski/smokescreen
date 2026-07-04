@@ -1,11 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   useEffect,
-  useMemo,
   useRef,
   useState,
-  type ChangeEvent,
-  type DragEvent,
   type ReactNode,
 } from "react";
 import {
@@ -14,23 +11,23 @@ import {
   ChevronDown,
   Clock3,
   Circle,
-  FileLock2,
-  Inbox,
+  Eye,
+  EyeOff,
   KeyRound,
   Mail,
+  Plus,
   Plug,
   RefreshCcw,
   RotateCcw,
   Save,
   Settings,
   ShieldCheck,
-  ShieldPlus,
   SlidersHorizontal,
   Sparkles,
-  Trash2,
   UserRound,
+  X,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 import { ErrorState, LoadingState } from "../components/status-state";
 import { Badge } from "../components/ui/badge";
@@ -45,11 +42,16 @@ import {
   type AdvancedSettings,
   type AiProvider,
   type FriendlySettings,
-  type IdentityDocument,
-  type IdentityDocumentKind,
   type SettingsUpdate,
+  type VerificationAddress,
+  type VerificationProfile,
 } from "../lib/api";
-import { useAdvancedSettings, usePendingWhitelist, useSettings } from "../lib/queries";
+import {
+  useAdvancedSettings,
+  usePendingWhitelist,
+  useSettings,
+  useVerificationProfile,
+} from "../lib/queries";
 import { cn } from "../lib/utils";
 
 const REREQUEST_INTERVAL_MIN_DAYS = 7;
@@ -57,7 +59,13 @@ const REREQUEST_INTERVAL_MAX_DAYS = 365;
 const STATE_TIMEOUT_MIN_DAYS = 1;
 const STATE_TIMEOUT_MAX_DAYS = 90;
 
-type SettingsSectionId = "identity" | "connections" | "trusted" | "cadence" | "advanced";
+type SettingsSectionId =
+  | "identity"
+  | "verification-profile"
+  | "connections"
+  | "trusted"
+  | "cadence"
+  | "advanced";
 
 type SettingsDraft = {
   sender_name: string;
@@ -79,28 +87,6 @@ type SaveRequest = {
   payload: SettingsUpdate;
   snapshot: SettingsDraft;
 };
-
-const identityDocSlots = [
-  {
-    kind: "government_id",
-    title: "Government ID",
-    description: "Driver's license, passport, or state ID.",
-  },
-  {
-    kind: "proof_of_address",
-    title: "Proof of address",
-    description: "Utility bill or bank statement from the last 90 days.",
-  },
-  {
-    kind: "ssn_last4",
-    title: "SSN last 4",
-    description: "Optional verifier for brokers that request it.",
-  },
-] satisfies Array<{
-  kind: IdentityDocumentKind;
-  title: string;
-  description: string;
-}>;
 
 function draftFromSettings(settings: FriendlySettings, advanced: AdvancedSettings): SettingsDraft {
   return normalizeDraft({
@@ -152,6 +138,75 @@ function sameDraft(left: SettingsDraft | null, right: SettingsDraft | null): boo
     return true;
   }
   return JSON.stringify(normalizeDraft(left)) === JSON.stringify(normalizeDraft(right));
+}
+
+function emptyAddress(): VerificationAddress {
+  return {
+    street: "",
+    city: "",
+    state: "",
+    zip: "",
+    country: "",
+  };
+}
+
+function emptyVerificationProfile(): VerificationProfile {
+  return {
+    home_addresses: [emptyAddress()],
+    phone_numbers: [""],
+    email_aliases: [""],
+    date_of_birth: null,
+    last_four_ssn: null,
+    employer_name: null,
+    additional_notes: null,
+  };
+}
+
+function hydrateVerificationProfile(profile?: VerificationProfile | null): VerificationProfile {
+  const normalized = normalizeVerificationProfile(profile ?? emptyVerificationProfile());
+  return {
+    ...normalized,
+    home_addresses: normalized.home_addresses.length ? normalized.home_addresses : [emptyAddress()],
+    phone_numbers: normalized.phone_numbers.length ? normalized.phone_numbers : [""],
+    email_aliases: normalized.email_aliases.length ? normalized.email_aliases : [""],
+  };
+}
+
+function normalizeVerificationProfile(profile: VerificationProfile): VerificationProfile {
+  return {
+    home_addresses: profile.home_addresses
+      .map((address) => ({
+        street: address.street.trim(),
+        city: address.city.trim(),
+        state: address.state.trim(),
+        zip: address.zip.trim(),
+        country: address.country.trim(),
+      }))
+      .filter((address) =>
+        Boolean(address.street || address.city || address.state || address.zip || address.country),
+      ),
+    phone_numbers: profile.phone_numbers.map((value) => value.trim()).filter(Boolean),
+    email_aliases: profile.email_aliases.map((value) => value.trim()).filter(Boolean),
+    date_of_birth: trimToNull(profile.date_of_birth),
+    last_four_ssn: trimToNull(profile.last_four_ssn)?.replace(/\D/g, "").slice(0, 4) ?? null,
+    employer_name: trimToNull(profile.employer_name),
+    additional_notes: trimToNull(profile.additional_notes),
+  };
+}
+
+function sameVerificationProfile(
+  left: VerificationProfile | null,
+  right: VerificationProfile | null,
+): boolean {
+  if (!left || !right) {
+    return true;
+  }
+  return JSON.stringify(normalizeVerificationProfile(left)) === JSON.stringify(normalizeVerificationProfile(right));
+}
+
+function trimToNull(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  return trimmed ? trimmed : null;
 }
 
 function cadenceWord(days: number): string | null {
@@ -235,15 +290,21 @@ function payloadHasChanges(payload: SettingsUpdate): boolean {
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
+  const location = useLocation();
   const settingsQuery = useSettings();
   const advancedQuery = useAdvancedSettings();
+  const verificationProfileQuery = useVerificationProfile();
   const pendingWhitelistQuery = usePendingWhitelist();
   const settings = settingsQuery.data;
   const advancedSettings = advancedQuery.data;
+  const verificationProfile = verificationProfileQuery.data;
   const [draft, setDraft] = useState<SettingsDraft | null>(null);
   const [savedDraft, setSavedDraft] = useState<SettingsDraft | null>(null);
+  const [profileDraft, setProfileDraft] = useState<VerificationProfile | null>(null);
+  const [savedProfileDraft, setSavedProfileDraft] = useState<VerificationProfile | null>(null);
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("identity");
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [showLastFour, setShowLastFour] = useState(false);
   const [message, setMessage] = useState("");
   const sectionRefs = useRef<Record<SettingsSectionId, HTMLElement | null>>({
     advanced: null,
@@ -251,6 +312,7 @@ export function SettingsPage() {
     connections: null,
     identity: null,
     trusted: null,
+    "verification-profile": null,
   });
 
   useEffect(() => {
@@ -261,6 +323,15 @@ export function SettingsPage() {
     setDraft(nextDraft);
     setSavedDraft(nextDraft);
   }, [advancedSettings, settings]);
+
+  useEffect(() => {
+    if (!verificationProfile) {
+      return;
+    }
+    const nextProfile = hydrateVerificationProfile(verificationProfile);
+    setProfileDraft(nextProfile);
+    setSavedProfileDraft(nextProfile);
+  }, [verificationProfile]);
 
   useEffect(() => {
     if (typeof IntersectionObserver === "undefined") {
@@ -285,6 +356,14 @@ export function SettingsPage() {
 
     return () => observer.disconnect();
   }, [draft]);
+
+  useEffect(() => {
+    const sectionId = location.hash.replace(/^#settings-/, "") as SettingsSectionId;
+    if (!sectionId || !(sectionId in sectionRefs.current)) {
+      return;
+    }
+    window.setTimeout(() => goToSection(sectionId), 0);
+  }, [location.hash, draft]);
 
   const saveMutation = useMutation({
     mutationFn: ({ payload }: SaveRequest) => api.updateSettings(payload),
@@ -328,20 +407,11 @@ export function SettingsPage() {
     },
   });
 
-  const uploadIdentityDocumentMutation = useMutation({
-    mutationFn: ({ file, kind }: { file: File; kind: IdentityDocumentKind }) =>
-      api.uploadIdentityDocument(kind, file),
+  const saveProfileMutation = useMutation({
+    mutationFn: (profile: VerificationProfile) => api.putVerificationProfile(profile),
     onSuccess: async () => {
-      setMessage("Identity document uploaded.");
-      await queryClient.invalidateQueries({ queryKey: ["settings"] });
-    },
-  });
-
-  const deleteIdentityDocumentMutation = useMutation({
-    mutationFn: (kind: IdentityDocumentKind) => api.deleteIdentityDocument(kind),
-    onSuccess: async () => {
-      setMessage("Identity document removed.");
-      await queryClient.invalidateQueries({ queryKey: ["settings"] });
+      setMessage("Verification profile saved.");
+      await queryClient.invalidateQueries({ queryKey: ["settings", "verification-profile"] });
     },
   });
 
@@ -349,8 +419,12 @@ export function SettingsPage() {
     setDraft((current) => (current ? { ...current, [key]: value } : current));
     setMessage("");
     saveMutation.reset();
-    uploadIdentityDocumentMutation.reset();
-    deleteIdentityDocumentMutation.reset();
+  }
+
+  function setProfileDraftValue(nextProfile: VerificationProfile) {
+    setProfileDraft(nextProfile);
+    setMessage("");
+    saveProfileMutation.reset();
   }
 
   function registerSection(id: SettingsSectionId) {
@@ -370,6 +444,7 @@ export function SettingsPage() {
   function refreshSettings() {
     void settingsQuery.refetch();
     void advancedQuery.refetch();
+    void verificationProfileQuery.refetch();
     void pendingWhitelistQuery.refetch();
   }
 
@@ -394,11 +469,30 @@ export function SettingsPage() {
     saveMutation.mutate(request);
   }
 
+  function saveVerificationProfile() {
+    if (!profileDraft) {
+      return;
+    }
+    saveProfileMutation.mutate(normalizeVerificationProfile(profileDraft), {
+      onSuccess: (savedProfile) => {
+        const hydrated = hydrateVerificationProfile(savedProfile);
+        setProfileDraft(hydrated);
+        setSavedProfileDraft(hydrated);
+        queryClient.setQueryData(["settings", "verification-profile"], savedProfile);
+      },
+    });
+  }
+
   const settingsLoading =
-    (settingsQuery.isLoading && !settings) || (advancedQuery.isLoading && !advancedSettings) || !draft;
-  const loadError = settingsQuery.error ?? advancedQuery.error;
+    (settingsQuery.isLoading && !settings) ||
+    (advancedQuery.isLoading && !advancedSettings) ||
+    (verificationProfileQuery.isLoading && !verificationProfile) ||
+    !draft ||
+    !profileDraft;
+  const loadError = settingsQuery.error ?? advancedQuery.error ?? verificationProfileQuery.error;
   const pendingCount = pendingWhitelistQuery.data?.length ?? 0;
   const dirty = !sameDraft(savedDraft, draft);
+  const profileDirty = !sameVerificationProfile(savedProfileDraft, profileDraft);
   const hasAnthropicKey = Boolean(settings?.anthropic_key_from_secret || settings?.anthropic_api_key);
   const providerReady = Boolean(
     !draft ||
@@ -419,6 +513,11 @@ export function SettingsPage() {
     badge?: number;
   }> = [
     { id: "identity", icon: <UserRound aria-hidden="true" className="h-[15px] w-[15px]" />, label: "Identity" },
+    {
+      id: "verification-profile",
+      icon: <ShieldCheck aria-hidden="true" className="h-[15px] w-[15px]" />,
+      label: "Verification Profile",
+    },
     { id: "connections", icon: <Plug aria-hidden="true" className="h-[15px] w-[15px]" />, label: "Connections" },
     {
       badge: pendingCount,
@@ -450,14 +549,11 @@ export function SettingsPage() {
           title="Settings were not saved"
         />
       ) : null}
-      {uploadIdentityDocumentMutation.error || deleteIdentityDocumentMutation.error ? (
+      {saveProfileMutation.error ? (
         <ErrorState
-          description="Smokescreen could not update identity documents. Check the file type and bucket configuration, then try again."
-          onAction={() => {
-            uploadIdentityDocumentMutation.reset();
-            deleteIdentityDocumentMutation.reset();
-          }}
-          title="Identity documents were not updated"
+          description="Smokescreen could not save the verification profile. Review the fields and try again."
+          onAction={() => saveProfileMutation.reset()}
+          title="Verification profile was not saved"
         />
       ) : null}
       {message ? <SettingsToast message={message} /> : null}
@@ -475,7 +571,7 @@ export function SettingsPage() {
             <div>
               <h1 className="font-display text-2xl font-semibold leading-tight text-content-strong">Settings</h1>
               <p className="mt-1 max-w-[56ch] text-sm leading-relaxed text-content-muted">
-                The identity, connections, and cadence Smokescreen uses to run opt-outs on your behalf.
+                The identity, verification profile, connections, and cadence Smokescreen uses to run opt-outs on your behalf.
               </p>
             </div>
             <Button size="sm" type="button" variant="outline" onClick={refreshSettings}>
@@ -485,10 +581,10 @@ export function SettingsPage() {
           </div>
 
           {settingsLoading ? (
-            <LoadingState description="Loading your identity, Gmail, cadence, and advanced settings." title="Loading settings" />
+            <LoadingState description="Loading your identity, verification profile, Gmail, cadence, and advanced settings." title="Loading settings" />
           ) : null}
 
-          {!settingsLoading && draft ? (
+          {!settingsLoading && draft && profileDraft ? (
             <>
               <SettingsSection refCallback={registerSection("identity")} id="identity">
                 <Card pad>
@@ -513,21 +609,24 @@ export function SettingsPage() {
                       onChange={(event) => setDraftField("sender_email", event.currentTarget.value)}
                     />
                   </div>
-                  <IdentityDocumentsShell
-                    bucketConfigured={Boolean(settings?.identity_bucket_configured)}
-                    deletingKind={
-                      deleteIdentityDocumentMutation.isPending
-                        ? deleteIdentityDocumentMutation.variables
-                        : undefined
-                    }
-                    documents={settings?.identity_documents ?? []}
-                    onDelete={(kind) => deleteIdentityDocumentMutation.mutate(kind)}
-                    onUpload={(kind, file) => uploadIdentityDocumentMutation.mutate({ file, kind })}
-                    uploadingKind={
-                      uploadIdentityDocumentMutation.isPending
-                        ? uploadIdentityDocumentMutation.variables?.kind
-                        : undefined
-                    }
+                </Card>
+              </SettingsSection>
+
+              <SettingsSection refCallback={registerSection("verification-profile")} id="verification-profile">
+                <Card pad>
+                  <SectionHead
+                    description="Only fill out fields you are comfortable sharing with data brokers. Any field you leave blank will not be shared."
+                    label="02 · Verification Profile"
+                    title="Fields brokers may ask for"
+                  />
+                  <VerificationProfileForm
+                    draft={profileDraft}
+                    isSaving={saveProfileMutation.isPending}
+                    onChange={setProfileDraftValue}
+                    onSave={saveVerificationProfile}
+                    profileDirty={profileDirty}
+                    showLastFour={showLastFour}
+                    onToggleLastFour={() => setShowLastFour((shown) => !shown)}
                   />
                 </Card>
               </SettingsSection>
@@ -536,7 +635,7 @@ export function SettingsPage() {
                 <Card pad>
                   <SectionHead
                     description="Smokescreen sends from your inbox and uses an AI model to read broker replies."
-                    label="02 · Connections"
+                    label="03 · Connections"
                     title="Inbox and AI"
                   />
                   <GmailConnectionRow
@@ -558,7 +657,7 @@ export function SettingsPage() {
                 <Card pad>
                   <SectionHead
                     description="Smokescreen only acts on replies from approved addresses. Most are added automatically from the broker registry; review detected senders before their messages are trusted."
-                    label="03 · Trusted senders"
+                    label="04 · Trusted senders"
                     title="Who Smokescreen trusts"
                   />
                   <TrustedSendersSection />
@@ -569,7 +668,7 @@ export function SettingsPage() {
                 <Card pad>
                   <SectionHead
                     description="Tune how persistent Smokescreen is with brokers."
-                    label="04 · Cadence"
+                    label="05 · Cadence"
                     title="How often Smokescreen acts"
                   />
                   <div className="grid gap-[22px]">
@@ -763,198 +862,250 @@ function SectionHead({
   );
 }
 
-function IdentityDocumentsShell({
-  bucketConfigured,
-  deletingKind,
-  documents,
-  onDelete,
-  onUpload,
-  uploadingKind,
+function VerificationProfileForm({
+  draft,
+  isSaving,
+  onChange,
+  onSave,
+  onToggleLastFour,
+  profileDirty,
+  showLastFour,
 }: {
-  bucketConfigured: boolean;
-  deletingKind?: IdentityDocumentKind;
-  documents: IdentityDocument[];
-  onDelete: (kind: IdentityDocumentKind) => void;
-  onUpload: (kind: IdentityDocumentKind, file: File) => void;
-  uploadingKind?: IdentityDocumentKind;
+  draft: VerificationProfile;
+  isSaving: boolean;
+  onChange: (profile: VerificationProfile) => void;
+  onSave: () => void;
+  onToggleLastFour: () => void;
+  profileDirty: boolean;
+  showLastFour: boolean;
 }) {
-  const documentsByKind = useMemo(
-    () => new Map(documents.map((document) => [document.kind, document])),
-    [documents],
-  );
+  function setAddress(index: number, key: keyof VerificationAddress, value: string) {
+    const home_addresses = draft.home_addresses.map((address, currentIndex) =>
+      currentIndex === index ? { ...address, [key]: value } : address,
+    );
+    onChange({ ...draft, home_addresses });
+  }
+
+  function addAddress() {
+    onChange({ ...draft, home_addresses: [...draft.home_addresses, emptyAddress()] });
+  }
+
+  function removeAddress(index: number) {
+    const home_addresses = draft.home_addresses.filter((_, currentIndex) => currentIndex !== index);
+    onChange({ ...draft, home_addresses: home_addresses.length ? home_addresses : [emptyAddress()] });
+  }
+
+  function setStringList(key: "phone_numbers" | "email_aliases", index: number, value: string) {
+    const nextValues = draft[key].map((item, currentIndex) => (currentIndex === index ? value : item));
+    onChange({ ...draft, [key]: nextValues });
+  }
+
+  function addStringListItem(key: "phone_numbers" | "email_aliases") {
+    onChange({ ...draft, [key]: [...draft[key], ""] });
+  }
+
+  function removeStringListItem(key: "phone_numbers" | "email_aliases", index: number) {
+    const nextValues = draft[key].filter((_, currentIndex) => currentIndex !== index);
+    onChange({ ...draft, [key]: nextValues.length ? nextValues : [""] });
+  }
 
   return (
-    <div className="mt-[22px] border-t border-border pt-[18px]">
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <span className="font-display text-base font-semibold text-content-strong">Identity documents</span>
-        <StatusPill
-          label={bucketConfigured ? "Encrypted bucket" : "Bucket not configured"}
-          pulse={false}
-          tone={bucketConfigured ? "idle" : "attention"}
+    <div className="grid gap-6">
+      <div className="grid gap-[14px]">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-display text-base font-semibold text-content-strong">Home addresses</h3>
+          <Button size="sm" type="button" variant="outline" onClick={addAddress}>
+            <Plus aria-hidden="true" />
+            Add address
+          </Button>
+        </div>
+        <div className="grid gap-3">
+          {draft.home_addresses.map((address, index) => (
+            <div className="rounded-sm border border-border bg-surface-sunken p-3" key={index}>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <span className="ss-label">Address {index + 1}</span>
+                <Button
+                  aria-label={`Remove address ${index + 1}`}
+                  iconOnly
+                  onClick={() => removeAddress(index)}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  <X aria-hidden="true" />
+                </Button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <TextField
+                  className="sm:col-span-2"
+                  label="Street"
+                  value={address.street}
+                  onChange={(event) => setAddress(index, "street", event.currentTarget.value)}
+                />
+                <TextField
+                  label="City"
+                  value={address.city}
+                  onChange={(event) => setAddress(index, "city", event.currentTarget.value)}
+                />
+                <TextField
+                  label="State"
+                  value={address.state}
+                  onChange={(event) => setAddress(index, "state", event.currentTarget.value)}
+                />
+                <TextField
+                  label="ZIP"
+                  value={address.zip}
+                  onChange={(event) => setAddress(index, "zip", event.currentTarget.value)}
+                />
+                <TextField
+                  label="Country"
+                  value={address.country}
+                  onChange={(event) => setAddress(index, "country", event.currentTarget.value)}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-5 md:grid-cols-2">
+        <RepeatableTextList
+          addLabel="Add phone"
+          label="Phone numbers"
+          onAdd={() => addStringListItem("phone_numbers")}
+          onRemove={(index) => removeStringListItem("phone_numbers", index)}
+          onValueChange={(index, value) => setStringList("phone_numbers", index, value)}
+          placeholder="+1 555 010 1234"
+          values={draft.phone_numbers}
+        />
+        <RepeatableTextList
+          addLabel="Add email"
+          label="Email aliases"
+          onAdd={() => addStringListItem("email_aliases")}
+          onRemove={(index) => removeStringListItem("email_aliases", index)}
+          onValueChange={(index, value) => setStringList("email_aliases", index, value)}
+          placeholder="old-email@example.com"
+          type="email"
+          values={draft.email_aliases}
         />
       </div>
-      <p className="max-w-[62ch] text-sm leading-relaxed text-content-muted">
-        Smokescreen stores these encrypted in its secure storage bucket and shares one with a broker only when that broker requires identity verification.
-      </p>
-      <div className="mt-2 grid">
-        {identityDocSlots.map((slot) => (
-          <IdentityDocumentRow
-            bucketConfigured={bucketConfigured}
-            deleting={deletingKind === slot.kind}
-            document={documentsByKind.get(slot.kind)}
-            key={slot.kind}
-            onDelete={() => onDelete(slot.kind)}
-            onUpload={(file) => onUpload(slot.kind, file)}
-            slot={slot}
-            uploading={uploadingKind === slot.kind}
-          />
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <TextField
+          label="Date of birth"
+          placeholder="YYYY-MM-DD"
+          type="text"
+          value={draft.date_of_birth ?? ""}
+          onChange={(event) => onChange({ ...draft, date_of_birth: event.currentTarget.value })}
+        />
+        <div className="grid gap-2">
+          <span className="ss-label">Last four SSN</span>
+          <div className="flex gap-2">
+            <input
+              aria-label="Last four SSN"
+              className="h-[38px] min-w-0 flex-1 rounded-sm border border-[color:var(--border-field)] bg-surface-field px-3 text-sm text-content-strong outline-none transition-[border-color,box-shadow] duration-fast ease-standard placeholder:text-content-faint hover:border-[color:var(--border-strong)] focus-visible:border-ring focus-visible:shadow-focus"
+              inputMode="numeric"
+              maxLength={4}
+              type={showLastFour ? "text" : "password"}
+              value={draft.last_four_ssn ?? ""}
+              onChange={(event) =>
+                onChange({
+                  ...draft,
+                  last_four_ssn: event.currentTarget.value.replace(/\D/g, "").slice(0, 4),
+                })
+              }
+            />
+            <Button
+              aria-label={showLastFour ? "Hide last four SSN" : "Reveal last four SSN"}
+              iconOnly
+              onClick={onToggleLastFour}
+              size="md"
+              type="button"
+              variant="outline"
+            >
+              {showLastFour ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+            </Button>
+          </div>
+        </div>
+        <TextField
+          label="Employer name"
+          value={draft.employer_name ?? ""}
+          onChange={(event) => onChange({ ...draft, employer_name: event.currentTarget.value })}
+        />
+      </div>
+
+      <TextField
+        label="Additional notes"
+        multiline
+        value={draft.additional_notes ?? ""}
+        onChange={(event) => onChange({ ...draft, additional_notes: event.currentTarget.value })}
+      />
+
+      <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
+        <Button disabled={!profileDirty || isSaving} onClick={onSave} type="button">
+          <Save aria-hidden="true" />
+          {isSaving ? "Saving" : "Save profile"}
+        </Button>
+        {profileDirty ? <span className="text-xs text-content-muted">Unsaved verification profile changes</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function RepeatableTextList({
+  addLabel,
+  label,
+  onAdd,
+  onRemove,
+  onValueChange,
+  placeholder,
+  type = "text",
+  values,
+}: {
+  addLabel: string;
+  label: string;
+  onAdd: () => void;
+  onRemove: (index: number) => void;
+  onValueChange: (index: number, value: string) => void;
+  placeholder?: string;
+  type?: string;
+  values: string[];
+}) {
+  return (
+    <div className="grid gap-[10px]">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="font-display text-base font-semibold text-content-strong">{label}</h3>
+        <Button size="sm" type="button" variant="outline" onClick={onAdd}>
+          <Plus aria-hidden="true" />
+          {addLabel}
+        </Button>
+      </div>
+      <div className="grid gap-2">
+        {values.map((value, index) => (
+          <div className="flex gap-2" key={index}>
+            <TextField
+              className="flex-1"
+              aria-label={`${label} ${index + 1}`}
+              placeholder={placeholder}
+              type={type}
+              value={value}
+              onChange={(event) => onValueChange(index, event.currentTarget.value)}
+            />
+            <Button
+              aria-label={`Remove ${label.toLowerCase()} ${index + 1}`}
+              iconOnly
+              onClick={() => onRemove(index)}
+              size="md"
+              type="button"
+              variant="ghost"
+            >
+              <X aria-hidden="true" />
+            </Button>
+          </div>
         ))}
       </div>
     </div>
   );
-}
-
-function IdentityDocumentRow({
-  bucketConfigured,
-  deleting,
-  document,
-  onDelete,
-  onUpload,
-  slot,
-  uploading,
-}: {
-  bucketConfigured: boolean;
-  deleting: boolean;
-  document?: IdentityDocument;
-  onDelete: () => void;
-  onUpload: (file: File) => void;
-  slot: (typeof identityDocSlots)[number];
-  uploading: boolean;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const disabled = !bucketConfigured || uploading || deleting;
-
-  function takeFile(file: File | undefined) {
-    if (!file || disabled) {
-      return;
-    }
-    onUpload(file);
-  }
-
-  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    takeFile(event.currentTarget.files?.[0]);
-    event.currentTarget.value = "";
-  }
-
-  function handleDrop(event: DragEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    setIsDragging(false);
-    takeFile(event.dataTransfer.files?.[0]);
-  }
-
-  return (
-    <div className="flex gap-[14px] border-t border-border py-[14px]">
-      <span
-        className={cn(
-          "inline-grid h-[38px] w-[38px] flex-none place-items-center rounded-sm border border-border bg-surface-sunken",
-          document ? "text-soft-green" : "text-content-faint",
-        )}
-      >
-        <FileLock2 aria-hidden="true" className="h-[17px] w-[17px]" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-display text-base font-semibold text-content-strong">{slot.title}</span>
-          <Badge variant="outline">Optional</Badge>
-          {document ? <StatusPill label="Uploaded" pulse={false} tone="done" /> : null}
-        </div>
-        <p className="mt-1 text-sm leading-relaxed text-content-muted">{slot.description}</p>
-        <input
-          accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-          aria-label={`${slot.title} upload`}
-          className="hidden"
-          disabled={disabled}
-          onChange={handleFileChange}
-          ref={inputRef}
-          type="file"
-        />
-        {document ? (
-          <div className="mt-[10px] flex items-center gap-3 rounded-sm border border-border bg-surface-sunken px-3 py-[9px]">
-            <Inbox aria-hidden="true" className="h-4 w-4 flex-none text-content-muted" />
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-mono text-sm text-content-strong">{document.filename}</div>
-              <div className="mt-0.5 text-xs text-content-faint">
-                {humanFileSize(document.size)} · uploaded {formatUploadedAt(document.uploaded_at)}
-              </div>
-            </div>
-            <Button disabled={disabled} onClick={() => inputRef.current?.click()} size="sm" type="button" variant="ghost">
-              {uploading ? "Replacing" : "Replace"}
-            </Button>
-            <Button
-              aria-label={`Remove ${slot.title}`}
-              disabled={disabled}
-              iconOnly
-              onClick={onDelete}
-              size="sm"
-              type="button"
-              variant="ghost"
-            >
-              <Trash2 aria-hidden="true" className="h-4 w-4" />
-            </Button>
-          </div>
-        ) : (
-          <button
-            className={cn(
-              "mt-[10px] flex w-full items-center gap-[10px] rounded-sm border border-dashed px-[14px] py-3 text-left transition-[background,border-color] duration-fast ease-standard",
-              disabled
-                ? "cursor-not-allowed border-border bg-fill-neutral text-content-faint"
-                : "cursor-pointer border-[color:var(--border-strong)] text-content-body hover:border-brand hover:bg-fill-olive",
-              isDragging && !disabled && "border-brand bg-fill-olive",
-            )}
-            disabled={disabled}
-            onClick={() => inputRef.current?.click()}
-            onDragLeave={() => setIsDragging(false)}
-            onDragOver={(event) => {
-              event.preventDefault();
-              if (!disabled) {
-                setIsDragging(true);
-              }
-            }}
-            onDrop={handleDrop}
-            type="button"
-          >
-            <ShieldPlus aria-hidden="true" className="h-4 w-4 flex-none text-content-muted" />
-            <span className="text-sm">
-              <span className="font-semibold text-content-strong">{uploading ? "Uploading" : "Upload"}</span> or drop a file - PDF, JPG or PNG
-            </span>
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function humanFileSize(bytes: number): string {
-  if (bytes >= 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-  if (bytes >= 1024) {
-    return `${Math.round(bytes / 1024)} KB`;
-  }
-  return `${bytes} B`;
-}
-
-function formatUploadedAt(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "recently";
-  }
-  return date.toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
 }
 
 function GmailConnectionRow({

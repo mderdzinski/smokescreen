@@ -9,6 +9,7 @@ from smokescreen.models import (
     OptOutRecord,
     PendingWhitelistEntry,
     PendingWhitelistStatus,
+    VerificationProfile,
     WhitelistEntry,
 )
 
@@ -94,4 +95,14 @@ class StateStore(Protocol):
 
         Returns the stored list after normalization (deduplicated, ordered).
         """
+        ...
+
+    def get_verification_profile(self) -> VerificationProfile:
+        """Return the optional persisted verification profile."""
+        ...
+
+    def set_verification_profile(
+        self, profile: VerificationProfile
+    ) -> VerificationProfile:
+        """Persist and return the normalized verification profile."""
         ...

@@ -23,6 +23,9 @@ export interface OptOutRecord {
   thread_id: string | null;
   last_message_id: string | null;
   notes: string;
+  requested_fields: string[];
+  missing_fields: string[];
+  requested_other_details: string;
   created_at: string;
   updated_at: string;
   broker_name: string;
@@ -95,14 +98,22 @@ export interface OutreachResult {
 
 export type AiProvider = "anthropic" | "gemini";
 
-export type IdentityDocumentKind = "government_id" | "proof_of_address" | "ssn_last4";
+export interface VerificationAddress {
+  street: string;
+  city: string;
+  state: string;
+  zip: string;
+  country: string;
+}
 
-export interface IdentityDocument {
-  id: string;
-  kind: IdentityDocumentKind;
-  filename: string;
-  size: number;
-  uploaded_at: string;
+export interface VerificationProfile {
+  home_addresses: VerificationAddress[];
+  phone_numbers: string[];
+  email_aliases: string[];
+  date_of_birth: string | null;
+  last_four_ssn: string | null;
+  employer_name: string | null;
+  additional_notes: string | null;
 }
 
 export interface FriendlySettings {
@@ -111,8 +122,6 @@ export interface FriendlySettings {
   anthropic_api_key: string;
   rerequest_interval_days: number;
   state_timeout_days: number;
-  identity_bucket_configured: boolean;
-  identity_documents: IdentityDocument[];
   identity_configured: boolean;
   gmail_token_available: boolean;
   gmail_credentials_available: boolean;
@@ -247,12 +256,6 @@ function brokerImportForm(input: BrokerImportInput): FormData {
   return form;
 }
 
-function identityDocumentForm(file: File): FormData {
-  const form = new FormData();
-  form.append("file", file);
-  return form;
-}
-
 export interface AppVersion {
   version: string;
 }
@@ -286,6 +289,12 @@ export const api = {
     }),
   getExtendedStats: () => requestJson<ExtendedStats>("/api/stats/extended"),
   getSettings: () => requestJson<FriendlySettings>("/api/settings"),
+  getVerificationProfile: () => requestJson<VerificationProfile>("/api/settings/verification-profile"),
+  putVerificationProfile: (profile: VerificationProfile) =>
+    requestJson<VerificationProfile>(
+      "/api/settings/verification-profile",
+      jsonRequest("PUT", profile),
+    ),
   getAdvancedSettings: () => requestJson<AdvancedSettings>("/api/settings/advanced"),
   updateSettings: (settings: SettingsUpdate) =>
     requestJson<{ status: "saved"; restart_required: boolean }>("/api/settings", {
@@ -295,19 +304,6 @@ export const api = {
       },
       body: JSON.stringify(settings),
     }),
-  listIdentityDocuments: () => requestJson<IdentityDocument[]>("/api/identity-documents"),
-  uploadIdentityDocument: (kind: IdentityDocumentKind, file: File) =>
-    requestJson<IdentityDocument>(`/api/identity-documents/${encodeURIComponent(kind)}`, {
-      method: "POST",
-      body: identityDocumentForm(file),
-    }),
-  deleteIdentityDocument: (kind: IdentityDocumentKind) =>
-    requestJson<{ status: "deleted"; kind: string }>(
-      `/api/identity-documents/${encodeURIComponent(kind)}`,
-      {
-        method: "DELETE",
-      },
-    ),
   runOutreach: (brokerIds: string[]) =>
     requestJson<OutreachResult>("/api/outreach", jsonRequest("POST", { broker_ids: brokerIds })),
   listOptOuts: (status?: OptOutStatusFilter) => {

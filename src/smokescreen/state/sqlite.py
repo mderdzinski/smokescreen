@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,7 @@ from smokescreen.models import (
     OptOutRecord,
     PendingWhitelistEntry,
     PendingWhitelistStatus,
+    VerificationProfile,
     WhitelistEntry,
     WhitelistSource,
     as_aware_utc,
@@ -39,15 +41,38 @@ class SQLiteStore:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 last_completed_at TEXT,
-                notes TEXT NOT NULL DEFAULT ''
+                notes TEXT NOT NULL DEFAULT '',
+                requested_fields TEXT NOT NULL DEFAULT '[]',
+                missing_fields TEXT NOT NULL DEFAULT '[]',
+                requested_other_details TEXT NOT NULL DEFAULT ''
             )
         """)
-        # Migration: add last_completed_at if missing
         cols = [
             r[1] for r in self._conn.execute("PRAGMA table_info(opt_outs)").fetchall()
         ]
         if "last_completed_at" not in cols:
             self._conn.execute("ALTER TABLE opt_outs ADD COLUMN last_completed_at TEXT")
+        if "requested_fields" not in cols:
+            self._conn.execute(
+                """
+                ALTER TABLE opt_outs
+                ADD COLUMN requested_fields TEXT NOT NULL DEFAULT '[]'
+                """
+            )
+        if "missing_fields" not in cols:
+            self._conn.execute(
+                """
+                ALTER TABLE opt_outs
+                ADD COLUMN missing_fields TEXT NOT NULL DEFAULT '[]'
+                """
+            )
+        if "requested_other_details" not in cols:
+            self._conn.execute(
+                """
+                ALTER TABLE opt_outs
+                ADD COLUMN requested_other_details TEXT NOT NULL DEFAULT ''
+                """
+            )
         self._conn.execute("""
             CREATE TABLE IF NOT EXISTS email_whitelist (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,6 +103,13 @@ class SQLiteStore:
         self._conn.execute("""
             CREATE TABLE IF NOT EXISTS broker_selections_meta (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
+                updated_at TEXT NOT NULL
+            )
+        """)
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS verification_profile (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                profile_json TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
         """)
@@ -112,7 +144,21 @@ class SQLiteStore:
                 as_aware_utc(datetime.fromisoformat(lca)) if lca else None
             ),
             notes=row["notes"],
+            requested_fields=self._json_list(row["requested_fields"]),
+            missing_fields=self._json_list(row["missing_fields"]),
+            requested_other_details=row["requested_other_details"],
         )
+
+    def _json_list(self, raw: str | None) -> list[str]:
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(parsed, list):
+            return []
+        return [str(item) for item in parsed if isinstance(item, str)]
 
     def get(self, broker_id: str) -> OptOutRecord | None:
         row = self._conn.execute(
@@ -140,8 +186,9 @@ class SQLiteStore:
             """
             INSERT INTO opt_outs (broker_id, status, retries, thread_id,
                                   last_message_id, created_at, updated_at,
-                                  last_completed_at, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  last_completed_at, notes, requested_fields,
+                                  missing_fields, requested_other_details)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(broker_id) DO UPDATE SET
                 status = excluded.status,
                 retries = excluded.retries,
@@ -149,7 +196,10 @@ class SQLiteStore:
                 last_message_id = excluded.last_message_id,
                 updated_at = excluded.updated_at,
                 last_completed_at = excluded.last_completed_at,
-                notes = excluded.notes
+                notes = excluded.notes,
+                requested_fields = excluded.requested_fields,
+                missing_fields = excluded.missing_fields,
+                requested_other_details = excluded.requested_other_details
             """,
             (
                 record.broker_id,
@@ -163,6 +213,9 @@ class SQLiteStore:
                 if record.last_completed_at
                 else None,
                 record.notes,
+                json.dumps(record.requested_fields),
+                json.dumps(record.missing_fields),
+                record.requested_other_details,
             ),
         )
         self._conn.commit()
@@ -363,6 +416,34 @@ class SQLiteStore:
             VALUES (1, ?)
             """,
             (now,),
+        )
+        self._conn.commit()
+        return normalized
+
+    # --- Verification profile ---
+
+    def get_verification_profile(self) -> VerificationProfile:
+        row = self._conn.execute(
+            "SELECT profile_json FROM verification_profile WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            return VerificationProfile()
+        try:
+            return VerificationProfile.model_validate_json(row["profile_json"])
+        except ValueError:
+            return VerificationProfile()
+
+    def set_verification_profile(
+        self, profile: VerificationProfile
+    ) -> VerificationProfile:
+        normalized = VerificationProfile.model_validate(profile.model_dump())
+        self._conn.execute(
+            """
+            INSERT OR REPLACE INTO verification_profile
+                (id, profile_json, updated_at)
+            VALUES (1, ?, ?)
+            """,
+            (normalized.model_dump_json(), utc_now().isoformat()),
         )
         self._conn.commit()
         return normalized

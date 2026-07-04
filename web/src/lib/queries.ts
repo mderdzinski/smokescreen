@@ -46,6 +46,13 @@ export function useAdvancedSettings() {
   });
 }
 
+export function useVerificationProfile() {
+  return useQuery({
+    queryKey: ["settings", "verification-profile"],
+    queryFn: api.getVerificationProfile,
+  });
+}
+
 export function useOptOuts(status?: OptOutStatusFilter) {
   return useQuery({
     queryKey: ["opt-outs", status ?? "all"],

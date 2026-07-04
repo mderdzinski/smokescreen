@@ -77,6 +77,49 @@ class ReplyClassification(str, enum.Enum):
     UNRELATED = "UNRELATED"
 
 
+class VerificationField(str, enum.Enum):
+    """Fields a broker can request for identity verification."""
+
+    HOME_ADDRESS = "home_address"
+    PHONE_NUMBER = "phone_number"
+    EMAIL_ALIAS = "email_alias"
+    DATE_OF_BIRTH = "date_of_birth"
+    LAST_FOUR_SSN = "last_four_ssn"
+    EMPLOYER_NAME = "employer_name"
+    DOCUMENTS = "documents"
+    OTHER = "other"
+
+
+class ReplyAnalysis(BaseModel):
+    """Structured classifier result for a broker reply."""
+
+    classification: ReplyClassification
+    requested_fields: list[VerificationField] = Field(default_factory=list)
+    other_details: str = ""
+
+
+class VerificationAddress(BaseModel):
+    """One home address used only when a broker explicitly requests it."""
+
+    street: str = ""
+    city: str = ""
+    state: str = ""
+    zip: str = ""
+    country: str = ""
+
+
+class VerificationProfile(BaseModel):
+    """Optional verification details stored separately from runtime settings."""
+
+    home_addresses: list[VerificationAddress] = Field(default_factory=list)
+    phone_numbers: list[str] = Field(default_factory=list)
+    email_aliases: list[str] = Field(default_factory=list)
+    date_of_birth: str | None = None
+    last_four_ssn: str | None = None
+    employer_name: str | None = None
+    additional_notes: str | None = None
+
+
 class Broker(BaseModel):
     """A data broker from the registry."""
 
@@ -100,6 +143,9 @@ class OptOutRecord(BaseModel):
     updated_at: datetime = Field(default_factory=utc_now)
     last_completed_at: datetime | None = None
     notes: str = ""
+    requested_fields: list[str] = Field(default_factory=list)
+    missing_fields: list[str] = Field(default_factory=list)
+    requested_other_details: str = ""
 
 
 class EmailMessage(BaseModel):

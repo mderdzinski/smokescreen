@@ -19,6 +19,8 @@ from smokescreen.models import (
     OptOutRecord,
     PendingWhitelistEntry,
     PendingWhitelistStatus,
+    VerificationAddress,
+    VerificationProfile,
     WhitelistEntry,
     WhitelistSource,
 )
@@ -176,6 +178,50 @@ def test_firestore_upsert_persists_last_completed_at():
     assert fetched is not None
     assert fetched.status == BrokerStatus.COMPLETED
     assert fetched.last_completed_at == now
+
+
+def test_firestore_upsert_persists_info_request_metadata():
+    store = _store()
+    store.upsert(
+        OptOutRecord(
+            broker_id="spokeo",
+            status=BrokerStatus.NEEDS_MANUAL,
+            requested_fields=["home_address", "other"],
+            missing_fields=["other"],
+            requested_other_details="Account number",
+        )
+    )
+
+    fetched = store.get("spokeo")
+    assert fetched is not None
+    assert fetched.requested_fields == ["home_address", "other"]
+    assert fetched.missing_fields == ["other"]
+    assert fetched.requested_other_details == "Account number"
+
+
+def test_firestore_verification_profile_default_and_persist():
+    store = _store()
+    assert store.get_verification_profile() == VerificationProfile()
+
+    profile = VerificationProfile(
+        home_addresses=[
+            VerificationAddress(
+                street="1 Main St",
+                city="Springfield",
+                state="CA",
+                zip="90210",
+                country="US",
+            )
+        ],
+        phone_numbers=["+1 555 0100"],
+        email_aliases=["old@example.com"],
+        date_of_birth="1990-01-01",
+        last_four_ssn="1234",
+        employer_name="Acme",
+    )
+
+    assert store.set_verification_profile(profile) == profile
+    assert store.get_verification_profile() == profile
 
 
 def test_firestore_whitelist_crud_and_registry_sync():

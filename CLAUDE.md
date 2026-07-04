@@ -32,7 +32,7 @@ hook with `gt hook` and `bd show <bead-id>`. Use `bd ready` and
 - File newly discovered work as Beads issues instead of expanding scope.
 - Use semantic commit messages such as `fix: resolve ruff lint failures (sm-45a)`.
 - Do not use `--no-verify`.
-- Do not commit secrets, tokens, databases, identity documents, or runtime state.
+- Do not commit secrets, tokens, databases, sensitive verification data, or runtime state.
 
 ## Commands
 

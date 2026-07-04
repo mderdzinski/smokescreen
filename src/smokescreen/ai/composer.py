@@ -21,7 +21,7 @@ def compose_reply(
 ) -> str:
     """Compose a reply to a broker's email.
 
-    Only the email text is sent to Claude — never attachments or identity docs.
+    Only the email text is sent to Claude — never attachments or verification data.
     """
     response = client.messages.create(
         model=model,

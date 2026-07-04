@@ -19,6 +19,7 @@ import type {
   FriendlySettings,
   OptOutRecord,
   PendingWhitelistEntry,
+  VerificationProfile,
   WhitelistEntry,
 } from "./lib/api";
 import { mockApi, type MockApiRequest, renderWithProviders } from "./test/test-utils";
@@ -60,9 +61,7 @@ const settings: FriendlySettings = {
   gmail_connected_email: "",
   gmail_credentials_available: false,
   gmail_token_available: false,
-  identity_bucket_configured: false,
   identity_configured: false,
-  identity_documents: [],
   rerequest_interval_days: 30,
   rerequest_interval_days_from_env: false,
   sender_email: "jane@example.com",
@@ -84,6 +83,16 @@ const advancedSettings: AdvancedSettings = {
   poll_label: "smokescreen",
 };
 
+const verificationProfile: VerificationProfile = {
+  home_addresses: [],
+  phone_numbers: [],
+  email_aliases: [],
+  date_of_birth: null,
+  last_four_ssn: null,
+  employer_name: null,
+  additional_notes: null,
+};
+
 const emptyStats: ExtendedStats = {
   avg_completion_hours: null,
   by_status: {},
@@ -102,7 +111,10 @@ function optOut(overrides: Partial<OptOutRecord>): OptOutRecord {
     broker_privacy_email: "privacy@acme.example",
     created_at: "2026-06-20T12:00:00Z",
     last_message_id: "msg-1",
+    missing_fields: [],
     notes: "",
+    requested_fields: [],
+    requested_other_details: "",
     retries: 0,
     status: "AWAITING_RESPONSE",
     thread_id: "thread-1",
@@ -1291,16 +1303,19 @@ describe("SettingsPage", () => {
   function settingsPageRoutes({
     advancedBody = advancedSettings,
     pendingBody = [pendingSender],
+    profileBody = verificationProfile,
     settingsBody = settings,
     whitelistBody = [trustedSender],
   }: {
     advancedBody?: AdvancedSettings;
     pendingBody?: PendingWhitelistEntry[];
+    profileBody?: VerificationProfile;
     settingsBody?: FriendlySettings;
     whitelistBody?: WhitelistEntry[];
   } = {}): Parameters<typeof mockApi>[0] {
     return [
       { body: settingsBody, path: "/api/settings" },
+      { body: profileBody, path: "/api/settings/verification-profile" },
       { body: advancedBody, path: "/api/settings/advanced" },
       { body: whitelistBody, path: "/api/whitelist" },
       { body: pendingBody, path: "/api/whitelist/pending" },
@@ -1368,44 +1383,59 @@ describe("SettingsPage", () => {
     expect(screen.queryByText("ops@relay.example")).not.toBeInTheDocument();
   });
 
-  it("uploads an identity document from the settings document manager", async () => {
+  it("saves a verification profile from settings", async () => {
     const user = userEvent.setup();
-    const uploadedBodies: BodyInit[] = [];
+    const savedProfiles: unknown[] = [];
     mockApi([
-      ...settingsPageRoutes({
-        settingsBody: {
-          ...settings,
-          identity_bucket_configured: true,
-        },
-      }),
+      ...settingsPageRoutes(),
       {
         assert: (request) => {
           if (request.init?.body) {
-            uploadedBodies.push(request.init.body);
+            savedProfiles.push(parseJsonBody(request));
           }
         },
-        body: {
-          filename: "license.png",
-          id: "government_id",
-          kind: "government_id",
-          size: 1200,
-          uploaded_at: "2026-07-03T10:00:00Z",
-        },
-        method: "POST",
-        path: "/api/identity-documents/government_id",
+        respond: (request) => jsonResponse(parseJsonBody(request)),
+        method: "PUT",
+        path: "/api/settings/verification-profile",
       },
     ]);
 
     renderWithProviders(<SettingsPage />);
 
-    const input = await screen.findByLabelText("Government ID upload");
-    const file = new File(["image"], "license.png", { type: "image/png" });
-    await user.upload(input, file);
+    await screen.findByRole("heading", { name: "Fields brokers may ask for" });
+    await user.type(screen.getByLabelText("Street"), "1 Main St");
+    await user.type(screen.getByLabelText("City"), "Springfield");
+    await user.type(screen.getByLabelText("State"), "CA");
+    await user.type(screen.getByLabelText("ZIP"), "90210");
+    await user.type(screen.getByLabelText("Country"), "US");
+    await user.type(screen.getByLabelText("Phone numbers 1"), "+1 555 0100");
+    await user.type(screen.getByLabelText("Email aliases 1"), "old@example.com");
+    await user.type(screen.getByLabelText("Date of birth"), "1990-01-01");
+    await user.type(screen.getByLabelText("Last four SSN"), "1234");
+    await user.type(screen.getByLabelText("Employer name"), "Acme");
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
 
     await waitFor(() => {
-      expect(uploadedBodies[0]).toBeInstanceOf(FormData);
+      expect(savedProfiles).toHaveLength(1);
     });
-    expect(await screen.findByText("Identity document uploaded.")).toBeInTheDocument();
+    expect(savedProfiles[0]).toEqual({
+      additional_notes: null,
+      date_of_birth: "1990-01-01",
+      email_aliases: ["old@example.com"],
+      employer_name: "Acme",
+      home_addresses: [
+        {
+          city: "Springfield",
+          country: "US",
+          state: "CA",
+          street: "1 Main St",
+          zip: "90210",
+        },
+      ],
+      last_four_ssn: "1234",
+      phone_numbers: ["+1 555 0100"],
+    });
+    expect(await screen.findByText("Verification profile saved.")).toBeInTheDocument();
   });
 
   it("manages trusted senders from the embedded settings section", async () => {
@@ -1702,7 +1732,9 @@ describe("NeedsAttentionPage", () => {
           optOut({
             broker_id: "manual",
             broker_name: "Manual Broker",
+            missing_fields: ["phone_number"],
             notes: "The broker asked for a signed form.",
+            requested_fields: ["home_address", "phone_number"],
             status: "NEEDS_MANUAL",
           }),
           optOut({
@@ -1725,6 +1757,13 @@ describe("NeedsAttentionPage", () => {
     expect(
       screen.getByText("Open the source email. Resolve it yourself and mark handled, or retry the request."),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText("Broker asked for: Home address, Phone number. You are missing: Phone number."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Verification Profile/ })).toHaveAttribute(
+      "href",
+      "/settings#settings-verification-profile",
+    );
     expect(screen.getByText("Retry after checking details")).toBeInTheDocument();
     expect(screen.getByText("Check the broker contact and reply. Retry when fixed, or mark handled.")).toBeInTheDocument();
   });

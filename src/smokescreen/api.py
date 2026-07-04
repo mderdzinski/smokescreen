@@ -23,16 +23,11 @@ from smokescreen.config import (
     load_settings_file,
     save_settings,
 )
-from smokescreen.identity_docs import (
-    GCSIdentityDocumentStore,
-    IdentityDocumentStorageNotConfigured,
-    InvalidIdentityDocument,
-    configured_identity_document_store,
-)
 from smokescreen.models import (
     Broker,
     BrokerStatus,
     PendingWhitelistStatus,
+    VerificationProfile,
     WhitelistEntry,
     WhitelistSource,
     as_aware_utc,
@@ -131,14 +126,6 @@ class BrokerUpdate(BaseModel):
 class WhitelistCreate(BaseModel):
     broker_id: str
     email: str
-
-
-class IdentityDocumentResponse(BaseModel):
-    id: str
-    kind: str
-    filename: str
-    size: int
-    uploaded_at: str
 
 
 class StatsResponse(BaseModel):
@@ -507,6 +494,9 @@ async def reset_optout(broker_id: str):
     record.thread_id = None
     record.last_message_id = None
     record.notes = ""
+    record.requested_fields = []
+    record.missing_fields = []
+    record.requested_other_details = ""
     record.updated_at = utc_now()
     store.upsert(record)
     return {"status": "reset", "broker_id": broker_id}
@@ -872,34 +862,24 @@ def _settings_response(
         data["anthropic_key_from_secret"] = _field_from_env("anthropic_api_key")
         data["gmail_configured"] = gmail_token_available and gmail_credentials_available
         data["gemini_model"] = settings.gemini_model
-        data["identity_bucket_configured"] = bool(settings.identity_bucket.strip())
-        data["identity_documents"] = [
-            document.to_api() for document in _list_identity_documents(settings)
-        ]
     return data
-
-
-def _identity_document_store(settings: Settings) -> GCSIdentityDocumentStore:
-    return configured_identity_document_store(settings)
-
-
-def _list_identity_documents(settings: Settings) -> list:
-    if not settings.identity_bucket.strip():
-        return []
-    return _identity_document_store(settings).list_documents()
-
-
-def _identity_document_http_error(error: Exception) -> HTTPException:
-    if isinstance(error, IdentityDocumentStorageNotConfigured):
-        return HTTPException(status_code=503, detail=str(error))
-    if isinstance(error, InvalidIdentityDocument):
-        return HTTPException(status_code=400, detail=str(error))
-    return HTTPException(status_code=500, detail="Identity document storage failed")
 
 
 @app.get("/api/settings")
 async def get_settings_endpoint():
     return _settings_response(get_settings_obj(), FRIENDLY_SETTINGS_FIELDS)
+
+
+@app.get("/api/settings/verification-profile", response_model=VerificationProfile)
+async def get_verification_profile_endpoint() -> VerificationProfile:
+    return get_store().get_verification_profile()
+
+
+@app.put("/api/settings/verification-profile", response_model=VerificationProfile)
+async def put_verification_profile_endpoint(
+    profile: VerificationProfile,
+) -> VerificationProfile:
+    return get_store().set_verification_profile(profile)
 
 
 @app.get("/api/settings/advanced")
@@ -955,44 +935,6 @@ async def update_settings(update: SettingsUpdate):
     restart_required = bool(changed_fields & RESTART_FIELDS)
 
     return {"status": "saved", "restart_required": restart_required}
-
-
-@app.get("/api/identity-documents", response_model=list[IdentityDocumentResponse])
-async def list_identity_documents_endpoint():
-    settings = get_settings_obj()
-    try:
-        return [document.to_api() for document in _list_identity_documents(settings)]
-    except Exception as error:
-        raise _identity_document_http_error(error) from error
-
-
-@app.post("/api/identity-documents/{kind}", response_model=IdentityDocumentResponse)
-async def upload_identity_document(kind: str, file: UploadFile = _file_field):
-    settings = get_settings_obj()
-    try:
-        document = _identity_document_store(settings).upload_document(
-            kind=kind,
-            filename=file.filename or "",
-            content_type=file.content_type,
-            file_obj=file.file,
-        )
-        return document.to_api()
-    except Exception as error:
-        raise _identity_document_http_error(error) from error
-    finally:
-        await file.close()
-
-
-@app.delete("/api/identity-documents/{kind}")
-async def delete_identity_document(kind: str):
-    settings = get_settings_obj()
-    try:
-        deleted = _identity_document_store(settings).delete_document(kind)
-    except Exception as error:
-        raise _identity_document_http_error(error) from error
-    if not deleted:
-        raise HTTPException(404, f"Identity document {kind} not found")
-    return {"status": "deleted", "kind": kind}
 
 
 @app.get("/{path:path}", response_class=HTMLResponse, include_in_schema=False)

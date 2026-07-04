@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from smokescreen.models import BrokerStatus, OptOutRecord
+from smokescreen.models import (
+    BrokerStatus,
+    OptOutRecord,
+    VerificationAddress,
+    VerificationProfile,
+)
 from smokescreen.state.sqlite import SQLiteStore
 
 
@@ -42,6 +47,23 @@ def test_upsert_updates(store):
     fetched = store.get("spokeo")
     assert fetched.status == BrokerStatus.INITIAL_SENT
     assert fetched.thread_id == "thread-123"
+
+
+def test_upsert_persists_info_request_metadata(store):
+    record = OptOutRecord(
+        broker_id="spokeo",
+        status=BrokerStatus.NEEDS_MANUAL,
+        requested_fields=["home_address", "documents"],
+        missing_fields=["documents"],
+        requested_other_details="Signed form",
+    )
+    store.upsert(record)
+
+    fetched = store.get("spokeo")
+    assert fetched is not None
+    assert fetched.requested_fields == ["home_address", "documents"]
+    assert fetched.missing_fields == ["documents"]
+    assert fetched.requested_other_details == "Signed form"
 
 
 def test_list_all(store):
@@ -99,3 +121,29 @@ def test_broker_selections_can_be_cleared(store):
     assert stored == []
     assert store.has_enabled_broker_selections() is True
     assert store.list_enabled_brokers() == []
+
+
+def test_verification_profile_default_and_persist(store):
+    assert store.get_verification_profile() == VerificationProfile()
+
+    profile = VerificationProfile(
+        home_addresses=[
+            VerificationAddress(
+                street="1 Main St",
+                city="Springfield",
+                state="CA",
+                zip="90210",
+                country="US",
+            )
+        ],
+        phone_numbers=["+1 555 0100"],
+        email_aliases=["old@example.com"],
+        date_of_birth="1990-01-01",
+        last_four_ssn="1234",
+        employer_name="Acme",
+    )
+
+    stored = store.set_verification_profile(profile)
+
+    assert stored == profile
+    assert store.get_verification_profile() == profile

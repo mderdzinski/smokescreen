@@ -319,8 +319,8 @@ To add a new AI provider:
 6. Cover the new provider with unit tests and, where possible, mocked API
    clients.
 
-Identity documents and attachments should not be sent to AI providers; the
-classifier works on broker email text.
+Verification profile values and attachments should not be sent to AI providers;
+the classifier works on broker email text.
 
 ## PR and Merge Queue Workflow
 

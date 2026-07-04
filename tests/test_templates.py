@@ -2,9 +2,9 @@
 
 from smokescreen.email.templates import (
     render_follow_up,
-    render_follow_up_response,
     render_initial_opt_out,
     render_silent_ping,
+    render_verification_profile_follow_up,
 )
 
 
@@ -21,13 +21,15 @@ def test_initial_opt_out_template():
 
 
 def test_follow_up_response_template():
-    result = render_follow_up_response(
+    result = render_verification_profile_follow_up(
         broker_name="Spokeo",
         sender_name="John Doe",
+        verification_lines=["Home address: 1 Main St; Springfield, CA 90210"],
     )
     assert "Spokeo" in result
     assert "John Doe" in result
-    assert "additional information" in result.lower()
+    assert "Home address: 1 Main St" in result
+    assert "attached" not in result.lower()
 
 
 def test_follow_up_template():

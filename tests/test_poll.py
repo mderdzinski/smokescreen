@@ -1,6 +1,4 @@
 """Tests for polling broker reply threads."""
-
-from contextlib import contextmanager
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +16,8 @@ from smokescreen.models import (
     EmailMessage,
     OptOutRecord,
     PendingWhitelistStatus,
+    VerificationAddress,
+    VerificationProfile,
     WhitelistEntry,
 )
 from smokescreen.state.sqlite import SQLiteStore
@@ -160,6 +160,15 @@ def _mock_anthropic(label: str) -> MagicMock:
     content_block.text = label
     client.messages.create.return_value = MagicMock(content=[content_block])
     return client
+
+
+def _info_request_response(fields: list[str], other_details: str = "") -> str:
+    return (
+        '{"classification":"INFO_REQUEST",'
+        f'"requested_fields":{fields!r},'
+        f'"other_details":"{other_details}"'
+        "}"
+    ).replace("'", '"')
 
 
 def _mock_gemini(label: str) -> MagicMock:
@@ -544,14 +553,76 @@ def test_poll_filters_self_reply_by_default(tmp_path):
     store.close()
 
 
-def test_process_thread_sends_follow_up_reply_with_attachments(tmp_path):
-    identity_dir = tmp_path / "identity"
-    identity_dir.mkdir()
-    front = identity_dir / "license-front.txt"
-    back = identity_dir / "license-back.txt"
-    front.write_text("front", encoding="utf-8")
-    back.write_text("back", encoding="utf-8")
-    settings = _settings(tmp_path, identity_docs_dir=identity_dir)
+def test_process_thread_sends_follow_up_reply_from_verification_profile(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    store.set_verification_profile(
+        VerificationProfile(
+            home_addresses=[
+                VerificationAddress(
+                    street="1 Main St",
+                    city="Springfield",
+                    state="CA",
+                    zip="90210",
+                    country="US",
+                )
+            ],
+            phone_numbers=["+1 555 0100"],
+        )
+    )
+    record = _record(status=BrokerStatus.AWAITING_RESPONSE)
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Identity verification",
+                    body="Please send your home address and phone number.",
+                    has_attachments=True,
+                )
+            ]
+        }
+    )
+
+    processed = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        ai_client=_mock_anthropic(
+            _info_request_response(["home_address", "phone_number"])
+        ),
+    )
+
+    assert processed is True
+    assert len(gmail.sent_messages) == 1
+    sent = gmail.sent_messages[0]
+    assert sent["to"] == "privacy@labeled.example"
+    assert sent["subject"] == "Re: Identity verification"
+    assert sent["thread_id"] == "thread-labeled"
+    assert "Home address: 1 Main St; Springfield, CA 90210; US" in sent["body"]
+    assert "Phone number: +1 555 0100" in sent["body"]
+    assert "attached" not in sent["body"].lower()
+    assert "attachment_paths" not in sent
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.FOLLOW_UP_SENT
+    assert updated.retries == 1
+    assert updated.last_message_id == "sent-identity"
+    assert updated.requested_fields == ["home_address", "phone_number"]
+    assert updated.missing_fields == []
+    store.close()
+
+
+def test_process_thread_info_request_documents_needs_manual(tmp_path):
+    settings = _settings(tmp_path)
     store = SQLiteStore(settings.sqlite_path)
     record = _record(status=BrokerStatus.AWAITING_RESPONSE)
     store.upsert(record)
@@ -567,7 +638,135 @@ def test_process_thread_sends_follow_up_reply_with_attachments(tmp_path):
                     sender="privacy@labeled.example",
                     subject="Identity verification",
                     body="Please send a copy of your ID.",
-                    has_attachments=True,
+                )
+            ]
+        }
+    )
+
+    processed = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        ai_client=_mock_anthropic(_info_request_response(["documents"])),
+    )
+
+    assert processed is True
+    assert gmail.sent_messages == []
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.NEEDS_MANUAL
+    assert updated.requested_fields == ["documents"]
+    assert updated.missing_fields == ["documents"]
+    assert "no longer stores or sends identity documents" in updated.notes
+    store.close()
+
+
+def test_process_thread_info_request_missing_profile_field_needs_manual(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    record = _record(status=BrokerStatus.AWAITING_RESPONSE)
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Identity verification",
+                    body="Please send your phone number.",
+                )
+            ]
+        }
+    )
+
+    processed = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        ai_client=_mock_anthropic(_info_request_response(["phone_number"])),
+    )
+
+    assert processed is True
+    assert gmail.sent_messages == []
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.NEEDS_MANUAL
+    assert updated.requested_fields == ["phone_number"]
+    assert updated.missing_fields == ["phone_number"]
+    assert "You are missing: Phone number" in updated.notes
+    store.close()
+
+
+def test_process_thread_info_request_other_needs_manual(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    record = _record(status=BrokerStatus.AWAITING_RESPONSE)
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Identity verification",
+                    body="Please send your account number.",
+                )
+            ]
+        }
+    )
+
+    processed = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        ai_client=_mock_anthropic(
+            _info_request_response(["other"], other_details="Account number")
+        ),
+    )
+
+    assert processed is True
+    assert gmail.sent_messages == []
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.NEEDS_MANUAL
+    assert updated.requested_fields == ["other"]
+    assert updated.missing_fields == ["other"]
+    assert updated.requested_other_details == "Account number"
+    assert "Account number" in updated.notes
+    store.close()
+
+
+def test_process_thread_info_request_without_requested_fields_needs_manual(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    record = _record(status=BrokerStatus.AWAITING_RESPONSE)
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Identity verification",
+                    body="Please send whatever you can.",
                 )
             ]
         }
@@ -584,75 +783,12 @@ def test_process_thread_sends_follow_up_reply_with_attachments(tmp_path):
     )
 
     assert processed is True
-    assert len(gmail.sent_messages) == 1
-    sent = gmail.sent_messages[0]
-    assert sent["to"] == "privacy@labeled.example"
-    assert sent["subject"] == "Re: Identity verification"
-    assert sent["thread_id"] == "thread-labeled"
-    assert {path.name for path in sent["attachment_paths"]} == {
-        "license-front.txt",
-        "license-back.txt",
-    }
+    assert gmail.sent_messages == []
     updated = store.get("labeled")
-    assert updated.status == BrokerStatus.FOLLOW_UP_SENT
-    assert updated.retries == 1
-    assert updated.last_message_id == "sent-identity"
-    store.close()
-
-
-def test_process_thread_sends_follow_up_reply_with_bucket_attachments(tmp_path):
-    downloaded = tmp_path / "government_id-license.png"
-    downloaded.write_text("front", encoding="utf-8")
-    settings = _settings(
-        tmp_path,
-        identity_bucket="smokescreen-identity-docs",
-    )
-    store = SQLiteStore(settings.sqlite_path)
-    record = _record(status=BrokerStatus.AWAITING_RESPONSE)
-    store.upsert(record)
-    store.add_whitelist(
-        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
-    )
-    gmail = FakeGmail(
-        threads={
-            "thread-labeled": [
-                EmailMessage(
-                    message_id="reply-labeled",
-                    thread_id="thread-labeled",
-                    sender="privacy@labeled.example",
-                    subject="Identity verification",
-                    body="Please send a copy of your ID.",
-                    has_attachments=True,
-                )
-            ]
-        }
-    )
-
-    @contextmanager
-    def fake_identity_attachment_paths(settings_arg):
-        assert settings_arg.identity_bucket == "smokescreen-identity-docs"
-        yield [downloaded]
-
-    with patch(
-        "smokescreen.jobs.poll.identity_attachment_paths",
-        fake_identity_attachment_paths,
-    ):
-        processed = _process_thread(
-            settings=settings,
-            record=record,
-            broker_name="Labeled Broker",
-            broker_email="privacy@labeled.example",
-            store=store,
-            gmail=gmail,
-            ai_client=_mock_anthropic("INFO_REQUEST"),
-        )
-
-    assert processed is True
-    assert len(gmail.sent_messages) == 1
-    sent = gmail.sent_messages[0]
-    assert sent["attachment_paths"] == [downloaded]
-    updated = store.get("labeled")
-    assert updated.status == BrokerStatus.FOLLOW_UP_SENT
+    assert updated.status == BrokerStatus.NEEDS_MANUAL
+    assert updated.requested_fields == []
+    assert updated.missing_fields == ["other"]
+    assert "could not identify the exact fields" in updated.notes
     store.close()
 
 
@@ -664,6 +800,18 @@ def test_run_poll_handles_first_reply_info_request(tmp_path):
         poll_label="",
     )
     store = SQLiteStore(settings.sqlite_path)
+    store.set_verification_profile(
+        VerificationProfile(
+            home_addresses=[
+                VerificationAddress(
+                    street="1 Main St",
+                    city="Springfield",
+                    state="CA",
+                    zip="90210",
+                )
+            ]
+        )
+    )
     store.upsert(
         OptOutRecord(
             broker_id="labeled",
@@ -690,14 +838,16 @@ def test_run_poll_handles_first_reply_info_request(tmp_path):
                     thread_id="alpha-thread",
                     sender="caseworker@vendor.example",
                     subject="Identity verification",
-                    body="Please send a copy of your ID.",
+                    body="Please send your home address.",
                 ),
             ]
         }
     )
 
     with patch("smokescreen.jobs.poll.Anthropic") as anthropic:
-        anthropic.return_value = _mock_anthropic("INFO_REQUEST")
+        anthropic.return_value = _mock_anthropic(
+            _info_request_response(["home_address"])
+        )
         processed = run_poll(settings, _registry(), store, gmail=gmail)
 
     assert processed == ["labeled"]
@@ -705,6 +855,7 @@ def test_run_poll_handles_first_reply_info_request(tmp_path):
     assert updated.status == BrokerStatus.FOLLOW_UP_SENT
     assert updated.retries == 1
     assert updated.last_message_id == "alpha-vendor"
+    assert updated.requested_fields == ["home_address"]
     assert gmail.sent_messages == []
     store.close()
 

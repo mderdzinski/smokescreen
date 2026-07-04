@@ -13,6 +13,7 @@ from smokescreen.models import (
     OptOutRecord,
     PendingWhitelistEntry,
     PendingWhitelistStatus,
+    VerificationProfile,
     WhitelistEntry,
     WhitelistSource,
     as_aware_utc,
@@ -90,6 +91,11 @@ class FirestoreStore:
             return None
         return self._datetime_or_default(value)
 
+    def _string_list(self, value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [item for item in value if isinstance(item, str)]
+
     def _doc_to_record(self, broker_id: str, data: dict) -> OptOutRecord:
         return OptOutRecord(
             broker_id=broker_id,
@@ -101,6 +107,9 @@ class FirestoreStore:
             updated_at=self._datetime_or_default(data.get("updated_at")),
             last_completed_at=self._optional_datetime(data.get("last_completed_at")),
             notes=data.get("notes", ""),
+            requested_fields=self._string_list(data.get("requested_fields")),
+            missing_fields=self._string_list(data.get("missing_fields")),
+            requested_other_details=data.get("requested_other_details", ""),
         )
 
     def _doc_to_whitelist_entry(self, doc) -> WhitelistEntry:
@@ -156,6 +165,9 @@ class FirestoreStore:
                 "updated_at": record.updated_at,
                 "last_completed_at": record.last_completed_at,
                 "notes": record.notes,
+                "requested_fields": record.requested_fields,
+                "missing_fields": record.missing_fields,
+                "requested_other_details": record.requested_other_details,
             }
         )
 
@@ -301,6 +313,11 @@ class FirestoreStore:
     def _broker_selections_ref(self):
         return self._collection_ref(self._meta_collection).document("broker_selections")
 
+    def _verification_profile_ref(self):
+        return self._collection_ref(self._meta_collection).document(
+            "verification_profile"
+        )
+
     def list_enabled_brokers(self) -> list[str]:
         doc = self._broker_selections_ref().get()
         if not doc.exists:
@@ -336,5 +353,23 @@ class FirestoreStore:
 
         self._broker_selections_ref().set(
             broker_selection_document(normalized, updated_at)
+        )
+        return normalized
+
+    # --- Verification profile ---
+
+    def get_verification_profile(self) -> VerificationProfile:
+        doc = self._verification_profile_ref().get()
+        if not doc.exists:
+            return VerificationProfile()
+        data = doc.to_dict() or {}
+        return VerificationProfile.model_validate(data.get("profile") or {})
+
+    def set_verification_profile(
+        self, profile: VerificationProfile
+    ) -> VerificationProfile:
+        normalized = VerificationProfile.model_validate(profile.model_dump())
+        self._verification_profile_ref().set(
+            {"profile": normalized.model_dump(), "updated_at": utc_now().isoformat()}
         )
         return normalized

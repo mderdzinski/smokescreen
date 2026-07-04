@@ -7,11 +7,8 @@ import os
 from pathlib import Path
 from typing import Literal
 
-import structlog
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
-
-log = structlog.get_logger()
 
 SENSITIVE_FIELDS: set[str] = {
     "anthropic_api_key",
@@ -121,19 +118,6 @@ class Settings(BaseSettings):
         description="Firestore collection name",
     )
 
-    # Identity docs
-    identity_bucket: str = Field(
-        default="",
-        description="Private GCS bucket for identity document uploads",
-    )
-    identity_docs_dir: Path = Field(
-        default=Path("identity/"),
-        description=(
-            "Deprecated local directory containing pre-redacted identity documents; "
-            "use identity_bucket instead"
-        ),
-    )
-
     # Job settings
     max_retries: int = Field(
         default=5,
@@ -195,7 +179,11 @@ def load_settings_file(path: Path | None = None) -> dict:
     text = path.read_text(encoding="utf-8")
     if not text.strip():
         return {}
-    return json.loads(text)
+    data = json.loads(text)
+    if isinstance(data, dict):
+        data.pop("identity_bucket", None)
+        data.pop("identity_docs_dir", None)
+    return data
 
 
 def save_settings(data: dict, path: Path | None = None) -> None:
@@ -215,18 +203,6 @@ def get_settings(settings_file: Path | None = None, **overrides) -> Settings:
     Precedence: overrides > env vars > JSON file > Pydantic defaults.
     """
     file_data = load_settings_file(settings_file)
-    if (
-        "identity_docs_dir" in file_data
-        or os.environ.get("SMOKESCREEN_IDENTITY_DOCS_DIR", "").strip()
-    ):
-        log.warning(
-            "identity_docs_dir_deprecated",
-            message=(
-                "identity_docs_dir is deprecated; configure "
-                "SMOKESCREEN_IDENTITY_BUCKET and upload documents through "
-                "the dashboard."
-            ),
-        )
     # File values are used as kwargs; env vars and overrides take precedence
     # because pydantic-settings reads env vars automatically.
     merged = {**file_data, **overrides}

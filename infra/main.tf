@@ -122,32 +122,6 @@ resource "google_project_iam_member" "secret_accessor" {
   member  = "serviceAccount:${google_service_account.smokescreen.email}"
 }
 
-# --- Identity Documents ---
-
-resource "google_storage_bucket" "identity_documents" {
-  name                        = "${var.project_id}-smokescreen-identity-docs"
-  location                    = "us-central1"
-  storage_class               = "STANDARD"
-  uniform_bucket_level_access = true
-  public_access_prevention    = "enforced"
-
-  versioning {
-    enabled = true
-  }
-}
-
-resource "google_storage_bucket_iam_member" "dashboard_identity_document_admin" {
-  bucket = google_storage_bucket.identity_documents.name
-  role   = "roles/storage.objectAdmin"
-  member = "serviceAccount:${google_service_account.dashboard.email}"
-}
-
-resource "google_storage_bucket_iam_member" "poll_identity_document_viewer" {
-  bucket = google_storage_bucket.identity_documents.name
-  role   = "roles/storage.objectViewer"
-  member = "serviceAccount:${google_service_account.smokescreen.email}"
-}
-
 # --- Secrets ---
 
 resource "google_secret_manager_secret" "gmail_token" {
@@ -266,10 +240,6 @@ resource "google_cloud_run_v2_service" "dashboard" {
       env {
         name  = "SMOKESCREEN_STATE_TIMEOUT_DAYS"
         value = tostring(var.state_timeout_days)
-      }
-      env {
-        name  = "SMOKESCREEN_IDENTITY_BUCKET"
-        value = google_storage_bucket.identity_documents.name
       }
       env {
         name  = "SMOKESCREEN_TEST_BROKER_ID"
@@ -410,10 +380,6 @@ resource "google_cloud_run_v2_job" "poll_and_reply" {
           value = tostring(var.state_timeout_days)
         }
         env {
-          name  = "SMOKESCREEN_IDENTITY_BUCKET"
-          value = google_storage_bucket.identity_documents.name
-        }
-        env {
           name  = "SMOKESCREEN_TEST_BROKER_ID"
           value = var.test_broker_id
         }
@@ -534,10 +500,6 @@ resource "google_cloud_run_v2_job" "outreach" {
         env {
           name  = "SMOKESCREEN_STATE_TIMEOUT_DAYS"
           value = tostring(var.state_timeout_days)
-        }
-        env {
-          name  = "SMOKESCREEN_IDENTITY_BUCKET"
-          value = google_storage_bucket.identity_documents.name
         }
         env {
           name  = "SMOKESCREEN_TEST_BROKER_ID"

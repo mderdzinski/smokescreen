@@ -168,7 +168,7 @@ smokescreen serve --host 0.0.0.0 --port 9000
 - **Status** — Overview route at `/` with working, removed, and needs-attention broker records
 - **Brokers** — Broker registry route at `/brokers`; add, edit, delete, enable, disable, import, and run outreach for selected brokers
 - **Needs Attention** — Manual-review route at `/needs-attention` for `NEEDS_MANUAL`, `FAILED`, and `REJECTED` records
-- **Settings** — Configure identity, Gmail status, AI provider, cadence, identity documents, and trusted senders
+- **Settings** — Configure identity, verification profile, Gmail status, AI provider, cadence, and trusted senders
 
 The onboarding flow is available at `/setup` and `/onboarding`. It persists
 the enabled broker selection used by scheduled outreach. The `/trusted-senders`
@@ -225,8 +225,6 @@ All settings use the `SMOKESCREEN_` env prefix. They can be set via environment 
 | `SMOKESCREEN_GMAIL_CREDENTIALS_JSON` | `""` | OAuth client credentials JSON from Secret Manager |
 | `SMOKESCREEN_GMAIL_TOKEN_JSON` | `""` | Authorized-user OAuth token JSON from Secret Manager |
 | `SMOKESCREEN_GMAIL_OAUTH_INTERACTIVE` | `true` | Allow browser OAuth when no reusable token is available |
-| `SMOKESCREEN_IDENTITY_BUCKET` | `""` | Private GCS bucket for uploaded identity documents |
-| `SMOKESCREEN_IDENTITY_DOCS_DIR` | `identity/` | Deprecated local identity document fallback. Use `SMOKESCREEN_IDENTITY_BUCKET` and upload documents through the dashboard. |
 | `SMOKESCREEN_MAX_RETRIES` | `5` | Max retries before FAILED |
 | `SMOKESCREEN_POLL_LABEL` | `smokescreen` | Gmail label used to select active stored threads during polling; set blank to poll all active stored threads |
 | `SMOKESCREEN_DRY_RUN` | `false` | Skip actual sends |
@@ -258,14 +256,20 @@ lists it as the latest supported version for Gemini 3.1 Flash-Lite.
 
 Settings can be persisted to a JSON file (default: `settings.json`) via the dashboard Settings tab or the `PUT /api/settings` endpoint. Environment variables always take precedence over file-based settings. Changes to identity, email, or state backend settings require a server restart.
 
-### Identity documents
+### Verification profile
 
-`SMOKESCREEN_IDENTITY_BUCKET` is the current identity-document storage setting.
-The dashboard uploads Government ID, Proof of address, and optional SSN-last-4
-documents to that private GCS bucket. `SMOKESCREEN_IDENTITY_DOCS_DIR` is
-deprecated; existing local files are used only as a fallback when no bucket is
-configured. Migrate by configuring the bucket, starting the dashboard, and
-uploading the documents from Settings.
+The dashboard Settings page includes an optional Verification Profile. It is
+persisted in the state backend alongside broker selections, not in environment
+variables or the settings JSON file. You can store home addresses, phone
+numbers, email aliases, date of birth, last-four SSN, employer name, and
+additional notes.
+
+When a broker reply is classified as `INFO_REQUEST`, Smokescreen extracts the
+requested fields. If every requested field is available in the Verification
+Profile, Smokescreen sends a follow-up containing only those requested fields.
+If the broker asks for documents, asks for an unsupported/ambiguous field, or
+the profile is missing a requested field, the record moves to `NEEDS_MANUAL`
+and Needs Attention shows what the broker asked for and what is missing.
 
 ## State machine
 
@@ -386,8 +390,8 @@ Use the deployment docs for the path that matches your goal:
 ## Security
 
 - Gmail scopes restricted to `gmail.send` + `gmail.modify`
-- Identity documents are never sent to the AI classifier; only email text is used
-- Identity documents are uploaded to a private GCS bucket; the local identity docs directory is deprecated fallback behavior
+- Verification profile values are never sent to the AI classifier; only email text is used
+- Identity document uploads have been removed; document requests move records to manual review
 - Cloud Run SA has least-privilege IAM roles
 - Credentials, tokens, and databases are gitignored
 
@@ -439,11 +443,10 @@ The dashboard server exposes a REST API:
 | `POST` | `/api/whitelist/pending/{entry_id}/approve` | Approve a pending request |
 | `POST` | `/api/whitelist/pending/{entry_id}/reject` | Reject a pending request |
 | `GET` | `/api/settings` | Get current settings (sensitive fields masked) |
+| `GET` | `/api/settings/verification-profile` | Get the persisted verification profile |
+| `PUT` | `/api/settings/verification-profile` | Replace the persisted verification profile |
 | `GET` | `/api/settings/advanced` | Get advanced settings fields |
 | `PUT` | `/api/settings` | Update settings (partial, persisted to JSON file) |
-| `GET` | `/api/identity-documents` | List uploaded identity documents |
-| `POST` | `/api/identity-documents/{kind}` | Upload or replace an identity document |
-| `DELETE` | `/api/identity-documents/{kind}` | Delete an identity document |
 
 ## Project layout
 

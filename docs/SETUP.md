@@ -88,10 +88,9 @@ commands from a new shell.
 
 Enable the APIs used by Terraform, Cloud Run, Scheduler, Secret Manager,
 Artifact Registry, Gmail OAuth, IAP, Vertex AI Gemini, and Cloud Resource
-Manager. Cloud Resource Manager is required for project-scoped IAM
-operations such as `gcloud iap web get-iam-policy` during deploy
-verification. Cloud Storage is required for the Terraform-managed private
-identity document bucket.
+Manager. Cloud Resource Manager is required for project-scoped IAM operations
+such as `gcloud iap web get-iam-policy` during deploy verification. Cloud
+Storage is required for the Terraform state bucket.
 
 ```bash
 gcloud services enable \
@@ -306,10 +305,9 @@ Why each role, briefly:
   runtime service accounts (Firestore, Vertex AI, Secret Manager
   accessor).
 - `secretmanager.admin` — create the Secret Manager secret containers.
-- `storage.admin` — create and manage Terraform-owned GCS buckets, including
-  the private identity document bucket added in v0.17.0, and their
-  bucket-scoped IAM bindings. This must be project-level because Terraform
-  calls `storage.buckets.create` before any bucket-scoped IAM can exist.
+- `storage.admin` — create and manage Terraform-owned GCS buckets when needed
+  for deploy support. The current app no longer creates an identity-document
+  bucket; keep Terraform state access bucket-scoped when possible.
 - `cloudscheduler.admin` — create the poll and outreach schedules.
 - `datastore.owner` — create and manage the Firestore database.
 - `iap.admin` — read and write IAP IAM bindings on the dashboard service.
@@ -324,20 +322,10 @@ Why each role, briefly:
   inside the manually created Terraform state bucket; it cannot create new
   buckets or manage Terraform-created bucket IAM.
 
-> **Existing deployers and v0.17.0 storage buckets.** If you completed setup
-> before v0.17.0, your CI service account may not have project-level
-> `roles/storage.admin` yet. A release can then fail during `terraform apply`
-> with a permission error on `storage.buckets.create`, including while creating
-> `google_storage_bucket.identity_documents`. Grant the missing role:
->
-> ```bash
-> gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
->   --member=serviceAccount:YOUR_CI_SA_EMAIL \
->   --role=roles/storage.admin
-> ```
->
-> Then rerun the failed release workflow with
-> `gh run rerun --failed WORKFLOW_ID`, or trigger a fresh release.
+> **Existing deployers with old identity-document buckets.** Current Terraform
+> removes `google_storage_bucket.identity_documents`. If a prior deployment
+> created that bucket, empty it before applying this release so Terraform can
+> destroy it and its IAM bindings cleanly.
 
 > **Migrating from an earlier version of these docs.** If you previously
 > granted `roles/iap.settingsAdmin`, add `roles/iap.admin` on top —

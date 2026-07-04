@@ -43,6 +43,7 @@ import {
   getAttentionViewState,
   getBrokerReplyText,
   getSourceEmailHref,
+  getVerificationProfileGap,
 } from "./lib/needs-attention";
 import { cn } from "./lib/utils";
 import { Badge } from "./components/ui/badge";
@@ -1104,6 +1105,7 @@ function AttentionItem({
   const guidance = getAttentionGuidance(record);
   const replyText = getBrokerReplyText(record);
   const sourceEmailHref = getSourceEmailHref(record.thread_id);
+  const verificationGap = getVerificationProfileGap(record);
   const actionLabels = getAttentionActionLabels({ isMarkingHandled: isMarkingHandled || isResolving, isRetrying });
   const actionPending = isMarkingHandled || isRetrying || isResolving;
 
@@ -1151,6 +1153,26 @@ function AttentionItem({
           </Button>
         </div>
       </div>
+
+      {verificationGap ? (
+        <div className="mt-[14px] rounded-sm border border-bd-amber bg-fill-amber px-[13px] py-[11px]">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="ss-label text-soft-amber">Verification profile gap</div>
+            <Button asChild variant="outline" size="sm">
+              <Link to="/settings#settings-verification-profile">
+                <ShieldCheck className="h-4 w-4" />
+                Verification Profile
+              </Link>
+            </Button>
+          </div>
+          <p className="mt-[7px] text-sm leading-relaxed text-soft-amber">
+            Broker asked for: {verificationGap.askedFor}. You are missing: {verificationGap.missing}.
+          </p>
+          {verificationGap.otherDetails ? (
+            <p className="mt-[5px] text-xs leading-relaxed text-content-body">{verificationGap.otherDetails}</p>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mt-[14px] grid gap-3 lg:grid-cols-2">
         <div>

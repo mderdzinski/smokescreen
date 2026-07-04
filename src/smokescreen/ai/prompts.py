@@ -19,7 +19,20 @@ or otherwise requires human intervention.
 - UNRELATED: The reply is an auto-reply, marketing email, or otherwise unrelated \
 to the opt-out.
 
-Respond with ONLY the classification label, nothing else."""
+When the classification is INFO_REQUEST, also extract the broker's requested \
+verification fields using only these requested_fields values:
+home_address, phone_number, email_alias, date_of_birth, last_four_ssn, \
+employer_name, documents, other.
+
+Use documents when the broker asks for an ID card, proof of address, utility \
+bill, SSN card, signed document, notarized form, or any uploaded/attached file. \
+Use other when the request is ambiguous or asks for something outside the listed \
+fields, and summarize that in other_details.
+
+Respond with ONLY compact JSON in this shape:
+{"classification":"INFO_REQUEST","requested_fields":["home_address"],"other_details":""}
+
+For non-INFO_REQUEST classifications, requested_fields must be an empty array."""
 
 CLASSIFIER_USER = """\
 Broker: {broker_name}
@@ -45,5 +58,4 @@ Their message:
 Our sender name: {sender_name}
 
 Compose an appropriate reply. If the classification is INFO_REQUEST, \
-note that any documents on file are attached separately and confirm we can \
-supply anything else they need to proceed. Keep it under 200 words."""
+confirm we can supply anything else they need to proceed. Keep it under 200 words."""

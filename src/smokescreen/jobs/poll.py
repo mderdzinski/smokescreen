@@ -14,14 +14,20 @@ from smokescreen.ai.classifier import classify_reply, classify_reply_gemini
 from smokescreen.brokers.registry import BrokerRegistry
 from smokescreen.config import Settings
 from smokescreen.email.client import GmailClient
-from smokescreen.email.templates import render_follow_up_response, render_silent_ping
-from smokescreen.identity_docs import identity_attachment_paths
+from smokescreen.email.templates import (
+    render_silent_ping,
+    render_verification_profile_follow_up,
+)
 from smokescreen.models import (
     BrokerStatus,
     EmailMessage,
     OptOutRecord,
     PendingWhitelistEntry,
+    ReplyAnalysis,
     ReplyClassification,
+    VerificationAddress,
+    VerificationField,
+    VerificationProfile,
     as_aware_utc,
     utc_now,
 )
@@ -41,6 +47,17 @@ _ACTIVE_STATES = {
     BrokerStatus.FOLLOW_UP_SENT_PINGED,
     BrokerStatus.INFO_REQUESTED,
     BrokerStatus.INFO_REQUESTED_PINGED,
+}
+
+_PROFILE_FIELD_LABELS = {
+    VerificationField.HOME_ADDRESS: "Home address",
+    VerificationField.PHONE_NUMBER: "Phone number",
+    VerificationField.EMAIL_ALIAS: "Email alias",
+    VerificationField.DATE_OF_BIRTH: "Date of birth",
+    VerificationField.LAST_FOUR_SSN: "Last four SSN",
+    VerificationField.EMPLOYER_NAME: "Employer name",
+    VerificationField.DOCUMENTS: "Documents",
+    VerificationField.OTHER: "Other",
 }
 
 
@@ -271,7 +288,7 @@ def _process_thread(
 
     # Classify the reply
     if settings.ai_provider == "anthropic":
-        classification = classify_reply(
+        analysis = classify_reply(
             client=ai_client,
             model=settings.anthropic_model,
             broker_name=broker_name,
@@ -279,7 +296,7 @@ def _process_thread(
             body=latest.body,
         )
     else:
-        classification = classify_reply_gemini(
+        analysis = classify_reply_gemini(
             client=ai_client,
             model=settings.gemini_model,
             broker_name=broker_name,
@@ -290,7 +307,8 @@ def _process_thread(
     log.info(
         "poll_classified",
         broker=record.broker_id,
-        classification=classification.value,
+        classification=analysis.classification.value,
+        requested_fields=[field.value for field in analysis.requested_fields],
         provider=settings.ai_provider,
     )
 
@@ -300,7 +318,7 @@ def _process_thread(
         broker_name=broker_name,
         broker_email=broker_email,
         latest=latest,
-        classification=classification,
+        analysis=analysis,
         store=store,
         gmail=gmail,
     )
@@ -324,12 +342,13 @@ def _handle_classification(
     broker_name: str,
     broker_email: str,
     latest: EmailMessage,
-    classification: ReplyClassification,
+    analysis: ReplyAnalysis,
     store: StateStore,
     gmail: GmailClient,
 ) -> bool:
     """Handle a classified reply. Returns True if action was taken."""
     now = utc_now()
+    classification = analysis.classification
 
     if classification == ReplyClassification.COMPLETED:
         validate_transition(record.status, BrokerStatus.COMPLETED)
@@ -383,6 +402,8 @@ def _handle_classification(
             broker_name=broker_name,
             broker_email=broker_email,
             latest=latest,
+            requested_fields=analysis.requested_fields,
+            other_details=analysis.other_details,
             store=store,
             gmail=gmail,
         )
@@ -412,6 +433,8 @@ def _handle_info_request(
     broker_name: str,
     broker_email: str,
     latest: EmailMessage,
+    requested_fields: list[VerificationField],
+    other_details: str,
     store: StateStore,
     gmail: GmailClient,
 ) -> bool:
@@ -426,42 +449,239 @@ def _handle_info_request(
         log.warning("poll_max_retries", broker=record.broker_id)
         return True
 
+    requested_fields = _dedupe_requested_fields(requested_fields)
+    profile = store.get_verification_profile()
+    missing_fields, manual_reason = _profile_gap(
+        profile=profile,
+        requested_fields=requested_fields,
+        other_details=other_details,
+    )
+    record.requested_fields = [field.value for field in requested_fields]
+    record.missing_fields = [field.value for field in missing_fields]
+    record.requested_other_details = other_details.strip()
+    record.last_message_id = latest.message_id
+
+    if missing_fields:
+        validate_transition(record.status, BrokerStatus.NEEDS_MANUAL)
+        record.status = BrokerStatus.NEEDS_MANUAL
+        record.notes = _info_request_manual_notes(
+            requested_fields=requested_fields,
+            missing_fields=missing_fields,
+            reason=manual_reason,
+            latest=latest,
+            other_details=other_details,
+        )
+        record.updated_at = now
+        store.upsert(record)
+        log.info(
+            "poll_info_request_needs_manual",
+            broker=record.broker_id,
+            requested_fields=record.requested_fields,
+            missing_fields=record.missing_fields,
+        )
+        return True
+
     validate_transition(record.status, BrokerStatus.INFO_REQUESTED)
     record.status = BrokerStatus.INFO_REQUESTED
-    record.last_message_id = latest.message_id
+    record.notes = _info_request_sent_notes(requested_fields)
     record.updated_at = now
     store.upsert(record)
 
-    body = render_follow_up_response(
+    body = render_verification_profile_follow_up(
         broker_name=broker_name,
         sender_name=settings.sender_name,
+        verification_lines=_verification_lines(profile, requested_fields),
     )
 
-    with identity_attachment_paths(settings) as attachment_paths:
-        if settings.dry_run:
-            log.info("dry_run_follow_up_reply", broker=record.broker_id)
-        else:
-            # Replies stay in the original Gmail thread, so Gmail preserves the
-            # poll label applied by outreach.
-            sent = gmail.send(
-                to=broker_email,
-                subject=f"Re: {latest.subject}",
-                body=body,
-                sender=settings.sender_email,
-                sender_name=settings.sender_name,
-                thread_id=record.thread_id,
-                attachment_paths=attachment_paths if attachment_paths else None,
-            )
-            record.last_message_id = sent.message_id
+    if settings.dry_run:
+        log.info("dry_run_follow_up_reply", broker=record.broker_id)
+    else:
+        # Replies stay in the original Gmail thread, so Gmail preserves the
+        # poll label applied by outreach.
+        sent = gmail.send(
+            to=broker_email,
+            subject=f"Re: {latest.subject}",
+            body=body,
+            sender=settings.sender_email,
+            sender_name=settings.sender_name,
+            thread_id=record.thread_id,
+        )
+        record.last_message_id = sent.message_id
 
     validate_transition(record.status, BrokerStatus.FOLLOW_UP_SENT)
     record.status = BrokerStatus.FOLLOW_UP_SENT
+    record.missing_fields = []
     record.retries += 1
     record.updated_at = utc_now()
     store.upsert(record)
 
     log.info("poll_follow_up_sent", broker=record.broker_id, retries=record.retries)
     return True
+
+
+def _dedupe_requested_fields(
+    requested_fields: list[VerificationField],
+) -> list[VerificationField]:
+    deduped: list[VerificationField] = []
+    seen: set[VerificationField] = set()
+    for field in requested_fields:
+        if field in seen:
+            continue
+        seen.add(field)
+        deduped.append(field)
+    return deduped
+
+
+def _profile_gap(
+    profile: VerificationProfile,
+    requested_fields: list[VerificationField],
+    other_details: str,
+) -> tuple[list[VerificationField], str]:
+    if not requested_fields:
+        return (
+            [VerificationField.OTHER],
+            (
+                "Broker requested more information, but Smokescreen could not "
+                "identify the exact fields."
+            ),
+        )
+
+    missing_fields: list[VerificationField] = []
+    reasons: list[str] = []
+    if VerificationField.DOCUMENTS in requested_fields:
+        missing_fields.append(VerificationField.DOCUMENTS)
+        reasons.append(
+            "Broker requested documents. Smokescreen no longer stores or "
+            "sends identity documents."
+        )
+    if VerificationField.OTHER in requested_fields:
+        missing_fields.append(VerificationField.OTHER)
+        detail = other_details.strip()
+        reasons.append(
+            f"Broker requested other information: {detail}."
+            if detail
+            else (
+                "Broker requested information outside the supported verification "
+                "profile fields."
+            )
+        )
+
+    for field in requested_fields:
+        if field in {VerificationField.DOCUMENTS, VerificationField.OTHER}:
+            continue
+        if not _profile_has_field(profile, field):
+            missing_fields.append(field)
+
+    if not reasons and missing_fields:
+        reasons.append(
+            "The verification profile is missing one or more requested fields."
+        )
+
+    return _dedupe_requested_fields(missing_fields), " ".join(reasons)
+
+
+def _profile_has_field(
+    profile: VerificationProfile,
+    field: VerificationField,
+) -> bool:
+    if field == VerificationField.HOME_ADDRESS:
+        return bool(_complete_home_addresses(profile))
+    if field == VerificationField.PHONE_NUMBER:
+        return any(value.strip() for value in profile.phone_numbers)
+    if field == VerificationField.EMAIL_ALIAS:
+        return any(value.strip() for value in profile.email_aliases)
+    if field == VerificationField.DATE_OF_BIRTH:
+        return bool((profile.date_of_birth or "").strip())
+    if field == VerificationField.LAST_FOUR_SSN:
+        return bool((profile.last_four_ssn or "").strip())
+    if field == VerificationField.EMPLOYER_NAME:
+        return bool((profile.employer_name or "").strip())
+    return False
+
+
+def _complete_home_addresses(
+    profile: VerificationProfile,
+) -> list[VerificationAddress]:
+    return [
+        address
+        for address in profile.home_addresses
+        if address.street.strip()
+        and address.city.strip()
+        and address.state.strip()
+        and address.zip.strip()
+    ]
+
+
+def _verification_lines(
+    profile: VerificationProfile,
+    requested_fields: list[VerificationField],
+) -> list[str]:
+    lines: list[str] = []
+    for field in requested_fields:
+        if field == VerificationField.HOME_ADDRESS:
+            for index, address in enumerate(_complete_home_addresses(profile), start=1):
+                label = "Home address" if index == 1 else f"Home address {index}"
+                lines.append(f"{label}: {_format_address(address)}")
+        elif field == VerificationField.PHONE_NUMBER:
+            lines.append(
+                f"Phone number: {', '.join(_non_empty(profile.phone_numbers))}"
+            )
+        elif field == VerificationField.EMAIL_ALIAS:
+            lines.append(
+                f"Email alias: {', '.join(_non_empty(profile.email_aliases))}"
+            )
+        elif field == VerificationField.DATE_OF_BIRTH:
+            lines.append(f"Date of birth: {(profile.date_of_birth or '').strip()}")
+        elif field == VerificationField.LAST_FOUR_SSN:
+            lines.append(f"Last four SSN: {(profile.last_four_ssn or '').strip()}")
+        elif field == VerificationField.EMPLOYER_NAME:
+            lines.append(f"Employer name: {(profile.employer_name or '').strip()}")
+    return lines
+
+
+def _format_address(address: VerificationAddress) -> str:
+    state_zip = " ".join(
+        part for part in [address.state.strip(), address.zip.strip()] if part
+    )
+    city_line = ", ".join(part for part in [address.city.strip(), state_zip] if part)
+    parts = [address.street.strip(), city_line, address.country.strip()]
+    return "; ".join(part for part in parts if part)
+
+
+def _non_empty(values: list[str]) -> list[str]:
+    return [value.strip() for value in values if value.strip()]
+
+
+def _info_request_sent_notes(requested_fields: list[VerificationField]) -> str:
+    return (
+        "Broker asked for: "
+        f"{_format_field_list(requested_fields)}. "
+        "Sent matching fields from the Verification Profile."
+    )
+
+
+def _info_request_manual_notes(
+    requested_fields: list[VerificationField],
+    missing_fields: list[VerificationField],
+    reason: str,
+    latest: EmailMessage,
+    other_details: str,
+) -> str:
+    notes = (
+        "Broker asked for: "
+        f"{_format_field_list(requested_fields) or 'Unclear additional information'}. "
+        f"You are missing: {_format_field_list(missing_fields)}."
+    )
+    if reason:
+        notes = f"{notes} {reason}"
+    if other_details.strip() and VerificationField.OTHER in missing_fields:
+        notes = f"{notes} Details: {other_details.strip()}."
+    message_notes = _manual_review_notes(latest)
+    return f"{notes}\n\nBroker reply:\n{message_notes}"
+
+
+def _format_field_list(fields: list[VerificationField]) -> str:
+    return ", ".join(_PROFILE_FIELD_LABELS[field] for field in fields)
 
 
 def run_timeout_escalation(

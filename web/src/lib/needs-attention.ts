@@ -2,12 +2,38 @@ import type { OptOutRecord } from "./api";
 
 export type AttentionViewState = "loading" | "error" | "empty" | "review";
 
-type AttentionRecord = Pick<OptOutRecord, "broker_name" | "notes" | "status" | "thread_id">;
+type AttentionRecord = Pick<
+  OptOutRecord,
+  | "broker_name"
+  | "missing_fields"
+  | "notes"
+  | "requested_fields"
+  | "requested_other_details"
+  | "status"
+  | "thread_id"
+>;
 
 export interface AttentionGuidance {
   title: string;
   recommendedStep: string;
 }
+
+export interface VerificationProfileGap {
+  askedFor: string;
+  missing: string;
+  otherDetails: string;
+}
+
+const verificationFieldLabels: Record<string, string> = {
+  home_address: "Home address",
+  phone_number: "Phone number",
+  email_alias: "Email alias",
+  date_of_birth: "Date of birth",
+  last_four_ssn: "Last four SSN",
+  employer_name: "Employer name",
+  documents: "Documents",
+  other: "Other",
+};
 
 export function getAttentionViewState({
   hasError,
@@ -58,12 +84,30 @@ export function getBrokerReplyText(record: AttentionRecord): string {
   );
 }
 
+export function getVerificationProfileGap(record: AttentionRecord): VerificationProfileGap | null {
+  const requestedFields = formatVerificationFields(record.requested_fields);
+  const missingFields = formatVerificationFields(record.missing_fields);
+  if (!requestedFields && !missingFields) {
+    return null;
+  }
+
+  return {
+    askedFor: requestedFields || "Unclear additional information",
+    missing: missingFields || "Nothing",
+    otherDetails: record.requested_other_details.trim(),
+  };
+}
+
 export function getSourceEmailHref(threadId: string | null): string | null {
   const trimmedThreadId = threadId?.trim();
   if (!trimmedThreadId) {
     return null;
   }
   return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(trimmedThreadId)}`;
+}
+
+function formatVerificationFields(fields: string[]): string {
+  return fields.map((field) => verificationFieldLabels[field] ?? field).join(", ");
 }
 
 export function getAttentionActionLabels({

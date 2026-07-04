@@ -33,15 +33,19 @@ Sincerely,
 {{ sender_name }}
 """)
 
-FOLLOW_UP_RESPONSE = _env.from_string("""\
+VERIFICATION_PROFILE_FOLLOW_UP = _env.from_string("""\
 Dear {{ broker_name }} Privacy Team,
 
-Thank you for your response. As requested, I am providing the additional \
-information needed to proceed with my data deletion request.
+Thank you for your response. As requested, I am providing the information \
+needed to proceed with my data deletion request:
 
-Any documents you asked for are attached. If you require anything further, \
-please let me know and I will supply it promptly.
+{% for line in verification_lines -%}
+- {{ line }}
+{% endfor %}
+{% if additional_notes %}
+Additional notes: {{ additional_notes }}
 
+{% endif -%}
 I look forward to confirmation that my data has been removed.
 
 Sincerely,
@@ -85,10 +89,17 @@ def render_initial_opt_out(
     )
 
 
-def render_follow_up_response(broker_name: str, sender_name: str) -> str:
-    return FOLLOW_UP_RESPONSE.render(
+def render_verification_profile_follow_up(
+    broker_name: str,
+    sender_name: str,
+    verification_lines: list[str],
+    additional_notes: str | None = None,
+) -> str:
+    return VERIFICATION_PROFILE_FOLLOW_UP.render(
         broker_name=broker_name,
         sender_name=sender_name,
+        verification_lines=verification_lines,
+        additional_notes=(additional_notes or "").strip(),
     )
 
 
