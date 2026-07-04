@@ -1,3 +1,10 @@
+## [0.25.1](https://github.com/mderdzinski/smokescreen/compare/v0.25.0...v0.25.1) (2026-07-04)
+
+
+### Bug Fixes
+
+* add deploy variable guardrails ([275f871](https://github.com/mderdzinski/smokescreen/commit/275f871b3d28736a539557f0ee465992ba7a68e7))
+
 # [0.25.0](https://github.com/mderdzinski/smokescreen/compare/v0.24.1...v0.25.0) (2026-07-04)
 
 
