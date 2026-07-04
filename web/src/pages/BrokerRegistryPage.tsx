@@ -177,8 +177,11 @@ export function BrokerRegistryPage() {
   );
   const visibleBrokerIds = useMemo(() => filteredBrokers.map((broker) => broker.id), [filteredBrokers]);
   const visibleResettableBrokerIds = useMemo(
-    () => filteredBrokers.filter((broker) => optOutRecordsByBrokerId.has(broker.id)).map((broker) => broker.id),
-    [filteredBrokers, optOutRecordsByBrokerId],
+    () =>
+      filteredBrokers
+        .filter((broker) => enabledBrokerIds.has(broker.id) && optOutRecordsByBrokerId.has(broker.id))
+        .map((broker) => broker.id),
+    [enabledBrokerIds, filteredBrokers, optOutRecordsByBrokerId],
   );
   const visibleBrokerCount = filteredBrokers.length;
   const searchActive = activeSearch.length > 0;
@@ -270,6 +273,9 @@ export function BrokerRegistryPage() {
 
   function resetBroker(brokerId: string) {
     if (resetMutation.isPending || resetAllMutation.isPending) {
+      return;
+    }
+    if (!enabledBrokerIds.has(brokerId)) {
       return;
     }
 
@@ -625,7 +631,7 @@ export function BrokerRegistryPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
-                          {optOutRecord ? (
+                          {optOutRecord && enabled ? (
                             <Button
                               aria-label={
                                 resetPending || bulkResetPending

@@ -79,10 +79,14 @@ class StateStore(Protocol):
     def list_enabled_brokers(self) -> list[str]:
         """Return the persisted list of broker IDs enabled for outreach.
 
-        A missing selections document must return an empty list, not the full
-        registry. Callers gate outreach on this value; defaulting to all
-        enabled would silently send opt-out email to every shipped broker.
+        Missing selections documents are seeded from registry defaults by
+        service logic before scheduled outreach reads this list. Implementations
+        still return only persisted broker IDs here.
         """
+        ...
+
+    def has_enabled_broker_selections(self) -> bool:
+        """Return whether the selections document exists, even if empty."""
         ...
 
     def set_enabled_brokers(self, broker_ids: list[str]) -> list[str]:

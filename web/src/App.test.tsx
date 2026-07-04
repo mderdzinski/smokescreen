@@ -852,6 +852,7 @@ describe("BrokerRegistryPage", () => {
     const resetPaths: string[] = [];
     mockApi([
       { body: [broker, secondBroker, thirdBroker], path: "/api/brokers" },
+      { body: brokerSelectionResponse(["second"]), path: "/api/brokers/selections" },
       {
         body: [
           optOut({ broker_id: "acme", broker_name: "Acme Data", status: "COMPLETED" }),
@@ -908,6 +909,7 @@ describe("BrokerRegistryPage", () => {
   it("shows reset only for broker rows with opt-out records", async () => {
     mockApi([
       { body: [broker, secondBroker], path: "/api/brokers" },
+      { body: brokerSelectionResponse(["acme"]), path: "/api/brokers/selections" },
       {
         body: [optOut({ broker_id: "acme", broker_name: "Acme Data", status: "COMPLETED" })],
         path: "/api/optouts",
@@ -929,6 +931,32 @@ describe("BrokerRegistryPage", () => {
     expect(within(secondRow as HTMLTableRowElement).getByText("No record")).toBeInTheDocument();
   });
 
+  it("hides reset actions for disabled broker rows", async () => {
+    mockApi([
+      { body: [broker, secondBroker], path: "/api/brokers" },
+      { body: brokerSelectionResponse(["second"]), path: "/api/brokers/selections" },
+      {
+        body: [
+          optOut({ broker_id: "acme", broker_name: "Acme Data", status: "COMPLETED" }),
+          optOut({ broker_id: "second", broker_name: "Second Broker", status: "FAILED" }),
+        ],
+        path: "/api/optouts",
+      },
+    ]);
+
+    renderWithProviders(<BrokerRegistryPage />);
+
+    const acmeRow = (await screen.findByText("Acme Data")).closest("tr");
+    const secondRow = screen.getByText("Second Broker").closest("tr");
+    expect(acmeRow).not.toBeNull();
+    expect(secondRow).not.toBeNull();
+    expect(
+      within(acmeRow as HTMLTableRowElement).queryByRole("button", { name: "Reset opt-out for Acme Data" }),
+    ).not.toBeInTheDocument();
+    expect(within(secondRow as HTMLTableRowElement).getByRole("button", { name: "Reset opt-out for Second Broker" }))
+      .toBeInTheDocument();
+  });
+
   it("requires confirmation before resetting and refreshes broker data on success", async () => {
     const user = userEvent.setup();
     let resetRequests = 0;
@@ -940,6 +968,7 @@ describe("BrokerRegistryPage", () => {
         body: [broker, secondBroker],
         path: "/api/brokers",
       },
+      { body: brokerSelectionResponse(["acme"]), path: "/api/brokers/selections" },
       {
         assert: (request) => optOutLoads.push(request),
         path: "/api/optouts",
@@ -985,6 +1014,7 @@ describe("BrokerRegistryPage", () => {
     });
     mockApi([
       { body: [broker], path: "/api/brokers" },
+      { body: brokerSelectionResponse(["acme"]), path: "/api/brokers/selections" },
       {
         body: [optOut({ broker_id: "acme", broker_name: "Acme Data", status: "COMPLETED" })],
         path: "/api/optouts",

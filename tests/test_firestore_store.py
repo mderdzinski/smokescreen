@@ -148,6 +148,18 @@ def _mock_anthropic(label: str) -> MagicMock:
     return client
 
 
+def test_firestore_broker_selections_track_empty_document():
+    store = _store()
+
+    assert store.has_enabled_broker_selections() is False
+
+    stored = store.set_enabled_brokers([])
+
+    assert stored == []
+    assert store.has_enabled_broker_selections() is True
+    assert store.list_enabled_brokers() == []
+
+
 def test_firestore_upsert_persists_last_completed_at():
     store = _store()
     now = datetime.now(UTC)

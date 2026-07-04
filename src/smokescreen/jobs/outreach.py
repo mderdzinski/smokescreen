@@ -11,6 +11,7 @@ from smokescreen.config import Settings
 from smokescreen.email.client import GmailClient
 from smokescreen.email.templates import render_initial_opt_out
 from smokescreen.models import BrokerStatus, OptOutRecord, as_aware_utc, utc_now
+from smokescreen.state.broker_selections import list_or_seed_enabled_brokers
 from smokescreen.state.machine import validate_transition
 from smokescreen.state.store import StateStore
 
@@ -81,19 +82,18 @@ def run_outreach(
     Also re-queues COMPLETED brokers whose re-request interval has elapsed.
     Returns list of broker IDs that were processed.
 
-    Outreach is gated on the persisted enabled-brokers selection. If no
-    brokers are enabled, this returns immediately without sending; the
-    default for a fresh install is an empty enabled list, so users must
-    explicitly opt in via the dashboard before scheduled outreach fires.
-    Callers that pass a pre-filtered ``registry`` and want to bypass the
-    gate (for example, the one-shot ``/api/outreach`` endpoint with an
-    explicit ``broker_ids`` filter) may pass ``enforce_selections=False``.
+    Outreach is gated on the persisted enabled-brokers selection. A missing
+    selections document is seeded from registry defaults once; after that, the
+    persisted list is authoritative. If no brokers are enabled, this returns
+    immediately without sending. Callers that pass a pre-filtered ``registry``
+    and want to bypass the gate (for example, the one-shot ``/api/outreach``
+    endpoint with an explicit ``broker_ids`` filter) may pass
+    ``enforce_selections=False``.
     """
     processed: list[str] = []
 
     if enforce_selections:
-        enabled = set(store.list_enabled_brokers())
-        enabled.update(registry.default_enabled_ids())
+        enabled = set(list_or_seed_enabled_brokers(store, registry))
         if not enabled:
             log.warning("no_brokers_enabled_outreach_skipped")
             return processed

@@ -12,6 +12,7 @@ import structlog
 from smokescreen.brokers.registry import BrokerRegistry
 from smokescreen.config import get_settings
 from smokescreen.models import Broker, BrokerStatus
+from smokescreen.state.broker_selections import list_or_seed_enabled_brokers
 from smokescreen.state.sqlite import SQLiteStore
 
 log = structlog.get_logger()
@@ -70,7 +71,7 @@ def outreach(ctx) -> None:
     registry = BrokerRegistry.from_yaml()
     store = _get_store(settings)
 
-    if not store.list_enabled_brokers():
+    if not list_or_seed_enabled_brokers(store, registry):
         raise click.ClickException(
             "No brokers are enabled for outreach. Configure the enabled "
             "broker list from the dashboard onboarding step, or via "

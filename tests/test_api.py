@@ -98,6 +98,7 @@ def seeded_client(client):
     store = get_store()
     store.upsert(OptOutRecord(broker_id="spokeo", status=BrokerStatus.INITIAL_SENT))
     store.upsert(OptOutRecord(broker_id="beenverified", status=BrokerStatus.COMPLETED))
+    store.set_enabled_brokers(["spokeo", "beenverified"])
     return client
 
 
@@ -323,6 +324,25 @@ def test_reset_optout(seeded_client):
     resp = seeded_client.post("/api/optouts/spokeo/reset")
     assert resp.status_code == 200
     assert resp.json()["status"] == "reset"
+
+
+def test_reset_disabled_broker_returns_400(client):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    store.upsert(OptOutRecord(broker_id="spokeo", status=BrokerStatus.COMPLETED))
+    store.set_enabled_brokers([])
+
+    resp = client.post("/api/optouts/spokeo/reset")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == {
+        "code": "broker_disabled",
+        "message": "This broker is disabled. Enable it in Settings before resetting.",
+    }
+    saved = store.get("spokeo")
+    assert saved is not None
+    assert saved.status == BrokerStatus.COMPLETED
 
 
 def test_reset_optout_not_found(client):
@@ -624,6 +644,24 @@ def test_get_broker_selections_defaults_to_empty(client):
     assert data["enabled_broker_ids"] == []
     assert data["selection_document_size_bytes"] > 0
     assert data["selection_size_warning"] is None
+
+
+def test_get_broker_selections_seeds_defaults_on_first_read(tmp_path):
+    store = SQLiteStore(tmp_path / "test.db")
+    registry = BrokerRegistry(
+        _make_brokers(),
+        default_enabled_broker_ids=["spokeo"],
+    )
+    init_app(store, registry)
+    client = TestClient(app)
+
+    resp = client.get("/api/brokers/selections")
+
+    assert resp.status_code == 200
+    assert resp.json()["enabled_broker_ids"] == ["spokeo"]
+    assert store.list_enabled_brokers() == ["spokeo"]
+    assert store.has_enabled_broker_selections() is True
+    store.close()
 
 
 def test_put_broker_selections_persists_normalized_list(client):

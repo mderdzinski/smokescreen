@@ -75,6 +75,27 @@ class SQLiteStore:
                 updated_at TEXT NOT NULL
             )
         """)
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS broker_selections_meta (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                updated_at TEXT NOT NULL
+            )
+        """)
+        meta_exists = (
+            self._conn.execute(
+                "SELECT 1 FROM broker_selections_meta WHERE id = 1"
+            ).fetchone()
+            is not None
+        )
+        rows_exist = (
+            self._conn.execute("SELECT 1 FROM broker_selections LIMIT 1").fetchone()
+            is not None
+        )
+        if rows_exist and not meta_exists:
+            self._conn.execute(
+                "INSERT INTO broker_selections_meta (id, updated_at) VALUES (1, ?)",
+                (utc_now().isoformat(),),
+            )
         self._conn.commit()
 
     def _row_to_record(self, row: sqlite3.Row) -> OptOutRecord:
@@ -308,6 +329,17 @@ class SQLiteStore:
         ).fetchall()
         return [r["broker_id"] for r in rows]
 
+    def has_enabled_broker_selections(self) -> bool:
+        meta_row = self._conn.execute(
+            "SELECT 1 FROM broker_selections_meta WHERE id = 1"
+        ).fetchone()
+        if meta_row is not None:
+            return True
+        return (
+            self._conn.execute("SELECT 1 FROM broker_selections LIMIT 1").fetchone()
+            is not None
+        )
+
     def set_enabled_brokers(self, broker_ids: list[str]) -> list[str]:
         normalized: list[str] = []
         seen: set[str] = set()
@@ -324,6 +356,13 @@ class SQLiteStore:
         self._conn.executemany(
             "INSERT INTO broker_selections (broker_id, updated_at) VALUES (?, ?)",
             [(broker_id, now) for broker_id in normalized],
+        )
+        self._conn.execute(
+            """
+            INSERT OR REPLACE INTO broker_selections_meta (id, updated_at)
+            VALUES (1, ?)
+            """,
+            (now,),
         )
         self._conn.commit()
         return normalized

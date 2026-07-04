@@ -75,6 +75,7 @@ def test_delete(store):
 
 def test_broker_selections_default_empty(store):
     """Fresh install must have no brokers enabled — safety default."""
+    assert store.has_enabled_broker_selections() is False
     assert store.list_enabled_brokers() == []
 
 
@@ -82,6 +83,7 @@ def test_broker_selections_persist_and_normalize(store):
     stored = store.set_enabled_brokers(["spokeo", "beenverified", "spokeo", "  "])
     # Deduplicated, whitespace-stripped, and sorted for a stable read.
     assert stored == ["beenverified", "spokeo"]
+    assert store.has_enabled_broker_selections() is True
     assert store.list_enabled_brokers() == ["beenverified", "spokeo"]
 
 
@@ -95,4 +97,5 @@ def test_broker_selections_can_be_cleared(store):
     store.set_enabled_brokers(["spokeo"])
     stored = store.set_enabled_brokers([])
     assert stored == []
+    assert store.has_enabled_broker_selections() is True
     assert store.list_enabled_brokers() == []

@@ -309,6 +309,9 @@ class FirestoreStore:
         raw = data.get("enabled_broker_ids") or []
         return [str(item) for item in raw if isinstance(item, str)]
 
+    def has_enabled_broker_selections(self) -> bool:
+        return self._broker_selections_ref().get().exists
+
     def set_enabled_brokers(self, broker_ids: list[str]) -> list[str]:
         normalized: list[str] = []
         seen: set[str] = set()

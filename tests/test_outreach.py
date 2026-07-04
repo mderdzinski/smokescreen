@@ -196,6 +196,23 @@ def test_synthetic_broker_enabled_false_requires_selection(tmp_path, monkeypatch
     store.close()
 
 
+def test_outreach_skips_disabled_broker_even_if_in_registry_default(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv(TEST_BROKER_EMAIL_ENV, "operator+testbroker@gmail.com")
+    monkeypatch.delenv(TEST_BROKER_ENABLED_ENV, raising=False)
+    settings = _make_settings(sqlite_path=tmp_path / "test.db")
+    registry = BrokerRegistry.from_yaml()
+    store = SQLiteStore(settings.sqlite_path)
+    store.set_enabled_brokers([])
+
+    processed = run_outreach(settings, registry, store, gmail=None)
+
+    assert processed == []
+    assert store.get("testbroker") is None
+    store.close()
+
+
 def test_outreach_reissues_completed_after_cadence(tmp_path):
     settings = _make_settings(
         sqlite_path=tmp_path / "test.db",
@@ -335,7 +352,7 @@ def test_outreach_skips_completed_missing_last_completed_at(tmp_path):
 
 
 def test_outreach_skipped_when_no_brokers_enabled(tmp_path):
-    """Empty enabled-list must skip outreach entirely: safety default."""
+    """Empty seeded enabled-list must skip outreach entirely."""
     settings = _make_settings(sqlite_path=tmp_path / "test.db")
     registry = BrokerRegistry.from_yaml()
     store = SQLiteStore(settings.sqlite_path)

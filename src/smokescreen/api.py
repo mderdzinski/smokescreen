@@ -38,6 +38,7 @@ from smokescreen.models import (
     as_aware_utc,
     utc_now,
 )
+from smokescreen.state.broker_selections import list_or_seed_enabled_brokers
 from smokescreen.state.machine import InvalidTransition, validate_transition
 from smokescreen.state.selection_size import (
     broker_selection_size_warning,
@@ -286,7 +287,9 @@ async def create_broker(data: BrokerCreate):
 @app.get("/api/brokers/selections", response_model=BrokerSelectionsResponse)
 async def get_broker_selections() -> BrokerSelectionsResponse:
     """Return the persisted list of broker IDs enabled for outreach."""
-    return _broker_selections_response(get_store().list_enabled_brokers())
+    return _broker_selections_response(
+        list_or_seed_enabled_brokers(get_store(), get_registry())
+    )
 
 
 @app.put("/api/brokers/selections", response_model=BrokerSelectionsResponse)
@@ -482,6 +485,17 @@ async def reset_optout(broker_id: str):
     record = store.get(broker_id)
     if record is None:
         raise HTTPException(404, f"No record for broker {broker_id}")
+    enabled = set(list_or_seed_enabled_brokers(store, get_registry()))
+    if broker_id not in enabled:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "broker_disabled",
+                "message": (
+                    "This broker is disabled. Enable it in Settings before resetting."
+                ),
+            },
+        )
     try:
         if record.status != BrokerStatus.PENDING:
             validate_transition(record.status, BrokerStatus.PENDING)

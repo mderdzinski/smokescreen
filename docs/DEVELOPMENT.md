@@ -155,6 +155,14 @@ The operator must also add their `sender_email` or the exact plus-alias sender
 to Trusted Senders in dashboard Settings. The self-reply bypass only disables
 the sender-email exclusion in poll; it does not bypass Trusted Senders.
 
+Broker enablement is controlled by the dashboard's Broker Registry toggles.
+The persisted broker selections document is authoritative for scheduled
+outreach: disabled brokers stay out of the queue until a user enables them
+again. Code-level defaults, including `SMOKESCREEN_TEST_BROKER_ENABLED`, only
+seed the initial selections document when it does not exist yet. After a user
+explicitly disables a broker, that disabled state survives restarts, redeploys,
+and continued presence of test broker environment variables.
+
 Every poll run that uses the bypass for a message logs a WARNING named
 `self_reply_bypass_active`. Do not enable this setting in production.
 
