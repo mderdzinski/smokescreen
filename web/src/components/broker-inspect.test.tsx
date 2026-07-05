@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { OptOutRecord } from "../lib/api";
 import { mockApi, renderWithProviders } from "../test/test-utils";
 import { BrokerInspectAction } from "./broker-inspect";
+import { StatusPill } from "./ui/status-pill";
 
 function optOut(overrides: Partial<OptOutRecord> = {}): OptOutRecord {
   return {
@@ -27,6 +28,35 @@ function optOut(overrides: Partial<OptOutRecord> = {}): OptOutRecord {
     updated_at: "2026-06-21T12:00:00Z",
     ...overrides,
   };
+}
+
+function InspectRowsFixture() {
+  return (
+    <div className="grid gap-3" data-testid="broker-rows">
+      <article className="relative z-[95]">
+        <button type="button">Underlying row action</button>
+        <StatusPill status="INITIAL_SENT" />
+        <BrokerInspectAction brokerName="Acme Data" record={optOut()} />
+      </article>
+      <article className="relative z-[95]">
+        <StatusPill
+          className="relative z-[95]"
+          status="FOLLOW_UP_SENT"
+        />
+        <BrokerInspectAction
+          brokerName="BeenVerified LLC"
+          record={optOut({
+            broker_id: "beenverified",
+            broker_name: "BeenVerified LLC",
+            status: "FOLLOW_UP_SENT",
+          })}
+        />
+      </article>
+      <article className="relative z-[95]">
+        <StatusPill status="COMPLETED" />
+      </article>
+    </div>
+  );
 }
 
 describe("BrokerInspectAction", () => {
@@ -119,6 +149,49 @@ describe("BrokerInspectAction", () => {
 
     await user.tab();
     expect(closeButton).toHaveFocus();
+  });
+
+  it("test_inspect_modal_backdrop_covers_viewport_above_underlying_rows", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<InspectRowsFixture />);
+
+    const rows = screen.getByTestId("broker-rows");
+    await user.click(screen.getByRole("button", { name: "Inspect Acme Data record" }));
+
+    const overlay = screen.getByTestId("broker-inspect-overlay");
+    const backdrop = screen.getByTestId("broker-inspect-backdrop");
+    const dialog = screen.getByRole("dialog", { name: "Acme Data" });
+
+    expect(document.body).toContainElement(overlay);
+    expect(rows).not.toContainElement(overlay);
+    expect(overlay).toHaveClass("pointer-events-auto", "fixed", "inset-0", "z-[1000]", "isolate");
+    expect(backdrop).toHaveClass("absolute", "inset-0", "bg-black/65");
+    expect(dialog).toHaveClass("relative", "z-10");
+    expect(rows.closest("[inert]")).not.toBeNull();
+  });
+
+  it("test_inspect_modal_keeps_underlying_row_actions_out_of_tab_order", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<InspectRowsFixture />);
+
+    const underlyingAction = screen.getByRole("button", { name: "Underlying row action" });
+    await user.click(screen.getByRole("button", { name: "Inspect Acme Data record" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Acme Data" });
+    const closeButton = within(dialog).getByRole("button", { name: "Close inspect record" });
+    await waitFor(() => expect(closeButton).toHaveFocus());
+
+    expect(underlyingAction.closest("[inert]")).not.toBeNull();
+
+    for (let index = 0; index < 6; index += 1) {
+      await user.tab();
+      expect(dialog).toContainElement(document.activeElement as HTMLElement);
+      expect(underlyingAction).not.toHaveFocus();
+    }
+
+    await user.tab({ shift: true });
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    expect(underlyingAction).not.toHaveFocus();
   });
 
   it("shows completed rerequest timing when cadence settings are available", async () => {

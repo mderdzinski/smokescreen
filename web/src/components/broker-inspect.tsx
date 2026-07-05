@@ -8,6 +8,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 
 import { api, type BrokerStatus, type OptOutRecord } from "../lib/api";
 import { cn } from "../lib/utils";
@@ -101,6 +102,7 @@ function BrokerInspectDialog({
 }) {
   const titleId = useId();
   const descriptionId = useId();
+  const overlayRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const settingsQuery = useQuery({
@@ -121,10 +123,13 @@ function BrokerInspectDialog({
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
+    const restoreHiddenSiblings = hideBodySiblingsFromModal(overlayRef.current);
+
     document.body.style.overflow = "hidden";
     closeButtonRef.current?.focus();
 
     return () => {
+      restoreHiddenSiblings();
       document.body.style.overflow = previousOverflow;
     };
   }, []);
@@ -174,23 +179,26 @@ function BrokerInspectDialog({
     }
   }
 
-  return (
+  return createPortal(
     <div
-      aria-labelledby={titleId}
-      aria-describedby={descriptionId}
-      aria-modal="true"
-      className="fixed inset-0 z-[90] flex items-end justify-center bg-black/55 px-3 py-4 [animation:ss-ov-in_170ms_var(--ease-standard)_both] sm:items-center sm:px-5"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onClose();
-        }
-      }}
-      role="dialog"
+      className="pointer-events-auto fixed inset-0 z-[1000] isolate flex items-end justify-center px-3 py-4 sm:items-center sm:px-5"
+      data-testid="broker-inspect-overlay"
+      ref={overlayRef}
     >
       <div
-        className="max-h-[92vh] w-full max-w-[720px] overflow-hidden rounded-md border border-border bg-surface-card shadow-lg [animation:ss-panel-rise_220ms_var(--ease-out)_both]"
+        aria-hidden="true"
+        className="absolute inset-0 bg-black/65 [animation:ss-ov-in_170ms_var(--ease-standard)_both]"
+        data-testid="broker-inspect-backdrop"
+        onMouseDown={onClose}
+      />
+      <div
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+        aria-modal="true"
+        className="relative z-10 max-h-[92vh] w-full max-w-[720px] overflow-hidden rounded-md border border-border bg-surface-card shadow-lg [animation:ss-panel-rise_220ms_var(--ease-out)_both]"
         onKeyDown={handleDialogKeyDown}
         ref={dialogRef}
+        role="dialog"
       >
         <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
           <div className="min-w-0">
@@ -314,7 +322,8 @@ function BrokerInspectDialog({
           </InspectSection>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -335,6 +344,56 @@ function getFocusableElements(root: HTMLElement | null): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(focusableSelector)).filter(
     (element) => !element.hasAttribute("disabled") && element.tabIndex !== -1,
   );
+}
+
+function hideBodySiblingsFromModal(modalRoot: HTMLElement | null): () => void {
+  if (!modalRoot) {
+    return () => undefined;
+  }
+
+  const hiddenSiblings = Array.from(document.body.children)
+    .filter((element): element is HTMLElement => element instanceof HTMLElement && element !== modalRoot)
+    .map((element) => {
+      const inertElement = element as HTMLElement & { inert?: boolean };
+      const hadInertProperty = "inert" in inertElement;
+      const previousState = {
+        ariaHidden: element.getAttribute("aria-hidden"),
+        element,
+        hadInertProperty,
+        inert: inertElement.inert,
+        inertAttribute: element.getAttribute("inert"),
+      };
+
+      element.setAttribute("aria-hidden", "true");
+      element.setAttribute("inert", "");
+      inertElement.inert = true;
+
+      return previousState;
+    });
+
+  return () => {
+    hiddenSiblings.forEach(({ ariaHidden, element, hadInertProperty, inert, inertAttribute }) => {
+      const inertElement = element as HTMLElement & { inert?: boolean };
+
+      if (ariaHidden === null) {
+        element.removeAttribute("aria-hidden");
+      } else {
+        element.setAttribute("aria-hidden", ariaHidden);
+      }
+
+      if (inertAttribute === null) {
+        element.removeAttribute("inert");
+      } else {
+        element.setAttribute("inert", inertAttribute);
+      }
+
+      if (hadInertProperty) {
+        inertElement.inert = inert;
+      } else {
+        Reflect.deleteProperty(inertElement, "inert");
+      }
+    });
+  };
 }
 
 function statusLabel(status: BrokerStatus): string {
