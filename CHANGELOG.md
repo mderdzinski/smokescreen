@@ -1,3 +1,10 @@
+## [0.28.1](https://github.com/mderdzinski/smokescreen/compare/v0.28.0...v0.28.1) (2026-07-05)
+
+
+### Bug Fixes
+
+* inspect modal backdrop prevents underlying row content from bleeding through ([b0059c8](https://github.com/mderdzinski/smokescreen/commit/b0059c8d56a4c41cfe50b09b9038b8110ccaf235))
+
 # [0.28.0](https://github.com/mderdzinski/smokescreen/compare/v0.27.4...v0.28.0) (2026-07-04)
 
 
