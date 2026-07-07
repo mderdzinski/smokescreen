@@ -1,3 +1,10 @@
+# [0.29.0](https://github.com/mderdzinski/smokescreen/compare/v0.28.6...v0.29.0) (2026-07-07)
+
+
+### Features
+
+* persist state transition history for record inspection ([6ce6761](https://github.com/mderdzinski/smokescreen/commit/6ce676185dd570890c05a52cfd9f9fef9b90d94f))
+
 ## [0.28.6](https://github.com/mderdzinski/smokescreen/compare/v0.28.5...v0.28.6) (2026-07-07)
 
 
