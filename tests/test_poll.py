@@ -1372,6 +1372,30 @@ def test_run_poll_handles_first_reply_info_request(tmp_path):
     store.close()
 
 
+def test_poll_continues_after_single_record_exception(tmp_path):
+    settings = _settings(tmp_path, poll_label="")
+    store = SQLiteStore(settings.sqlite_path)
+    _seed_store(store)
+    gmail = FakeGmail()
+
+    with (
+        patch("smokescreen.jobs.poll._process_thread") as process_thread,
+        patch("smokescreen.jobs.poll.log") as log,
+    ):
+        process_thread.side_effect = [RuntimeError("boom"), True]
+        processed = run_poll(settings, _registry(), store, gmail=gmail)
+
+    assert processed == ["unlabeled"]
+    assert process_thread.call_count == 2
+    log.exception.assert_called_once_with(
+        "poll_record_processing_failed",
+        broker_id="labeled",
+        error_type="RuntimeError",
+        error_message="boom",
+    )
+    store.close()
+
+
 def test_process_thread_marks_needs_manual_for_unknown_sender(tmp_path):
     settings = _settings(tmp_path)
     store = SQLiteStore(settings.sqlite_path)
@@ -1650,4 +1674,50 @@ def test_timeout_escalation_sends_ping_email_when_not_dry_run(tmp_path):
     assert sent["to"] == "privacy@labeled.example"
     assert "deletion request" in sent["subject"].lower()
     assert store.get("labeled").status == BrokerStatus.INITIAL_SENT_PINGED
+    store.close()
+
+
+def test_timeout_escalation_continues_after_single_record_exception(tmp_path):
+    settings = _settings(tmp_path, dry_run=True, state_timeout_days=14)
+    store = SQLiteStore(settings.sqlite_path)
+    _seed_record(
+        store,
+        broker_id="labeled",
+        status=BrokerStatus.AWAITING_RESPONSE,
+        days_ago=20,
+    )
+    _seed_record(
+        store,
+        broker_id="unlabeled",
+        status=BrokerStatus.AWAITING_RESPONSE,
+        days_ago=20,
+    )
+
+    def fake_silent_ping(**kwargs):
+        record = kwargs["record"]
+        if record.broker_id == "labeled":
+            raise RuntimeError("boom")
+        record.status = BrokerStatus.AWAITING_RESPONSE_PINGED
+        record.updated_at = kwargs["now"]
+        kwargs["store"].upsert(record)
+
+    with (
+        patch(
+            "smokescreen.jobs.poll._send_silent_ping",
+            side_effect=fake_silent_ping,
+        ),
+        patch("smokescreen.jobs.poll.log") as log,
+    ):
+        processed = run_timeout_escalation(settings, _registry(), store, gmail=None)
+
+    assert processed == ["unlabeled"]
+    assert store.get("labeled").status == BrokerStatus.AWAITING_RESPONSE
+    assert store.get("unlabeled").status == BrokerStatus.AWAITING_RESPONSE_PINGED
+    log.exception.assert_called_once_with(
+        "timeout_record_processing_failed",
+        broker_id="labeled",
+        error_type="RuntimeError",
+        error_message="boom",
+        current_status="AWAITING_RESPONSE",
+    )
     store.close()

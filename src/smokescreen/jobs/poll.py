@@ -103,43 +103,92 @@ def run_poll(
     processed: list[str] = []
 
     for record in active_records:
-        broker = registry.get(record.broker_id)
-        if broker is None:
-            log.warning("poll_unknown_broker", broker_id=record.broker_id)
+        try:
+            result = _process_poll_record(
+                settings=settings,
+                record=record,
+                registry=registry,
+                store=store,
+                gmail=gmail,
+                ai_client=ai_client,
+                labeled_thread_ids=labeled_thread_ids,
+            )
+        except Exception as exc:
+            _log_record_exception("poll_record_processing_failed", record, exc)
             continue
+        if result:
+            processed.append(record.broker_id)
 
-        if record.thread_id is None:
-            log.warning("poll_no_thread", broker_id=record.broker_id)
-            continue
+    # Idempotent timeout sweep: run after regular reply processing so that a
+    # broker whose reply landed in the same poll doesn't get a ping in the
+    # same run (its updated_at just moved).
+    processed.extend(run_timeout_escalation(settings, registry, store, gmail))
 
-        broker_sender_domains = _broker_sender_domains(broker)
+    return processed
+
+
+def _process_poll_record(
+    *,
+    settings: Settings,
+    record: OptOutRecord,
+    registry: BrokerRegistry,
+    store: StateStore,
+    gmail: GmailClient | None,
+    ai_client: Any | None,
+    labeled_thread_ids: set[str] | None,
+) -> bool:
+    broker = registry.get(record.broker_id)
+    if broker is None:
+        log.warning("poll_unknown_broker", broker_id=record.broker_id)
+        return False
+
+    if record.thread_id is None:
+        log.warning("poll_no_thread", broker_id=record.broker_id)
+        return False
+
+    broker_sender_domains = _broker_sender_domains(broker)
+    log.info(
+        "poll_record_thread_id",
+        broker_id=record.broker_id,
+        thread_id=record.thread_id,
+        poll_label=settings.poll_label,
+    )
+
+    if labeled_thread_ids is not None and record.thread_id not in labeled_thread_ids:
         log.info(
-            "poll_record_thread_id",
+            "poll_thread_not_in_label",
             broker_id=record.broker_id,
             thread_id=record.thread_id,
             poll_label=settings.poll_label,
         )
-
-        if (
-            labeled_thread_ids is not None
-            and record.thread_id not in labeled_thread_ids
+        if not _retarget_record_to_domain_reply_thread(
+            settings=settings,
+            record=record,
+            broker=broker,
+            gmail=gmail,
+            broker_sender_domains=broker_sender_domains,
+            allow_current_thread=True,
         ):
-            log.info(
-                "poll_thread_not_in_label",
-                broker_id=record.broker_id,
-                thread_id=record.thread_id,
-                poll_label=settings.poll_label,
-            )
-            if not _retarget_record_to_domain_reply_thread(
-                settings=settings,
-                record=record,
-                broker=broker,
-                gmail=gmail,
-                broker_sender_domains=broker_sender_domains,
-                allow_current_thread=True,
-            ):
-                continue
+            return False
 
+    result = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name=broker.name,
+        broker_email=broker.privacy_email,
+        broker_sender_domains=broker_sender_domains,
+        store=store,
+        gmail=gmail,
+        ai_client=ai_client,
+    )
+    if not result and _retarget_record_to_domain_reply_thread(
+        settings=settings,
+        record=record,
+        broker=broker,
+        gmail=gmail,
+        broker_sender_domains=broker_sender_domains,
+        allow_current_thread=False,
+    ):
         result = _process_thread(
             settings=settings,
             record=record,
@@ -150,33 +199,22 @@ def run_poll(
             gmail=gmail,
             ai_client=ai_client,
         )
-        if not result and _retarget_record_to_domain_reply_thread(
-            settings=settings,
-            record=record,
-            broker=broker,
-            gmail=gmail,
-            broker_sender_domains=broker_sender_domains,
-            allow_current_thread=False,
-        ):
-            result = _process_thread(
-                settings=settings,
-                record=record,
-                broker_name=broker.name,
-                broker_email=broker.privacy_email,
-                broker_sender_domains=broker_sender_domains,
-                store=store,
-                gmail=gmail,
-                ai_client=ai_client,
-            )
-        if result:
-            processed.append(record.broker_id)
+    return result
 
-    # Idempotent timeout sweep: run after regular reply processing so that a
-    # broker whose reply landed in the same poll doesn't get a ping in the
-    # same run (its updated_at just moved).
-    processed.extend(run_timeout_escalation(settings, registry, store, gmail))
 
-    return processed
+def _log_record_exception(
+    event: str,
+    record: OptOutRecord,
+    exc: Exception,
+    **context: object,
+) -> None:
+    log.exception(
+        event,
+        broker_id=record.broker_id,
+        error_type=type(exc).__name__,
+        error_message=str(exc),
+        **context,
+    )
 
 
 def _build_classifier_client(settings: Settings) -> Any | None:
@@ -1309,36 +1347,54 @@ def run_timeout_escalation(
     # Ping first-timeout records (waiting state → paired *_PINGED).
     for status in WAITING_STATES:
         for record in store.list_by_status(status):
-            if not _is_stale(record, now, timeout_days):
+            try:
+                if not _is_stale(record, now, timeout_days):
+                    continue
+                broker = registry.get(record.broker_id)
+                if broker is None:
+                    log.warning("timeout_unknown_broker", broker_id=record.broker_id)
+                    continue
+                _send_silent_ping(
+                    settings=settings,
+                    record=record,
+                    broker_name=broker.name,
+                    broker_email=broker.privacy_email,
+                    gmail=gmail,
+                    store=store,
+                    now=now,
+                    ai_client=response_composer_client(),
+                )
+                processed.append(record.broker_id)
+            except Exception as exc:
+                _log_record_exception(
+                    "timeout_record_processing_failed",
+                    record,
+                    exc,
+                    current_status=record.status.value,
+                )
                 continue
-            broker = registry.get(record.broker_id)
-            if broker is None:
-                log.warning("timeout_unknown_broker", broker_id=record.broker_id)
-                continue
-            _send_silent_ping(
-                settings=settings,
-                record=record,
-                broker_name=broker.name,
-                broker_email=broker.privacy_email,
-                gmail=gmail,
-                store=store,
-                now=now,
-                ai_client=response_composer_client(),
-            )
-            processed.append(record.broker_id)
 
     # Escalate second-timeout records (*_PINGED → NEEDS_MANUAL).
     for waiting_state, pinged_state in PINGED_STATE.items():
         for record in store.list_by_status(pinged_state):
-            if not _is_stale(record, now, timeout_days):
+            try:
+                if not _is_stale(record, now, timeout_days):
+                    continue
+                _escalate_to_needs_manual(
+                    record=record,
+                    previous_state=waiting_state,
+                    store=store,
+                    now=now,
+                )
+                processed.append(record.broker_id)
+            except Exception as exc:
+                _log_record_exception(
+                    "timeout_record_processing_failed",
+                    record,
+                    exc,
+                    current_status=record.status.value,
+                )
                 continue
-            _escalate_to_needs_manual(
-                record=record,
-                previous_state=waiting_state,
-                store=store,
-                now=now,
-            )
-            processed.append(record.broker_id)
 
     if processed:
         log.info(

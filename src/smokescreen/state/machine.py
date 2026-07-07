@@ -44,60 +44,50 @@ RETRYABLE_MANUAL_STATES: set[BrokerStatus] = {
     BrokerStatus.REJECTED_REBUTTED,
 }
 
+INFO_REQUEST_STATES: set[BrokerStatus] = {
+    BrokerStatus.INFO_REQUESTED,
+    BrokerStatus.INFO_REQUESTED_PINGED,
+}
+
+POST_OUTREACH_IN_FLIGHT_STATES: set[BrokerStatus] = {
+    BrokerStatus.AWAITING_RESPONSE,
+    BrokerStatus.AWAITING_RESPONSE_PINGED,
+    BrokerStatus.INFO_REQUESTED,
+    BrokerStatus.INFO_REQUESTED_PINGED,
+    BrokerStatus.FOLLOW_UP_SENT,
+    BrokerStatus.FOLLOW_UP_SENT_PINGED,
+    BrokerStatus.REJECTED_REBUTTED,
+}
+
+
+def _post_outreach_targets() -> set[BrokerStatus]:
+    targets = set(POST_OUTREACH_IN_FLIGHT_STATES)
+    targets.update(TERMINAL_OR_ATTENTION_STATES)
+    return targets
+
 
 TRANSITIONS: dict[BrokerStatus, set[BrokerStatus]] = {
     BrokerStatus.PENDING: {BrokerStatus.INITIAL_SENT, BrokerStatus.FAILED},
     BrokerStatus.INITIAL_SENT: {
         BrokerStatus.INITIAL_SENT_PINGED,
         BrokerStatus.AWAITING_RESPONSE,
-        BrokerStatus.INFO_REQUESTED,
+        *INFO_REQUEST_STATES,
         BrokerStatus.REJECTED_REBUTTED,
         *TERMINAL_OR_ATTENTION_STATES,
     },
     BrokerStatus.INITIAL_SENT_PINGED: {
         BrokerStatus.AWAITING_RESPONSE,
-        BrokerStatus.INFO_REQUESTED,
+        *INFO_REQUEST_STATES,
         BrokerStatus.REJECTED_REBUTTED,
         *TERMINAL_OR_ATTENTION_STATES,
     },
-    BrokerStatus.AWAITING_RESPONSE: {
-        BrokerStatus.AWAITING_RESPONSE_PINGED,
-        BrokerStatus.INFO_REQUESTED,
-        BrokerStatus.REJECTED_REBUTTED,
-        *TERMINAL_OR_ATTENTION_STATES,
-    },
-    BrokerStatus.AWAITING_RESPONSE_PINGED: {
-        BrokerStatus.INFO_REQUESTED,
-        BrokerStatus.REJECTED_REBUTTED,
-        *TERMINAL_OR_ATTENTION_STATES,
-    },
-    BrokerStatus.INFO_REQUESTED: {
-        BrokerStatus.INFO_REQUESTED_PINGED,
-        BrokerStatus.FOLLOW_UP_SENT,
-        BrokerStatus.REJECTED_REBUTTED,
-        *TERMINAL_OR_ATTENTION_STATES,
-    },
-    BrokerStatus.INFO_REQUESTED_PINGED: {
-        BrokerStatus.FOLLOW_UP_SENT,
-        BrokerStatus.REJECTED_REBUTTED,
-        *TERMINAL_OR_ATTENTION_STATES,
-    },
-    BrokerStatus.FOLLOW_UP_SENT: {
-        BrokerStatus.FOLLOW_UP_SENT_PINGED,
-        BrokerStatus.AWAITING_RESPONSE,
-        BrokerStatus.REJECTED_REBUTTED,
-        *TERMINAL_OR_ATTENTION_STATES,
-    },
-    BrokerStatus.FOLLOW_UP_SENT_PINGED: {
-        BrokerStatus.AWAITING_RESPONSE,
-        BrokerStatus.REJECTED_REBUTTED,
-        *TERMINAL_OR_ATTENTION_STATES,
-    },
-    BrokerStatus.REJECTED_REBUTTED: {
-        BrokerStatus.AWAITING_RESPONSE,
-        BrokerStatus.INFO_REQUESTED,
-        *TERMINAL_OR_ATTENTION_STATES,
-    },
+    BrokerStatus.AWAITING_RESPONSE: _post_outreach_targets(),
+    BrokerStatus.AWAITING_RESPONSE_PINGED: _post_outreach_targets(),
+    BrokerStatus.INFO_REQUESTED: _post_outreach_targets(),
+    BrokerStatus.INFO_REQUESTED_PINGED: _post_outreach_targets(),
+    BrokerStatus.FOLLOW_UP_SENT: _post_outreach_targets(),
+    BrokerStatus.FOLLOW_UP_SENT_PINGED: _post_outreach_targets(),
+    BrokerStatus.REJECTED_REBUTTED: _post_outreach_targets(),
     # Terminal states (COMPLETED allows re-request back to PENDING)
     BrokerStatus.COMPLETED: {BrokerStatus.PENDING},
     BrokerStatus.REJECTED: set(),

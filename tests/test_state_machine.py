@@ -38,9 +38,21 @@ def test_valid_transitions():
     validate_transition(BrokerStatus.REJECTED_REBUTTED, BrokerStatus.COMPLETED)
 
 
+def test_follow_up_sent_to_info_requested_allowed():
+    validate_transition(BrokerStatus.FOLLOW_UP_SENT, BrokerStatus.INFO_REQUESTED)
+
+
+def test_follow_up_sent_to_completed_allowed():
+    validate_transition(BrokerStatus.FOLLOW_UP_SENT, BrokerStatus.COMPLETED)
+
+
+def test_info_requested_to_info_requested_idempotent_allowed():
+    validate_transition(BrokerStatus.INFO_REQUESTED, BrokerStatus.INFO_REQUESTED)
+
+
 @pytest.mark.parametrize("current", WAITING_REPLY_STATES)
 @pytest.mark.parametrize("target", TERMINAL_OR_ATTENTION_STATES)
-def test_waiting_reply_states_can_transition_directly_to_terminal_or_attention(
+def test_all_waiting_states_can_transition_to_all_terminals(
     current,
     target,
 ):
