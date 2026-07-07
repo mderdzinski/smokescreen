@@ -1,3 +1,10 @@
+# [0.30.0](https://github.com/mderdzinski/smokescreen/compare/v0.29.0...v0.30.0) (2026-07-07)
+
+
+### Features
+
+* broaden rescan reclassification affordance ([02844fc](https://github.com/mderdzinski/smokescreen/commit/02844fc19151d12539c3515b996de5d714034e38))
+
 # [0.29.0](https://github.com/mderdzinski/smokescreen/compare/v0.28.6...v0.29.0) (2026-07-07)
 
 
