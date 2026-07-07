@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from collections.abc import Sequence
+from typing import Any, Literal, TypedDict
 
 import structlog
 from anthropic import Anthropic
@@ -16,6 +17,16 @@ from smokescreen.models import ReplyAnalysis, ReplyClassification, VerificationF
 log = structlog.get_logger()
 
 _VALID_LABELS = {c.value for c in ReplyClassification}
+_THREAD_PREVIEW_LIMIT = 360
+
+
+class ThreadHistoryEntry(TypedDict):
+    """Chronological email thread entry used by the classifier prompt."""
+
+    direction: Literal["inbound", "outbound"]
+    sender_email: str
+    subject: str
+    body: str
 
 
 def classify_reply(
@@ -24,10 +35,11 @@ def classify_reply(
     broker_name: str,
     subject: str,
     body: str,
+    thread_history: Sequence[ThreadHistoryEntry] | None = None,
 ) -> ReplyAnalysis:
-    """Classify a broker's email reply.
+    """Classify a broker's email thread state.
 
-    Only the email text is sent to Claude, never attachments or verification data.
+    Only email text is sent to Claude, never attachments or verification data.
     """
     response = client.messages.create(
         model=model,
@@ -39,7 +51,9 @@ def classify_reply(
                 "content": CLASSIFIER_USER.format(
                     broker_name=broker_name,
                     subject=subject,
-                    body=body,
+                    thread_history=_format_thread_history(
+                        thread_history, fallback_subject=subject, fallback_body=body
+                    ),
                 ),
             }
         ],
@@ -54,17 +68,20 @@ def classify_reply_gemini(
     broker_name: str,
     subject: str,
     body: str,
+    thread_history: Sequence[ThreadHistoryEntry] | None = None,
 ) -> ReplyAnalysis:
-    """Classify a broker's email reply with Vertex AI Gemini.
+    """Classify a broker's email thread state with Vertex AI Gemini.
 
-    Only the email text is sent to Gemini, never attachments or verification data.
+    Only email text is sent to Gemini, never attachments or verification data.
     """
     response = client.models.generate_content(
         model=model,
         contents=CLASSIFIER_USER.format(
             broker_name=broker_name,
             subject=subject,
-            body=body,
+            thread_history=_format_thread_history(
+                thread_history, fallback_subject=subject, fallback_body=body
+            ),
         ),
         config=types.GenerateContentConfig(
             max_output_tokens=250,
@@ -74,6 +91,65 @@ def classify_reply_gemini(
     )
 
     return _analysis_from_text(_gemini_response_text(response), broker_name)
+
+
+def _format_thread_history(
+    thread_history: Sequence[ThreadHistoryEntry] | None,
+    *,
+    fallback_subject: str,
+    fallback_body: str,
+) -> str:
+    entries = list(thread_history or [])
+    if not entries:
+        entries = [
+            {
+                "direction": "inbound",
+                "sender_email": "broker",
+                "subject": fallback_subject,
+                "body": fallback_body,
+            }
+        ]
+
+    latest_inbound_index = _latest_inbound_index(entries)
+    lines: list[str] = []
+    for index, entry in enumerate(entries):
+        direction = entry["direction"]
+        sender = _one_line(entry.get("sender_email", ""))
+        subject = _one_line(entry.get("subject", ""))
+        body = entry.get("body", "").strip()
+        actor = (
+            f"inbound from {sender or 'broker'}"
+            if direction == "inbound"
+            else "outbound from us"
+        )
+        lines.append(f'[{index + 1}] {actor}: subject "{subject}"')
+        if index == latest_inbound_index:
+            lines.append("full parsed body:")
+            lines.append(body or "(empty)")
+        else:
+            lines.append(f"body preview: {_preview(body)}")
+
+    return "\n".join(lines)
+
+
+def _latest_inbound_index(entries: Sequence[ThreadHistoryEntry]) -> int:
+    for index in range(len(entries) - 1, -1, -1):
+        if entries[index]["direction"] == "inbound":
+            return index
+    return len(entries) - 1
+
+
+def _preview(body: str) -> str:
+    text = _one_line(body)
+    if not text:
+        return "(empty)"
+    if len(text) <= _THREAD_PREVIEW_LIMIT:
+        return text
+    return f"{text[: _THREAD_PREVIEW_LIMIT - 3].rstrip()}..."
+
+
+def _one_line(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip())
 
 
 def _gemini_response_text(response: Any) -> str:
@@ -180,6 +256,8 @@ def _classification_from_label(label: str, broker_name: str) -> ReplyClassificat
     label = label.strip().upper()
     if label == "INFO_REQUESTED":
         label = ReplyClassification.INFO_REQUEST.value
+    if label == "AWAITING_RESPONSE":
+        label = ReplyClassification.ACKNOWLEDGMENT.value
     if label not in _VALID_LABELS:
         log.warning("unknown_classification", label=label, broker=broker_name)
         return ReplyClassification.NEEDS_MANUAL

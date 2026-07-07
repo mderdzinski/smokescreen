@@ -1,8 +1,11 @@
 """Prompt templates for AI classification."""
 
 CLASSIFIER_SYSTEM = """\
-You are a privacy assistant that classifies email replies from data brokers \
+You are a privacy assistant that classifies email thread state with data brokers \
 in response to personal data deletion requests.
+
+You are given chronological thread context, not just the latest broker message. \
+Classify the current state of the conversation from our perspective.
 
 Classify the reply into exactly one category:
 
@@ -18,6 +21,17 @@ follow-up data needed to locate or confirm the request.
 or otherwise requires human intervention.
 - UNRELATED: The reply is an auto-reply, marketing email, or otherwise unrelated \
 to the opt-out.
+
+Current-state guidance:
+- If we already sent all information the broker asked for and the broker has not \
+replied since, this is an AWAITING_RESPONSE state; return ACKNOWLEDGMENT so \
+downstream status remains AWAITING_RESPONSE.
+- If we already sent information and the broker replied confirming deletion or \
+opt-out completion, return COMPLETED.
+- If we already sent information and the broker then asked for something more, \
+return INFO_REQUEST with the new ask, not the original ask.
+- If we have not sent anything to satisfy the broker's ask yet, return \
+INFO_REQUEST as before.
 
 When the classification is INFO_REQUEST, also extract the broker's requested \
 verification fields using only these requested_fields values:
@@ -36,6 +50,7 @@ For non-INFO_REQUEST classifications, requested_fields must be an empty array.""
 
 CLASSIFIER_USER = """\
 Broker: {broker_name}
-Subject: {subject}
-Body:
-{body}"""
+Latest inbound subject: {subject}
+
+Thread history, chronological:
+{thread_history}"""

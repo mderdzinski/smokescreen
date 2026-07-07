@@ -11,7 +11,11 @@ import structlog
 from anthropic import Anthropic
 from google import genai
 
-from smokescreen.ai.classifier import classify_reply, classify_reply_gemini
+from smokescreen.ai.classifier import (
+    ThreadHistoryEntry,
+    classify_reply,
+    classify_reply_gemini,
+)
 from smokescreen.ai.response_composer import (
     ResponseTargetAction,
     compose_response_skeleton,
@@ -541,6 +545,7 @@ def _process_thread(
 
     latest = new_messages[-1]
     latest_reply_body = parse_latest_reply(latest.body)
+    thread_history = _build_classifier_thread_history(thread, sender_email)
     log.info(
         "poll_new_message",
         broker=record.broker_id,
@@ -630,6 +635,7 @@ def _process_thread(
             broker_name=broker_name,
             subject=latest.subject,
             body=latest_reply_body,
+            thread_history=thread_history,
         )
     else:
         analysis = classify_reply_gemini(
@@ -638,6 +644,7 @@ def _process_thread(
             broker_name=broker_name,
             subject=latest.subject,
             body=latest_reply_body,
+            thread_history=thread_history,
         )
 
     log.info(
@@ -664,6 +671,27 @@ def _process_thread(
 
 def _message_already_processed(record: OptOutRecord, message: EmailMessage) -> bool:
     return bool(message.message_id and message.message_id == record.last_message_id)
+
+
+def _build_classifier_thread_history(
+    thread: list[EmailMessage],
+    sender_email: str,
+) -> list[ThreadHistoryEntry]:
+    """Build chronological parsed thread history for AI classification."""
+    sender_address = _sender_address(sender_email)
+    history: list[ThreadHistoryEntry] = []
+    for message in thread:
+        message_sender = _sender_address(message.sender)
+        direction = "outbound" if message_sender == sender_address else "inbound"
+        history.append(
+            {
+                "direction": direction,
+                "sender_email": message_sender,
+                "subject": message.subject,
+                "body": parse_latest_reply(message.body),
+            }
+        )
+    return history
 
 
 def _upsert_processed_broker_reply(

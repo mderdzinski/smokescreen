@@ -1046,6 +1046,70 @@ def test_poll_processes_self_reply_when_bypass_enabled(tmp_path):
     store.close()
 
 
+def test_retry_classification_after_our_reply_lands_in_awaiting_response(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    record = _record(status=BrokerStatus.FOLLOW_UP_SENT)
+    record.last_message_id = None
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="broker-ask",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Verification needed",
+                    body="Please send your home address.",
+                ),
+                EmailMessage(
+                    message_id="sent-home-address",
+                    thread_id="thread-labeled",
+                    sender="me@example.com",
+                    subject="Re: Verification needed",
+                    body="My home address is 123 Oak Street.",
+                ),
+            ]
+        }
+    )
+    anthropic_client = _mock_anthropic("AWAITING_RESPONSE")
+
+    processed = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        ai_client=anthropic_client,
+    )
+
+    assert processed is True
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.AWAITING_RESPONSE
+    assert updated.last_message_id == "broker-ask"
+    assert gmail.sent_messages == []
+    assert _history_tuples(updated) == [
+        (
+            "FOLLOW_UP_SENT",
+            "AWAITING_RESPONSE",
+            "broker acknowledged request",
+            "broker-ask",
+        )
+    ]
+    classifier_prompt = anthropic_client.messages.create.call_args.kwargs["messages"][
+        0
+    ]["content"]
+    assert "[1] inbound from privacy@labeled.example" in classifier_prompt
+    assert "[2] outbound from us" in classifier_prompt
+    assert "full parsed body:\nPlease send your home address." in classifier_prompt
+    assert "My home address is 123 Oak Street." in classifier_prompt
+    store.close()
+
+
 def test_poll_filters_self_reply_by_default(tmp_path):
     settings = _settings(tmp_path)
     store = SQLiteStore(settings.sqlite_path)
