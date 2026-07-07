@@ -1,3 +1,10 @@
+## [0.28.3](https://github.com/mderdzinski/smokescreen/compare/v0.28.2...v0.28.3) (2026-07-07)
+
+
+### Bug Fixes
+
+* poll picks up broker replies from alternate senders and new threads ([8c3b9d9](https://github.com/mderdzinski/smokescreen/commit/8c3b9d9dac6d11203d9294eaf7fd11a05030c946))
+
 ## [0.28.2](https://github.com/mderdzinski/smokescreen/compare/v0.28.1...v0.28.2) (2026-07-07)
 
 
