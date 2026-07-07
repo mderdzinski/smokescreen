@@ -186,12 +186,15 @@ when present.
 
 ### Polling scope
 
-`smokescreen poll` only processes active broker records with stored Gmail
-thread IDs. When `SMOKESCREEN_POLL_LABEL` is non-empty, polling first searches
-Gmail for messages with that label and then only fetches active records whose
-stored thread ID appears in the labeled search results. Set
+`smokescreen poll` processes active broker records with stored Gmail thread IDs.
+When `SMOKESCREEN_POLL_LABEL` is non-empty, polling first searches Gmail for
+messages with that label and fetches active records whose stored thread ID
+appears in the labeled search results. If a broker reply landed in a different
+or unlabeled inbox thread, poll also searches for inbox messages from the
+broker's configured domain or alias domains, labels the discovered thread, and
+updates the record to that thread before processing the reply. Set
 `SMOKESCREEN_POLL_LABEL=""` to disable label filtering and poll every active
-stored thread.
+stored thread before running the same broker-domain reconciliation.
 
 ## Dashboard
 

@@ -496,6 +496,7 @@ brokers:
     aliases:
     - neighborwho.com
     - ownerly.com
+    - peopleconnectinc.com
     notes: 'Imported from CA Data Broker Registry 2026. Opt-out URL: https://www.beenverified.com/svc/optout/search/comprehensive_optouts.
       Contact phone: 347-931-2725. Address: 48 W 38th Street, 8th Floor, New York, NY, 10018, UNITED STATES.'
   - id: beeswax
@@ -4372,6 +4373,7 @@ brokers:
     aliases:
     - neighborwho.com
     - ownerly.com
+    - peopleconnectinc.com
   - id: checksecrets
     name: CheckSecrets
     domain: checksecrets.com

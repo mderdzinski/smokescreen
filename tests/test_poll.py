@@ -29,18 +29,23 @@ class FakeGmail:
         self,
         *,
         search_results: list[str] | None = None,
+        search_results_by_query: dict[str, list[str]] | None = None,
         messages: dict[str, EmailMessage] | None = None,
         threads: dict[str, list[EmailMessage]] | None = None,
     ) -> None:
         self.search_results = search_results or []
+        self.search_results_by_query = search_results_by_query or {}
         self.messages = messages or {}
         self.threads = threads or {}
         self.searches: list[str] = []
         self.fetched_threads: list[str] = []
+        self.labeled_threads: list[tuple[str, str]] = []
         self.sent_messages: list[dict] = []
 
     def search(self, query: str, max_results: int = 50) -> list[str]:
         self.searches.append(query)
+        if query in self.search_results_by_query:
+            return self.search_results_by_query[query]
         return self.search_results
 
     def get_message(self, message_id: str) -> EmailMessage:
@@ -49,6 +54,9 @@ class FakeGmail:
     def get_thread(self, thread_id: str) -> list[EmailMessage]:
         self.fetched_threads.append(thread_id)
         return self.threads.get(thread_id, [])
+
+    def label_thread(self, thread_id: str, label_name: str) -> None:
+        self.labeled_threads.append((thread_id, label_name))
 
     def send(self, **kwargs) -> EmailMessage:
         self.sent_messages.append(kwargs)
@@ -208,7 +216,7 @@ def test_poll_label_scopes_active_threads(tmp_path):
     store = SQLiteStore(settings.sqlite_path)
     _seed_store(store)
     gmail = FakeGmail(
-        search_results=["msg-labeled"],
+        search_results_by_query={"label:custom-label": ["msg-labeled"]},
         messages={
             "msg-labeled": EmailMessage(
                 message_id="msg-labeled",
@@ -240,7 +248,10 @@ def test_poll_label_scopes_active_threads(tmp_path):
     processed = run_poll(settings, _registry(), store, gmail=gmail)
 
     assert processed == ["labeled"]
-    assert gmail.searches == ["label:custom-label"]
+    assert gmail.searches == [
+        "label:custom-label",
+        "in:inbox from:unlabeled.example",
+    ]
     assert gmail.fetched_threads == ["thread-labeled"]
     assert store.get("labeled").status == BrokerStatus.NEEDS_MANUAL
     assert store.get("unlabeled").status == BrokerStatus.INITIAL_SENT
@@ -284,6 +295,143 @@ def test_blank_poll_label_keeps_thread_only_polling(tmp_path):
 
 def test_poll_label_query_quotes_labels_with_spaces():
     assert _poll_label_query("privacy replies") == 'label:"privacy replies"'
+
+
+def test_poll_processes_reply_in_new_thread_from_broker_domain(tmp_path):
+    settings = _settings(
+        tmp_path,
+        anthropic_api_key="test-key",
+        poll_label="custom-label",
+    )
+    store = SQLiteStore(settings.sqlite_path)
+    store.upsert(
+        OptOutRecord(
+            broker_id="labeled",
+            status=BrokerStatus.INITIAL_SENT,
+            thread_id="thread-original",
+            last_message_id="sent-original",
+        )
+    )
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        search_results_by_query={
+            "label:custom-label": ["msg-other"],
+            "in:inbox from:labeled.example": ["reply-alt"],
+        },
+        messages={
+            "msg-other": EmailMessage(
+                message_id="msg-other",
+                thread_id="thread-other",
+            ),
+            "reply-alt": EmailMessage(
+                message_id="reply-alt",
+                thread_id="thread-alt",
+                sender="Support <case@notifications.labeled.example>",
+                subject="Re: request",
+                body="Your opt-out request is complete.",
+            ),
+        },
+        threads={
+            "thread-alt": [
+                EmailMessage(
+                    message_id="reply-alt",
+                    thread_id="thread-alt",
+                    sender="Support <case@notifications.labeled.example>",
+                    subject="Re: request",
+                    body="Your opt-out request is complete.",
+                )
+            ]
+        },
+    )
+    anthropic_client = _mock_anthropic("COMPLETED")
+
+    with patch("smokescreen.jobs.poll.Anthropic") as anthropic:
+        anthropic.return_value = anthropic_client
+        processed = run_poll(settings, _registry(), store, gmail=gmail)
+
+    assert processed == ["labeled"]
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.COMPLETED
+    assert updated.thread_id == "thread-alt"
+    assert updated.last_message_id == "reply-alt"
+    assert gmail.fetched_threads == ["thread-alt"]
+    assert gmail.labeled_threads == [("thread-alt", "custom-label")]
+    assert store.list_pending_whitelist(PendingWhitelistStatus.PENDING) == []
+    anthropic_client.messages.create.assert_called_once()
+    store.close()
+
+
+def test_poll_processes_reply_from_alternate_sender_matching_domain(tmp_path):
+    settings = _settings(
+        tmp_path,
+        anthropic_api_key="test-key",
+        poll_label="",
+    )
+    store = SQLiteStore(settings.sqlite_path)
+    _seed_labeled_reply(store)
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="sent-labeled",
+                    thread_id="thread-labeled",
+                    sender="me@example.com",
+                    subject="Opt out request",
+                    body="Please remove me.",
+                ),
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="no-reply@notifications.labeled.example",
+                    subject="Re: request",
+                    body="Your opt-out request is complete.",
+                ),
+            ]
+        }
+    )
+    anthropic_client = _mock_anthropic("COMPLETED")
+
+    with patch("smokescreen.jobs.poll.Anthropic") as anthropic:
+        anthropic.return_value = anthropic_client
+        processed = run_poll(settings, _registry(), store, gmail=gmail)
+
+    assert processed == ["labeled"]
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.COMPLETED
+    assert updated.last_message_id == "reply-labeled"
+    assert store.list_pending_whitelist(PendingWhitelistStatus.PENDING) == []
+    anthropic_client.messages.create.assert_called_once()
+    store.close()
+
+
+def test_poll_thread_not_in_label_logs_at_info_level(tmp_path):
+    settings = _settings(tmp_path, poll_label="custom-label")
+    store = SQLiteStore(settings.sqlite_path)
+    _seed_labeled_reply(store)
+    gmail = FakeGmail(
+        search_results_by_query={"label:custom-label": ["msg-other"]},
+        messages={
+            "msg-other": EmailMessage(
+                message_id="msg-other",
+                thread_id="thread-other",
+            )
+        },
+    )
+
+    with patch("smokescreen.jobs.poll.log") as log:
+        processed = run_poll(settings, _registry(), store, gmail=gmail)
+
+    assert processed == []
+    log.info.assert_any_call(
+        "poll_thread_not_in_label",
+        broker_id="labeled",
+        thread_id="thread-labeled",
+        poll_label="custom-label",
+    )
+    log.debug.assert_not_called()
+    store.close()
 
 
 def test_run_poll_defaults_to_gemini_provider(tmp_path):

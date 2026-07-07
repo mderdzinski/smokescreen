@@ -26,6 +26,7 @@ from smokescreen.email.templates import (
     render_verification_profile_follow_up,
 )
 from smokescreen.models import (
+    Broker,
     BrokerStatus,
     EmailMessage,
     NeedsManualReason,
@@ -111,27 +112,62 @@ def run_poll(
             log.warning("poll_no_thread", broker_id=record.broker_id)
             continue
 
+        broker_sender_domains = _broker_sender_domains(broker)
+        log.info(
+            "poll_record_thread_id",
+            broker_id=record.broker_id,
+            thread_id=record.thread_id,
+            poll_label=settings.poll_label,
+        )
+
         if (
             labeled_thread_ids is not None
             and record.thread_id not in labeled_thread_ids
         ):
-            log.debug(
+            log.info(
                 "poll_thread_not_in_label",
                 broker_id=record.broker_id,
                 thread_id=record.thread_id,
                 poll_label=settings.poll_label,
             )
-            continue
+            if not _retarget_record_to_domain_reply_thread(
+                settings=settings,
+                record=record,
+                broker=broker,
+                gmail=gmail,
+                broker_sender_domains=broker_sender_domains,
+                allow_current_thread=True,
+            ):
+                continue
 
         result = _process_thread(
             settings=settings,
             record=record,
             broker_name=broker.name,
             broker_email=broker.privacy_email,
+            broker_sender_domains=broker_sender_domains,
             store=store,
             gmail=gmail,
             ai_client=ai_client,
         )
+        if not result and _retarget_record_to_domain_reply_thread(
+            settings=settings,
+            record=record,
+            broker=broker,
+            gmail=gmail,
+            broker_sender_domains=broker_sender_domains,
+            allow_current_thread=False,
+        ):
+            result = _process_thread(
+                settings=settings,
+                record=record,
+                broker_name=broker.name,
+                broker_email=broker.privacy_email,
+                broker_sender_domains=broker_sender_domains,
+                store=store,
+                gmail=gmail,
+                ai_client=ai_client,
+            )
         if result:
             processed.append(record.broker_id)
 
@@ -180,6 +216,12 @@ def _poll_label_thread_ids(
     message_ids = gmail.search(query)
     if not message_ids:
         log.info("poll_label_no_messages", poll_label=label, query=query)
+        log.info(
+            "poll_thread_labeled_ids",
+            poll_label=label,
+            thread_count=0,
+            sample_thread_ids=[],
+        )
         return set()
 
     thread_ids: set[str] = set()
@@ -195,6 +237,12 @@ def _poll_label_thread_ids(
         message_count=len(message_ids),
         thread_count=len(thread_ids),
     )
+    log.info(
+        "poll_thread_labeled_ids",
+        poll_label=label,
+        thread_count=len(thread_ids),
+        sample_thread_ids=sorted(thread_ids)[:10],
+    )
     return thread_ids
 
 
@@ -206,6 +254,155 @@ def _poll_label_query(label: str) -> str:
     return f"label:{label}"
 
 
+def _retarget_record_to_domain_reply_thread(
+    *,
+    settings: Settings,
+    record: OptOutRecord,
+    broker: Broker,
+    gmail: GmailClient | None,
+    broker_sender_domains: set[str],
+    allow_current_thread: bool,
+) -> bool:
+    """Move a record to a broker-domain reply thread discovered from inbox search."""
+    if gmail is None:
+        return False
+
+    match = _find_domain_reply_message(
+        settings=settings,
+        record=record,
+        gmail=gmail,
+        broker_sender_domains=broker_sender_domains,
+        allow_current_thread=allow_current_thread,
+    )
+    if match is None:
+        return False
+
+    message, matched_domain = match
+    previous_thread_id = record.thread_id
+    record.thread_id = message.thread_id
+    _label_domain_reply_thread(
+        settings=settings,
+        gmail=gmail,
+        broker_id=record.broker_id,
+        thread_id=message.thread_id,
+    )
+    log.info(
+        "poll_domain_reply_thread_matched",
+        broker_id=record.broker_id,
+        broker_name=broker.name,
+        previous_thread_id=previous_thread_id,
+        thread_id=message.thread_id,
+        message_id=message.message_id,
+        sender=_sender_address(message.sender),
+        matched_domain=matched_domain,
+    )
+    return True
+
+
+def _find_domain_reply_message(
+    *,
+    settings: Settings,
+    record: OptOutRecord,
+    gmail: GmailClient,
+    broker_sender_domains: set[str],
+    allow_current_thread: bool,
+) -> tuple[EmailMessage, str] | None:
+    """Find the newest inbox message from a broker-owned sender domain."""
+    if not broker_sender_domains:
+        return None
+
+    candidates: list[tuple[EmailMessage, str]] = []
+    seen_message_ids: set[str] = set()
+    sender_email = _sender_address(settings.sender_email)
+
+    for domain in sorted(broker_sender_domains):
+        query = _domain_reply_query(domain)
+        message_ids = gmail.search(query)
+        log.info(
+            "poll_domain_reply_search",
+            broker_id=record.broker_id,
+            domain=domain,
+            query=query,
+            message_count=len(message_ids),
+        )
+        for message_id in message_ids:
+            if message_id in seen_message_ids:
+                continue
+            seen_message_ids.add(message_id)
+
+            message = gmail.get_message(message_id)
+            if not message.thread_id:
+                continue
+            if message.message_id == record.last_message_id:
+                continue
+            if not allow_current_thread and message.thread_id == record.thread_id:
+                continue
+
+            message_sender = _sender_address(message.sender)
+            if message_sender == sender_email and not settings.allow_self_reply:
+                continue
+
+            matched_domain = _matching_sender_domain(
+                message.sender, broker_sender_domains
+            )
+            if matched_domain is None:
+                continue
+            candidates.append((message, matched_domain))
+
+    if not candidates:
+        return None
+
+    dated = [(message, domain) for message, domain in candidates if message.date]
+    if dated:
+        return max(dated, key=lambda item: as_aware_utc(item[0].date).timestamp())
+    return candidates[0]
+
+
+def _domain_reply_query(domain: str) -> str:
+    return f"in:inbox from:{domain}"
+
+
+def _label_domain_reply_thread(
+    *,
+    settings: Settings,
+    gmail: GmailClient,
+    broker_id: str,
+    thread_id: str,
+) -> None:
+    """Apply the poll label to a discovered reply thread without blocking poll."""
+    label = settings.poll_label.strip()
+    if not label:
+        return
+    if not thread_id:
+        log.warning(
+            "poll_label_apply_failed",
+            broker_id=broker_id,
+            thread_id=thread_id,
+            label=label,
+            reason="missing_thread_id",
+        )
+        return
+
+    try:
+        gmail.label_thread(thread_id, label)
+    except Exception as exc:
+        log.warning(
+            "poll_label_apply_failed",
+            broker_id=broker_id,
+            thread_id=thread_id,
+            label=label,
+            error=str(exc),
+        )
+        return
+
+    log.info(
+        "poll_thread_labeled",
+        broker_id=broker_id,
+        thread_id=thread_id,
+        label=label,
+    )
+
+
 def _process_thread(
     settings: Settings,
     record: OptOutRecord,
@@ -214,6 +411,7 @@ def _process_thread(
     store: StateStore,
     gmail: GmailClient | None,
     ai_client: Any | None,
+    broker_sender_domains: set[str] | None = None,
 ) -> bool:
     """Process a single broker's thread. Returns True if any action was taken."""
     if gmail is None:
@@ -256,7 +454,10 @@ def _process_thread(
 
     # Whitelist check: only process replies from whitelisted senders
     latest_sender = _sender_address(latest.sender)
-    if not store.is_whitelisted(latest_sender):
+    sender_matched_domain = _matching_sender_domain(
+        latest_sender, broker_sender_domains or set()
+    )
+    if not store.is_whitelisted(latest_sender) and sender_matched_domain is None:
         log.info(
             "poll_sender_not_whitelisted",
             broker=record.broker_id,
@@ -287,6 +488,14 @@ def _process_thread(
             sender=latest_sender,
         )
         return True
+
+    if sender_matched_domain is not None:
+        log.info(
+            "poll_sender_domain_trusted",
+            broker=record.broker_id,
+            sender=latest_sender,
+            matched_domain=sender_matched_domain,
+        )
 
     if ai_client is None:
         notes = _missing_classifier_notes(settings)
@@ -359,6 +568,45 @@ def _sender_address(sender: str) -> str:
     """Return the bare address from a raw email sender header."""
     parsed = parseaddr(sender)[1]
     return (parsed or sender).strip().lower()
+
+
+def _broker_sender_domains(broker: Broker) -> set[str]:
+    """Return domains trusted for replies from this broker."""
+    domains = [
+        broker.domain,
+        *broker.aliases,
+        _domain_from_email(broker.privacy_email),
+    ]
+    return {domain for raw in domains if (domain := _normalize_domain(raw))}
+
+
+def _domain_from_email(email: str) -> str:
+    address = _sender_address(email)
+    if "@" not in address:
+        return ""
+    return address.rsplit("@", 1)[1]
+
+
+def _matching_sender_domain(sender: str, allowed_domains: set[str]) -> str | None:
+    sender_domain = _domain_from_email(sender)
+    if not sender_domain:
+        return None
+    for domain in sorted(allowed_domains, key=len, reverse=True):
+        if _domain_matches(sender_domain, domain):
+            return domain
+    return None
+
+
+def _domain_matches(sender_domain: str, allowed_domain: str) -> bool:
+    sender_domain = _normalize_domain(sender_domain)
+    allowed_domain = _normalize_domain(allowed_domain)
+    return sender_domain == allowed_domain or sender_domain.endswith(
+        f".{allowed_domain}"
+    )
+
+
+def _normalize_domain(domain: str) -> str:
+    return domain.strip().lower().rstrip(".")
 
 
 def _handle_classification(

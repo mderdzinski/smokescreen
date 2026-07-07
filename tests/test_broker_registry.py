@@ -38,6 +38,13 @@ def test_get_by_alias():
     assert broker.id == "beenverified"
 
 
+def test_get_by_beenverified_parent_alias():
+    registry = BrokerRegistry.from_yaml()
+    broker = registry.get_by_domain("peopleconnectinc.com")
+    assert broker is not None
+    assert broker.id == "beenverified"
+
+
 def test_get_nonexistent():
     registry = BrokerRegistry.from_yaml()
     assert registry.get("nonexistent") is None
