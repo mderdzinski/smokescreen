@@ -1,3 +1,10 @@
+## [0.28.6](https://github.com/mderdzinski/smokescreen/compare/v0.28.5...v0.28.6) (2026-07-07)
+
+
+### Bug Fixes
+
+* poll updates last_message_id after alternate-sender detection ([a85a747](https://github.com/mderdzinski/smokescreen/commit/a85a747a7f689935059b359a1710c50f4cdfb9bf))
+
 ## [0.28.5](https://github.com/mderdzinski/smokescreen/compare/v0.28.4...v0.28.5) (2026-07-07)
 
 
