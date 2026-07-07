@@ -40,6 +40,7 @@ from smokescreen.models import (
 from smokescreen.state.broker_selections import list_or_seed_enabled_brokers
 from smokescreen.state.machine import (
     InvalidTransition,
+    append_transition,
     transition_record_status,
     validate_transition,
 )
@@ -603,6 +604,35 @@ async def retry_optout_classification(broker_id: str):
     record.notes = ""
     record.needs_manual_reason = None
     record.retries = 0
+    record.updated_at = now
+    store.upsert(record)
+    return _optout_response(record, registry)
+
+
+@app.post("/api/optouts/{broker_id}/rescan")
+async def rescan_optout_classification(broker_id: str):
+    store = get_store()
+    registry = get_registry()
+    record = store.get(broker_id)
+    if record is None:
+        raise HTTPException(404, f"No record for broker {broker_id}")
+    if record.thread_id is None:
+        raise HTTPException(
+            400,
+            "Cannot rescan: broker record has no thread.",
+        )
+
+    now = utc_now()
+    append_transition(
+        record,
+        record.status,
+        record.status,
+        allow_noop=True,
+        reason="manual rescan requested",
+        message_id=record.last_message_id,
+        transitioned_at=now,
+    )
+    record.last_message_id = None
     record.updated_at = now
     store.upsert(record)
     return _optout_response(record, registry)

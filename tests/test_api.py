@@ -531,6 +531,151 @@ def test_retry_classification_not_found_returns_400(client):
     assert resp.json()["detail"] == "No record for broker nonexistent"
 
 
+def test_rescan_endpoint_clears_last_message_id(client):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    store.upsert(
+        OptOutRecord(
+            broker_id="spokeo",
+            status=BrokerStatus.FOLLOW_UP_SENT,
+            thread_id="thread-123",
+            last_message_id="message-123",
+        )
+    )
+
+    resp = client.post("/api/optouts/spokeo/rescan")
+
+    assert resp.status_code == 200
+    assert resp.json()["last_message_id"] is None
+    saved = store.get("spokeo")
+    assert saved is not None
+    assert saved.last_message_id is None
+
+
+def test_rescan_endpoint_preserves_status_and_thread_id(client):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    store.upsert(
+        OptOutRecord(
+            broker_id="spokeo",
+            status=BrokerStatus.INFO_REQUESTED,
+            previous_status=BrokerStatus.AWAITING_RESPONSE,
+            thread_id="thread-123",
+            last_message_id="message-123",
+            notes="Broker requested date of birth",
+            requested_fields=["date_of_birth"],
+            missing_fields=["date_of_birth"],
+            requested_other_details="DOB required",
+            retries=2,
+        )
+    )
+
+    resp = client.post("/api/optouts/spokeo/rescan")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "INFO_REQUESTED"
+    assert data["previous_status"] == "AWAITING_RESPONSE"
+    assert data["thread_id"] == "thread-123"
+    assert data["notes"] == "Broker requested date of birth"
+    assert data["requested_fields"] == ["date_of_birth"]
+    assert data["missing_fields"] == ["date_of_birth"]
+    assert data["requested_other_details"] == "DOB required"
+    assert data["retries"] == 2
+    saved = store.get("spokeo")
+    assert saved is not None
+    assert saved.status == BrokerStatus.INFO_REQUESTED
+    assert saved.previous_status == BrokerStatus.AWAITING_RESPONSE
+    assert saved.thread_id == "thread-123"
+
+
+def test_rescan_endpoint_appends_state_history_entry(client):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    store.upsert(
+        OptOutRecord(
+            broker_id="spokeo",
+            status=BrokerStatus.COMPLETED,
+            thread_id="thread-123",
+            last_message_id="message-123",
+        )
+    )
+
+    resp = client.post("/api/optouts/spokeo/rescan")
+
+    assert resp.status_code == 200
+    saved = store.get("spokeo")
+    assert saved is not None
+    assert len(saved.state_history) == 1
+    transition = saved.state_history[0]
+    assert transition.from_status == "COMPLETED"
+    assert transition.to_status == "COMPLETED"
+    assert transition.reason == "manual rescan requested"
+    assert transition.message_id == "message-123"
+    data = resp.json()
+    assert data["state_history"][0]["reason"] == "manual rescan requested"
+
+
+def test_rescan_endpoint_400_without_thread_id(client):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    store.upsert(
+        OptOutRecord(
+            broker_id="spokeo",
+            status=BrokerStatus.AWAITING_RESPONSE,
+            last_message_id="message-123",
+        )
+    )
+
+    resp = client.post("/api/optouts/spokeo/rescan")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Cannot rescan: broker record has no thread."
+    saved = store.get("spokeo")
+    assert saved is not None
+    assert saved.last_message_id == "message-123"
+    assert saved.state_history == []
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        BrokerStatus.INITIAL_SENT,
+        BrokerStatus.AWAITING_RESPONSE,
+        BrokerStatus.INFO_REQUESTED,
+        BrokerStatus.FOLLOW_UP_SENT,
+        BrokerStatus.NEEDS_MANUAL,
+        BrokerStatus.COMPLETED,
+        BrokerStatus.REJECTED,
+    ],
+)
+def test_rescan_endpoint_works_on_any_state(client, status):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    store.upsert(
+        OptOutRecord(
+            broker_id="spokeo",
+            status=status,
+            thread_id=f"thread-{status.value.lower()}",
+            last_message_id=f"message-{status.value.lower()}",
+        )
+    )
+
+    resp = client.post("/api/optouts/spokeo/rescan")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == status.value
+    assert data["thread_id"] == f"thread-{status.value.lower()}"
+    assert data["last_message_id"] is None
+    assert data["state_history"][-1]["reason"] == "manual rescan requested"
+
+
 def test_accept_rejection_requires_broker_rejected_reason(client):
     from smokescreen.api import get_store
 

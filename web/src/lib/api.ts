@@ -358,6 +358,10 @@ export const api = {
     requestJson<OptOutRecord>(`/api/optouts/${encodeURIComponent(brokerId)}/retry_classification`, {
       method: "POST",
     }),
+  rescanClassification: (brokerId: string) =>
+    requestJson<OptOutRecord>(`/api/optouts/${encodeURIComponent(brokerId)}/rescan`, {
+      method: "POST",
+    }),
   acceptRejection: (brokerId: string) =>
     requestJson<OptOutRecord>(`/api/optouts/${encodeURIComponent(brokerId)}/accept_rejection`, {
       method: "POST",

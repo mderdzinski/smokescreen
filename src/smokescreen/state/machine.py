@@ -131,6 +131,7 @@ def append_transition(
     from_status: BrokerStatus | str,
     to_status: BrokerStatus | str,
     *,
+    allow_noop: bool = False,
     reason: str | None = None,
     message_id: str | None = None,
     transitioned_at: datetime | None = None,
@@ -138,7 +139,7 @@ def append_transition(
     """Append a history entry for a real status transition."""
     from_value = _status_value(from_status)
     to_value = _status_value(to_status)
-    if from_value == to_value:
+    if from_value == to_value and not allow_noop:
         return None
 
     transition = StateTransition(

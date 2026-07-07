@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { OptOutRecord } from "../lib/api";
 import { mockApi, renderWithProviders } from "../test/test-utils";
@@ -221,6 +221,86 @@ describe("BrokerInspectAction", () => {
     expect(link).toHaveAttribute("href", "https://mail.google.com/mail/u/0/#inbox/thread-1");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("test_inspect_modal_shows_rescan_button_when_thread_id_present", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<BrokerInspectAction brokerName="Acme Data" record={optOut()} />);
+
+    await user.click(screen.getByRole("button", { name: "Inspect Acme Data record" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Acme Data" });
+    const rescanButton = within(dialog).getByRole("button", { name: "Rescan Acme Data record" });
+    expect(rescanButton).toBeInTheDocument();
+    expect(rescanButton).toHaveTextContent("Rescan");
+    expect(rescanButton).toHaveAttribute(
+      "title",
+      "Ask the AI pipeline to re-read the latest broker message and re-classify. Useful if you think the current classification is wrong.",
+    );
+  });
+
+  it("test_inspect_modal_rescan_confirmation_flow", async () => {
+    const user = userEvent.setup();
+    const updatedRecord = optOut({
+      last_message_id: null,
+      state_history: [
+        {
+          from_status: "AWAITING_RESPONSE",
+          to_status: "AWAITING_RESPONSE",
+          transitioned_at: "2026-07-07T18:00:00Z",
+          reason: "manual rescan requested",
+          message_id: "msg-1",
+        },
+      ],
+      updated_at: "2026-07-07T18:00:00Z",
+    });
+    let resolveRescan: ((response: Response) => void) | null = null;
+    const { calls } = mockApi([
+      {
+        method: "POST",
+        path: "/api/optouts/acme/rescan",
+        respond: () =>
+          new Promise<Response>((resolve) => {
+            resolveRescan = resolve;
+          }),
+      },
+    ]);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderWithProviders(<BrokerInspectAction brokerName="Acme Data" record={optOut()} />);
+
+    await user.click(screen.getByRole("button", { name: "Inspect Acme Data record" }));
+    const dialog = screen.getByRole("dialog", { name: "Acme Data" });
+    await user.click(within(dialog).getByRole("button", { name: "Rescan Acme Data record" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "Rescan this record? The AI will re-classify the latest broker reply on the next poll.",
+    );
+    expect(calls).toContainEqual(
+      expect.objectContaining({
+        method: "POST",
+        path: "/api/optouts/acme/rescan",
+      }),
+    );
+    expect(within(dialog).getByRole("button", { name: "Rescan Acme Data record" })).toHaveTextContent(
+      "Rescanning",
+    );
+
+    await waitFor(() => expect(resolveRescan).not.toBeNull());
+    resolveRescan!(
+      new Response(JSON.stringify(updatedRecord), {
+        headers: { "Content-Type": "application/json" },
+        status: 200,
+      }),
+    );
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Rescan queued. The next scheduled poll will re-classify this record.",
+    );
+    await waitFor(() => {
+      const updatedDialog = screen.getByRole("dialog", { name: "Acme Data" });
+      expect(within(updatedDialog).getByText("manual rescan requested")).toBeInTheDocument();
+      expect(within(updatedDialog).getByText("Not available")).toBeInTheDocument();
+    });
   });
 
   it("test_inspect_modal_closes_on_escape", async () => {

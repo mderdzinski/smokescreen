@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, ExternalLink, Eye, X } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowRight, ExternalLink, Eye, RefreshCw, X } from "lucide-react";
 import {
   useEffect,
   useId,
@@ -24,6 +24,13 @@ const focusableSelector = [
   "select:not([disabled])",
   '[tabindex]:not([tabindex="-1"])',
 ].join(",");
+
+const RESCAN_TOOLTIP =
+  "Ask the AI pipeline to re-read the latest broker message and re-classify. Useful if you think the current classification is wrong.";
+const RESCAN_CONFIRM_MESSAGE =
+  "Rescan this record? The AI will re-classify the latest broker reply on the next poll.";
+const RESCAN_SUCCESS_MESSAGE =
+  "Rescan queued. The next scheduled poll will re-classify this record.";
 
 type BadgeVariant = NonNullable<BadgeProps["variant"]>;
 
@@ -94,7 +101,7 @@ export function BrokerInspectAction({
 function BrokerInspectDialog({
   brokerName,
   onClose,
-  record,
+  record: initialRecord,
 }: {
   brokerName: string;
   onClose: () => void;
@@ -102,13 +109,27 @@ function BrokerInspectDialog({
 }) {
   const titleId = useId();
   const descriptionId = useId();
+  const queryClient = useQueryClient();
   const overlayRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const [record, setRecord] = useState(initialRecord);
+  const [rescanSuccessMessage, setRescanSuccessMessage] = useState<string | null>(null);
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: api.getSettings,
     enabled: record.status === "COMPLETED" && Boolean(record.last_completed_at),
+  });
+  const rescanMutation = useMutation({
+    mutationFn: (brokerId: string) => api.rescanClassification(brokerId),
+    onSuccess: async (updatedRecord) => {
+      setRecord(updatedRecord);
+      setRescanSuccessMessage(RESCAN_SUCCESS_MESSAGE);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["opt-outs"] }),
+        queryClient.invalidateQueries({ queryKey: ["extended-stats"] }),
+      ]);
+    },
   });
   const gmailHref = gmailThreadHref(record.thread_id);
   const metadataRows = inspectMetadataRows(record);
@@ -119,6 +140,10 @@ function BrokerInspectDialog({
     lastCompletedAt: record.last_completed_at,
     status: record.status,
   });
+
+  useEffect(() => {
+    setRecord(initialRecord);
+  }, [initialRecord]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -176,6 +201,19 @@ function BrokerInspectDialog({
       event.preventDefault();
       firstElement.focus();
     }
+  }
+
+  function handleRescan() {
+    if (!record.thread_id || rescanMutation.isPending) {
+      return;
+    }
+    if (!window.confirm(RESCAN_CONFIRM_MESSAGE)) {
+      return;
+    }
+
+    setRescanSuccessMessage(null);
+    rescanMutation.reset();
+    rescanMutation.mutate(record.broker_id);
   }
 
   return createPortal(
@@ -241,12 +279,38 @@ function BrokerInspectDialog({
                   {record.thread_id}
                 </p>
               </div>
-              <Button asChild size="sm" variant="secondary">
-                <a href={gmailHref} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink aria-hidden="true" />
-                  Open in Gmail
-                </a>
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  aria-label={`Rescan ${brokerName} record`}
+                  disabled={rescanMutation.isPending}
+                  onClick={handleRescan}
+                  size="sm"
+                  title={RESCAN_TOOLTIP}
+                  type="button"
+                  variant="secondary"
+                >
+                  <RefreshCw
+                    aria-hidden="true"
+                    className={cn(rescanMutation.isPending && "animate-spin")}
+                  />
+                  {rescanMutation.isPending ? "Rescanning" : "Rescan"}
+                </Button>
+                <Button asChild size="sm" variant="secondary">
+                  <a href={gmailHref} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink aria-hidden="true" />
+                    Open in Gmail
+                  </a>
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {rescanMutation.error ? (
+            <div
+              className="rounded-sm border border-bd-rust bg-fill-rust px-3 py-2 text-sm text-soft-rust"
+              role="alert"
+            >
+              {rescanMutation.error.message || "Could not queue a rescan for this record."}
             </div>
           ) : null}
 
@@ -301,6 +365,15 @@ function BrokerInspectDialog({
           </InspectSection>
         </div>
       </div>
+      {rescanSuccessMessage ? (
+        <div
+          aria-live="polite"
+          className="absolute right-4 top-4 z-20 max-w-[min(360px,calc(100vw-32px))] rounded-sm border border-bd-green bg-fill-green px-3 py-2 text-sm font-medium text-soft-green shadow-lg"
+          role="status"
+        >
+          {rescanSuccessMessage}
+        </div>
+      ) : null}
     </div>,
     document.body,
   );

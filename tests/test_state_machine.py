@@ -186,6 +186,29 @@ def test_append_transition_skips_noop_status_change():
     assert record.state_history == []
 
 
+def test_append_transition_can_record_explicit_noop_status_change():
+    record = OptOutRecord(
+        broker_id="spokeo",
+        status=BrokerStatus.INFO_REQUESTED,
+        last_message_id="msg-123",
+    )
+
+    transition = append_transition(
+        record,
+        BrokerStatus.INFO_REQUESTED,
+        BrokerStatus.INFO_REQUESTED,
+        allow_noop=True,
+        reason="manual rescan requested",
+    )
+
+    assert transition is not None
+    assert record.state_history == [transition]
+    assert transition.from_status == "INFO_REQUESTED"
+    assert transition.to_status == "INFO_REQUESTED"
+    assert transition.reason == "manual rescan requested"
+    assert transition.message_id == "msg-123"
+
+
 def test_transition_record_status_validates_sets_status_and_logs_history():
     transitioned_at = datetime(2026, 7, 7, 15, 50, tzinfo=UTC)
     record = OptOutRecord(broker_id="spokeo", status=BrokerStatus.PENDING)
