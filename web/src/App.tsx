@@ -293,7 +293,11 @@ export function App() {
         <div className="mx-auto flex min-h-header max-w-container flex-col justify-center gap-4 px-gutter py-4 sm:h-header sm:flex-row sm:items-center sm:justify-between sm:py-0">
           <Logo inverse size="md" tagline="data broker opt-out" />
           <div className="flex max-w-full flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-6">
-            <nav aria-label="Primary" className="flex max-w-full items-center gap-[2px] overflow-x-auto whitespace-nowrap">
+            {/* Hide vertical overflow so Windows native scrollbar chrome cannot appear while tabs scroll horizontally. */}
+            <nav
+              aria-label="Primary"
+              className="flex max-w-full items-center gap-[2px] overflow-x-auto overflow-y-hidden whitespace-nowrap"
+            >
               {appTabs.map((tab) => (
                 <AppNavLink
                   key={tab.id}

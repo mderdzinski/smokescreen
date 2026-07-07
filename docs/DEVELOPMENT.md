@@ -70,6 +70,10 @@ Build the web dashboard:
 npm --prefix web run build
 ```
 
+For navbar UI changes, verify Windows Chrome and Firefox, or force native
+scrollbar visibility in browser tooling, to check that horizontal tab scrolling
+does not introduce vertical scroll artifacts.
+
 ### Regenerating the hero banner
 
 The README hero banner is regenerated manually, not in CI. After editing
