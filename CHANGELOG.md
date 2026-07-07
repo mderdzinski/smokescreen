@@ -1,3 +1,10 @@
+## [0.28.4](https://github.com/mderdzinski/smokescreen/compare/v0.28.3...v0.28.4) (2026-07-07)
+
+
+### Bug Fixes
+
+* complete state machine transitions and poll per-record exception handling ([d7e612e](https://github.com/mderdzinski/smokescreen/commit/d7e612ef5b10622263d598ea961e9c6fdfa19a34))
+
 ## [0.28.3](https://github.com/mderdzinski/smokescreen/compare/v0.28.2...v0.28.3) (2026-07-07)
 
 
