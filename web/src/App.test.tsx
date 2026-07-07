@@ -213,6 +213,7 @@ describe("App", () => {
     renderWithProviders(<App />);
 
     const primaryNav = screen.getByRole("navigation", { name: "Primary" });
+    expect(primaryNav).toHaveClass("overflow-x-auto", "overflow-y-hidden");
     expect(within(primaryNav).getAllByRole("link")).toHaveLength(4);
     expect(within(primaryNav).getByRole("link", { name: "Status" })).toHaveAttribute("href", "/");
     expect(within(primaryNav).getByRole("link", { name: "Brokers" })).toHaveAttribute("href", "/brokers");
