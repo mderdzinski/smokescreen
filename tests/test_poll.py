@@ -407,6 +407,82 @@ def test_poll_processes_reply_from_alternate_sender_matching_domain(tmp_path):
     store.close()
 
 
+def test_poll_updates_last_message_id_after_alternate_sender_reply(tmp_path):
+    settings = _settings(
+        tmp_path,
+        anthropic_api_key="test-key",
+        poll_label="custom-label",
+    )
+    store = SQLiteStore(settings.sqlite_path)
+    store.set_verification_profile(
+        VerificationProfile(
+            home_addresses=[
+                VerificationAddress(
+                    street="1 Main St",
+                    city="Springfield",
+                    state="CA",
+                    zip="90210",
+                    country="US",
+                )
+            ]
+        )
+    )
+    store.upsert(
+        OptOutRecord(
+            broker_id="labeled",
+            status=BrokerStatus.INITIAL_SENT,
+            thread_id="thread-original",
+            last_message_id="sent-original",
+        )
+    )
+    gmail = FakeGmail(
+        search_results_by_query={
+            "label:custom-label": ["msg-other"],
+            "in:inbox from:labeled.example": ["reply-alt"],
+        },
+        messages={
+            "msg-other": EmailMessage(
+                message_id="msg-other",
+                thread_id="thread-other",
+            ),
+            "reply-alt": EmailMessage(
+                message_id="reply-alt",
+                thread_id="thread-alt",
+                sender="Support <case@notifications.labeled.example>",
+                subject="Identity verification",
+                body="Please send your home address.",
+            ),
+        },
+        threads={
+            "thread-alt": [
+                EmailMessage(
+                    message_id="reply-alt",
+                    thread_id="thread-alt",
+                    sender="Support <case@notifications.labeled.example>",
+                    subject="Identity verification",
+                    body="Please send your home address.",
+                )
+            ]
+        },
+    )
+    anthropic_client = _mock_anthropic(_info_request_response(["home_address"]))
+
+    with patch("smokescreen.jobs.poll.Anthropic") as anthropic:
+        anthropic.return_value = anthropic_client
+        first = run_poll(settings, _registry(), store, gmail=gmail)
+        second = run_poll(settings, _registry(), store, gmail=gmail)
+
+    assert first == ["labeled"]
+    assert second == []
+    assert len(gmail.sent_messages) == 1
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.FOLLOW_UP_SENT
+    assert updated.thread_id == "thread-alt"
+    assert updated.last_message_id == "reply-alt"
+    assert anthropic_client.messages.create.call_count == 2
+    store.close()
+
+
 def test_poll_thread_not_in_label_logs_at_info_level(tmp_path):
     settings = _settings(tmp_path, poll_label="custom-label")
     store = SQLiteStore(settings.sqlite_path)
@@ -1051,7 +1127,7 @@ def test_process_thread_sends_follow_up_reply_from_verification_profile(tmp_path
     updated = store.get("labeled")
     assert updated.status == BrokerStatus.FOLLOW_UP_SENT
     assert updated.retries == 1
-    assert updated.last_message_id == "sent-identity"
+    assert updated.last_message_id == "reply-labeled"
     assert updated.requested_fields == ["home_address", "phone_number"]
     assert updated.missing_fields == []
     store.close()
@@ -1657,7 +1733,165 @@ def test_run_poll_deduplicates_pending_whitelist_for_repeated_unknown_reply(
     assert pending[0].message_subject == "Verify identity"
     updated = store.get("labeled")
     assert updated.status == BrokerStatus.NEEDS_MANUAL
-    assert updated.last_message_id == "sent-labeled"
+    assert updated.last_message_id == "vendor-labeled"
+    store.close()
+
+
+def test_poll_deduplicates_when_last_message_id_matches(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    record = _record(status=BrokerStatus.AWAITING_RESPONSE)
+    record.last_message_id = "reply-labeled"
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Re: request",
+                    body="Please verify your identity.",
+                )
+            ]
+        }
+    )
+    anthropic_client = _mock_anthropic("NEEDS_MANUAL")
+
+    with patch("smokescreen.jobs.poll.log") as log:
+        processed = _process_thread(
+            settings=settings,
+            record=record,
+            broker_name="Labeled Broker",
+            broker_email="privacy@labeled.example",
+            store=store,
+            gmail=gmail,
+            ai_client=anthropic_client,
+        )
+
+    assert processed is False
+    anthropic_client.messages.create.assert_not_called()
+    assert store.get("labeled").status == BrokerStatus.AWAITING_RESPONSE
+    log.info.assert_any_call(
+        "poll_message_already_processed",
+        broker="labeled",
+        message_id="reply-labeled",
+        thread_id="thread-labeled",
+    )
+    store.close()
+
+
+def test_poll_does_not_send_duplicate_follow_up_for_same_message(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    store.set_verification_profile(
+        VerificationProfile(
+            home_addresses=[
+                VerificationAddress(
+                    street="1 Main St",
+                    city="Springfield",
+                    state="CA",
+                    zip="90210",
+                    country="US",
+                )
+            ]
+        )
+    )
+    record = _record(status=BrokerStatus.AWAITING_RESPONSE)
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Identity verification",
+                    body="Please send your home address.",
+                )
+            ]
+        }
+    )
+    anthropic_client = _mock_anthropic(_info_request_response(["home_address"]))
+
+    first = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        ai_client=anthropic_client,
+    )
+    second = _process_thread(
+        settings=settings,
+        record=store.get("labeled"),
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        ai_client=anthropic_client,
+    )
+
+    assert first is True
+    assert second is False
+    assert len(gmail.sent_messages) == 1
+    assert anthropic_client.messages.create.call_count == 2
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.FOLLOW_UP_SENT
+    assert updated.last_message_id == "reply-labeled"
+    store.close()
+
+
+def test_poll_does_not_re_transition_needs_manual_for_same_message(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    record = _record(status=BrokerStatus.NEEDS_MANUAL)
+    record.previous_status = BrokerStatus.AWAITING_RESPONSE
+    record.last_message_id = "reply-labeled"
+    record.notes = "existing manual review"
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Portal action required",
+                    body="Please use our portal.",
+                )
+            ]
+        }
+    )
+    anthropic_client = _mock_anthropic("COMPLETED")
+
+    processed = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        ai_client=anthropic_client,
+    )
+
+    assert processed is False
+    anthropic_client.messages.create.assert_not_called()
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.NEEDS_MANUAL
+    assert updated.previous_status == BrokerStatus.AWAITING_RESPONSE
+    assert updated.notes == "existing manual review"
+    assert updated.last_message_id == "reply-labeled"
     store.close()
 
 

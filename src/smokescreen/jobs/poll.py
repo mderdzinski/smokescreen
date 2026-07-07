@@ -503,11 +503,21 @@ def _process_thread(
     if not thread:
         return False
 
+    latest_thread_message = thread[-1]
+    if _message_already_processed(record, latest_thread_message):
+        log.info(
+            "poll_message_already_processed",
+            broker=record.broker_id,
+            message_id=latest_thread_message.message_id,
+            thread_id=record.thread_id,
+        )
+        return False
+
     # Find the latest message we haven't processed
     sender_email = _sender_address(settings.sender_email)
     new_messages = []
     for message in thread:
-        if message.message_id == record.last_message_id:
+        if _message_already_processed(record, message):
             continue
 
         message_sender = _sender_address(message.sender)
@@ -553,6 +563,8 @@ def _process_thread(
                 message_snippet=latest.body[:200] if latest.body else "",
             )
         )
+        if _needs_manual_already_recorded(record, latest):
+            return False
         transition_to_needs_manual(
             record,
             reason_code="untrusted_sender_reply",
@@ -564,7 +576,7 @@ def _process_thread(
             broker_reply_excerpt=_broker_reply_excerpt(latest, latest_reply_body),
             raw_reply_body=latest.body,
         )
-        store.upsert(record)
+        _upsert_processed_broker_reply(store, record, latest)
         log.warning(
             "poll_needs_manual_untrusted_sender",
             broker=record.broker_id,
@@ -587,6 +599,8 @@ def _process_thread(
             broker=record.broker_id,
             provider=settings.ai_provider,
         )
+        if _needs_manual_already_recorded(record, latest):
+            return False
         transition_to_needs_manual(
             record,
             reason_code="other",
@@ -599,7 +613,7 @@ def _process_thread(
                 "error": "classifier_unavailable",
             },
         )
-        store.upsert(record)
+        _upsert_processed_broker_reply(store, record, latest)
         return True
 
     # Classify the reply
@@ -640,6 +654,35 @@ def _process_thread(
         gmail=gmail,
         ai_client=ai_client,
     )
+
+
+def _message_already_processed(record: OptOutRecord, message: EmailMessage) -> bool:
+    return bool(message.message_id and message.message_id == record.last_message_id)
+
+
+def _upsert_processed_broker_reply(
+    store: StateStore,
+    record: OptOutRecord,
+    message: EmailMessage,
+) -> None:
+    record.last_message_id = message.message_id
+    store.upsert(record)
+
+
+def _needs_manual_already_recorded(
+    record: OptOutRecord,
+    message: EmailMessage,
+) -> bool:
+    if record.status != BrokerStatus.NEEDS_MANUAL:
+        return False
+    if not _message_already_processed(record, message):
+        return False
+    log.info(
+        "poll_needs_manual_already_recorded",
+        broker=record.broker_id,
+        message_id=message.message_id,
+    )
+    return True
 
 
 def _missing_classifier_notes(settings: Settings) -> str:
@@ -708,14 +751,15 @@ def _handle_classification(
     """Handle a classified reply. Returns True if action was taken."""
     now = utc_now()
     classification = analysis.classification
+    if _needs_manual_already_recorded(record, latest):
+        return False
 
     if classification == ReplyClassification.COMPLETED:
         validate_transition(record.status, BrokerStatus.COMPLETED)
         record.status = BrokerStatus.COMPLETED
-        record.last_message_id = latest.message_id
         record.last_completed_at = now
         record.updated_at = now
-        store.upsert(record)
+        _upsert_processed_broker_reply(store, record, latest)
         log.info("poll_completed", broker=record.broker_id)
         return True
 
@@ -723,9 +767,8 @@ def _handle_classification(
         if record.status == BrokerStatus.REJECTED_REBUTTED:
             validate_transition(record.status, BrokerStatus.REJECTED)
             record.status = BrokerStatus.REJECTED
-            record.last_message_id = latest.message_id
             record.updated_at = now
-            store.upsert(record)
+            _upsert_processed_broker_reply(store, record, latest)
             log.info("poll_rejected_after_rebuttal", broker=record.broker_id)
             return True
 
@@ -749,7 +792,7 @@ def _handle_classification(
             missing_fields=[],
             now=now,
         )
-        store.upsert(record)
+        _upsert_processed_broker_reply(store, record, latest)
         log.info("poll_rejected_needs_manual", broker=record.broker_id)
         return True
 
@@ -770,23 +813,21 @@ def _handle_classification(
             classifier_output=classifier_output,
             now=now,
         )
-        store.upsert(record)
+        _upsert_processed_broker_reply(store, record, latest)
         log.info("poll_needs_manual", broker=record.broker_id)
         return True
 
     if classification == ReplyClassification.UNRELATED:
         # Ignore unrelated messages, just update tracking
-        record.last_message_id = latest.message_id
         record.updated_at = now
-        store.upsert(record)
+        _upsert_processed_broker_reply(store, record, latest)
         return False
 
     if classification == ReplyClassification.ACKNOWLEDGMENT:
         validate_transition(record.status, BrokerStatus.AWAITING_RESPONSE)
         record.status = BrokerStatus.AWAITING_RESPONSE
-        record.last_message_id = latest.message_id
         record.updated_at = now
-        store.upsert(record)
+        _upsert_processed_broker_reply(store, record, latest)
         log.info("poll_ack_awaiting", broker=record.broker_id)
         return True
 
@@ -1002,11 +1043,21 @@ def _handle_info_request(
     """Handle a broker follow-up requesting additional information."""
     now = utc_now()
 
+    if record.status == BrokerStatus.FOLLOW_UP_SENT and _message_already_processed(
+        record, latest
+    ):
+        log.info(
+            "poll_follow_up_already_sent",
+            broker=record.broker_id,
+            message_id=latest.message_id,
+        )
+        return False
+
     if record.retries >= settings.max_retries:
         record.status = BrokerStatus.FAILED
         record.notes = "Max retries exceeded"
         record.updated_at = now
-        store.upsert(record)
+        _upsert_processed_broker_reply(store, record, latest)
         log.warning("poll_max_retries", broker=record.broker_id)
         return True
 
@@ -1020,7 +1071,6 @@ def _handle_info_request(
     record.requested_fields = [field.value for field in requested_fields]
     record.missing_fields = [field.value for field in missing_fields]
     record.requested_other_details = other_details.strip()
-    record.last_message_id = latest.message_id
 
     if missing_fields:
         classifier_output = {
@@ -1052,7 +1102,7 @@ def _handle_info_request(
             missing_fields=[field.value for field in missing_fields],
             now=now,
         )
-        store.upsert(record)
+        _upsert_processed_broker_reply(store, record, latest)
         log.info(
             "poll_info_request_needs_manual",
             broker=record.broker_id,
@@ -1065,7 +1115,7 @@ def _handle_info_request(
     record.status = BrokerStatus.INFO_REQUESTED
     record.notes = _info_request_sent_notes(requested_fields)
     record.updated_at = now
-    store.upsert(record)
+    _upsert_processed_broker_reply(store, record, latest)
 
     verification_lines = _verification_lines(profile, requested_fields)
     fallback_body = render_verification_profile_follow_up(
@@ -1103,7 +1153,7 @@ def _handle_info_request(
     else:
         # Replies stay in the original Gmail thread, so Gmail preserves the
         # poll label applied by outreach.
-        sent = gmail.send(
+        gmail.send(
             to=broker_email,
             subject=subject,
             body=body,
@@ -1111,14 +1161,13 @@ def _handle_info_request(
             sender_name=settings.sender_name,
             thread_id=record.thread_id,
         )
-        record.last_message_id = sent.message_id
 
     validate_transition(record.status, BrokerStatus.FOLLOW_UP_SENT)
     record.status = BrokerStatus.FOLLOW_UP_SENT
     record.missing_fields = []
     record.retries += 1
     record.updated_at = utc_now()
-    store.upsert(record)
+    _upsert_processed_broker_reply(store, record, latest)
 
     log.info("poll_follow_up_sent", broker=record.broker_id, retries=record.retries)
     return True
@@ -1161,12 +1210,11 @@ def _handle_rejection_rebuttal(
 
     if settings.dry_run:
         log.info("dry_run_rejection_rebuttal", broker=record.broker_id)
-        record.last_message_id = latest.message_id
     else:
         if gmail is None:
             log.error("no_gmail_client", broker=record.broker_id)
             return False
-        sent = gmail.send(
+        gmail.send(
             to=broker_email,
             subject=subject,
             body=body,
@@ -1174,7 +1222,6 @@ def _handle_rejection_rebuttal(
             sender_name=settings.sender_name,
             thread_id=record.thread_id,
         )
-        record.last_message_id = sent.message_id
 
     validate_transition(record.status, BrokerStatus.REJECTED_REBUTTED)
     record.status = BrokerStatus.REJECTED_REBUTTED
@@ -1182,7 +1229,7 @@ def _handle_rejection_rebuttal(
     record.needs_manual_reason = None
     record.notes = "Broker rejection rebutted once; waiting for broker response."
     record.updated_at = utc_now()
-    store.upsert(record)
+    _upsert_processed_broker_reply(store, record, latest)
     log.info("poll_rejection_rebuttal_sent", broker=record.broker_id)
     return True
 
