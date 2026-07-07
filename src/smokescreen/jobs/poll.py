@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from email.utils import parseaddr
 from typing import Any
@@ -45,6 +46,49 @@ from smokescreen.state.machine import PINGED_STATE, WAITING_STATES, validate_tra
 from smokescreen.state.store import StateStore
 
 log = structlog.get_logger()
+
+BROKER_REPLY_EXCERPT_LIMIT = 1500
+_BOILERPLATE_FALLBACK_PREFIX = "Reply excerpt may include boilerplate:\n"
+_CLASSIFIER_SUMMARY_KEYS = (
+    "other_details",
+    "structured_summary",
+    "summary",
+    "request_summary",
+    "manual_review_summary",
+    "details",
+)
+_BOILERPLATE_MARKER_RE = re.compile(
+    "|".join(
+        re.escape(marker)
+        for marker in (
+            "This is an automated message",
+            "This email is an autoreply",
+            "THIS EMAIL RESPONSE IS AN AUTOREPLY",
+            "Automatic reply",
+            "Out of office",
+            "How would you rate",
+            "rate our support",
+            "customer satisfaction survey",
+            "Please take a moment to answer",
+            "Please reply above this line",
+        )
+    ),
+    re.IGNORECASE,
+)
+_TICKETING_SEPARATOR_RE = re.compile(
+    r"^\s*##\s*In replies all text above this line is added to the ticket\s*##\s*$",
+    re.IGNORECASE,
+)
+_HORIZONTAL_RULE_RE = re.compile(r"^\s*[-=_*]{3,}\s*$")
+_ORIGINAL_MESSAGE_RE = re.compile(
+    r"^\s*-{2,}\s*(?:Original Message|Forwarded message)\s*-{2,}\s*$",
+    re.IGNORECASE,
+)
+_EMAIL_QUOTED_SEPARATOR_RE = re.compile(r"^\s*On .+\bwrote:\s*$", re.IGNORECASE)
+_EMAIL_HEADER_RE = re.compile(
+    r"^\s*(?:from|sent|to|subject|date|cc):\s+.+$", re.IGNORECASE
+)
+_URL_ONLY_RE = re.compile(r"^\s*(?:https?://|www\.)\S+\s*$", re.IGNORECASE)
 
 # States that expect incoming replies (including their pinged variants and
 # the follow-up-sent state that expects a broker response after we replied).
@@ -518,6 +562,7 @@ def _process_thread(
                 "approve in Trusted Senders if legitimate"
             ),
             broker_reply_excerpt=_broker_reply_excerpt(latest, latest_reply_body),
+            raw_reply_body=latest.body,
         )
         store.upsert(record)
         log.warning(
@@ -548,6 +593,7 @@ def _process_thread(
             short_summary=notes,
             notes=notes,
             broker_reply_excerpt=_broker_reply_excerpt(latest, latest_reply_body),
+            raw_reply_body=latest.body,
             classifier_output={
                 "provider": settings.ai_provider,
                 "error": "classifier_unavailable",
@@ -684,6 +730,7 @@ def _handle_classification(
             return True
 
         record.last_message_id = latest.message_id
+        classifier_output = _classifier_output(analysis)
         transition_to_needs_manual(
             record,
             reason_code="broker_rejected",
@@ -692,8 +739,13 @@ def _handle_classification(
                 "accept or escalate."
             ),
             notes=_manual_review_notes(latest),
-            broker_reply_excerpt=_broker_reply_excerpt(latest, latest_reply_body),
-            classifier_output=_classifier_output(analysis),
+            broker_reply_excerpt=_broker_reply_excerpt(
+                latest,
+                latest_reply_body,
+                classifier_output=classifier_output,
+            ),
+            raw_reply_body=latest.body,
+            classifier_output=classifier_output,
             missing_fields=[],
             now=now,
         )
@@ -703,13 +755,19 @@ def _handle_classification(
 
     if classification == ReplyClassification.NEEDS_MANUAL:
         record.last_message_id = latest.message_id
+        classifier_output = _classifier_output(analysis)
         transition_to_needs_manual(
             record,
             reason_code="classifier_returned_needs_manual",
             short_summary="Classifier flagged the broker reply for manual review.",
             notes=_manual_review_notes(latest),
-            broker_reply_excerpt=_broker_reply_excerpt(latest, latest_reply_body),
-            classifier_output=_classifier_output(analysis),
+            broker_reply_excerpt=_broker_reply_excerpt(
+                latest,
+                latest_reply_body,
+                classifier_output=classifier_output,
+            ),
+            raw_reply_body=latest.body,
+            classifier_output=classifier_output,
             now=now,
         )
         store.upsert(record)
@@ -767,15 +825,125 @@ def _manual_review_notes(message: EmailMessage) -> str:
 
 
 def _broker_reply_excerpt(
-    message: EmailMessage, latest_reply_body: str | None = None
+    message: EmailMessage,
+    latest_reply_body: str | None = None,
+    *,
+    classifier_output: dict[str, Any] | None = None,
 ) -> str:
+    classifier_summary = _classifier_summary_excerpt(classifier_output or {})
+    if classifier_summary:
+        return _truncate_reply_excerpt(classifier_summary)
+
     parsed_body = (
         latest_reply_body
         if latest_reply_body is not None
         else parse_latest_reply(message.body)
     )
-    body = parsed_body.strip() or message.subject.strip()
-    return body[:500]
+    fallback_body = parsed_body.strip() or message.subject.strip()
+    for source in (parsed_body, message.body):
+        body = _useful_reply_excerpt(source)
+        if body:
+            return _truncate_reply_excerpt(body)
+    if fallback_body:
+        return _truncate_reply_excerpt(f"{_BOILERPLATE_FALLBACK_PREFIX}{fallback_body}")
+    return ""
+
+
+def _classifier_summary_excerpt(classifier_output: dict[str, Any]) -> str:
+    for key in _CLASSIFIER_SUMMARY_KEYS:
+        value = classifier_output.get(key)
+        if not isinstance(value, str):
+            continue
+        summary = value.strip()
+        if summary:
+            return f"Classifier summary: {summary}"
+    return ""
+
+
+def _useful_reply_excerpt(raw_body: str) -> str:
+    body = _normalize_reply_body(raw_body)
+    if not body:
+        return ""
+
+    candidates = _reply_excerpt_candidates(body)
+    for candidate in candidates:
+        useful = _clean_reply_excerpt_candidate(candidate)
+        if useful and not _starts_with_boilerplate(useful):
+            return useful
+    return ""
+
+
+def _reply_excerpt_candidates(body: str) -> list[str]:
+    lines = body.splitlines()
+    candidates: list[str] = []
+    for index, line in enumerate(lines):
+        if _is_reply_separator(line):
+            candidates.append("\n".join(lines[index + 1 :]))
+    candidates.append(body)
+    return candidates
+
+
+def _clean_reply_excerpt_candidate(candidate: str) -> str:
+    lines = candidate.splitlines()
+    cleaned: list[str] = []
+    seen_content = False
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if line.startswith(">"):
+            line = line.lstrip("> ").strip()
+        if not line:
+            if seen_content:
+                cleaned.append("")
+            continue
+        if not seen_content and _is_boilerplate_line(line):
+            continue
+        if not seen_content and _is_reply_separator(line):
+            continue
+        if not seen_content and _EMAIL_HEADER_RE.match(line):
+            continue
+        if not seen_content and _URL_ONLY_RE.match(line):
+            continue
+        cleaned.append(line)
+        seen_content = True
+
+    return _trim_reply_excerpt_lines(cleaned)
+
+
+def _normalize_reply_body(body: str) -> str:
+    return body.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+def _trim_reply_excerpt_lines(lines: list[str]) -> str:
+    start = 0
+    end = len(lines)
+    while start < end and not lines[start].strip():
+        start += 1
+    while end > start and not lines[end - 1].strip():
+        end -= 1
+    return "\n".join(lines[start:end]).strip()
+
+
+def _starts_with_boilerplate(body: str) -> bool:
+    leading = "\n".join(body.splitlines()[:4])
+    return bool(_BOILERPLATE_MARKER_RE.search(leading))
+
+
+def _is_boilerplate_line(line: str) -> bool:
+    return bool(_BOILERPLATE_MARKER_RE.search(line))
+
+
+def _is_reply_separator(line: str) -> bool:
+    return bool(
+        _TICKETING_SEPARATOR_RE.match(line)
+        or _HORIZONTAL_RULE_RE.match(line)
+        or _ORIGINAL_MESSAGE_RE.match(line)
+        or _EMAIL_QUOTED_SEPARATOR_RE.match(line)
+    )
+
+
+def _truncate_reply_excerpt(body: str) -> str:
+    return body[:BROKER_REPLY_EXCERPT_LIMIT]
 
 
 def _classifier_output(analysis: ReplyAnalysis) -> dict[str, Any]:
@@ -793,6 +961,7 @@ def transition_to_needs_manual(
     short_summary: str,
     notes: str | None = None,
     broker_reply_excerpt: str = "",
+    raw_reply_body: str | None = None,
     classifier_output: dict[str, Any] | None = None,
     missing_fields: list[str] | None = None,
     now: datetime | None = None,
@@ -808,7 +977,8 @@ def transition_to_needs_manual(
     record.needs_manual_reason = NeedsManualReason(
         reason_code=reason_code,
         short_summary=short_summary,
-        broker_reply_excerpt=broker_reply_excerpt[:500],
+        broker_reply_excerpt=broker_reply_excerpt[:BROKER_REPLY_EXCERPT_LIMIT],
+        raw_reply_body=raw_reply_body,
         classifier_output=classifier_output or {},
         missing_fields=missing_fields or [],
         transitioned_at=transitioned_at,
@@ -853,6 +1023,11 @@ def _handle_info_request(
     record.last_message_id = latest.message_id
 
     if missing_fields:
+        classifier_output = {
+            "classification": ReplyClassification.INFO_REQUEST.value,
+            "requested_fields": [field.value for field in requested_fields],
+            "other_details": other_details,
+        }
         transition_to_needs_manual(
             record,
             reason_code=_info_request_reason_code(missing_fields),
@@ -867,12 +1042,13 @@ def _handle_info_request(
                 latest=latest,
                 other_details=other_details,
             ),
-            broker_reply_excerpt=_broker_reply_excerpt(latest, latest_reply_body),
-            classifier_output={
-                "classification": ReplyClassification.INFO_REQUEST.value,
-                "requested_fields": [field.value for field in requested_fields],
-                "other_details": other_details,
-            },
+            broker_reply_excerpt=_broker_reply_excerpt(
+                latest,
+                latest_reply_body,
+                classifier_output=classifier_output,
+            ),
+            raw_reply_body=latest.body,
+            classifier_output=classifier_output,
             missing_fields=[field.value for field in missing_fields],
             now=now,
         )

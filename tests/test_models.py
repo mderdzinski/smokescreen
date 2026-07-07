@@ -57,6 +57,20 @@ def test_needs_manual_reason_defaults_transitioned_at_to_aware_utc():
     assert reason.transitioned_at.tzinfo is UTC
 
 
+def test_needs_manual_reason_accepts_missing_raw_reply_body():
+    reason = NeedsManualReason.model_validate(
+        {
+            "reason_code": "other",
+            "short_summary": "Manual review.",
+            "broker_reply_excerpt": "Please review this reply.",
+            "classifier_output": {},
+            "missing_fields": [],
+        }
+    )
+
+    assert reason.raw_reply_body is None
+
+
 def test_timestamp_defaults_are_aware_utc():
     opt_out = OptOutRecord(broker_id="test-broker")
     whitelist = WhitelistEntry(broker_id="test-broker", email="reply@example.com")

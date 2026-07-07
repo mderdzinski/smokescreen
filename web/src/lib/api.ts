@@ -25,6 +25,7 @@ export interface NeedsManualReason {
   reason_code: string;
   short_summary: string;
   broker_reply_excerpt: string;
+  raw_reply_body?: string | null;
   classifier_output: Record<string, unknown>;
   missing_fields: string[];
   transitioned_at: string;

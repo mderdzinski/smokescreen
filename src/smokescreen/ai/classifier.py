@@ -109,8 +109,9 @@ def _analysis_from_payload(payload: dict[str, Any], broker_name: str) -> ReplyAn
     classification = _classification_from_label(
         str(payload.get("classification", "")), broker_name
     )
+    other_details = str(payload.get("other_details") or "").strip()
     if classification != ReplyClassification.INFO_REQUEST:
-        return ReplyAnalysis(classification=classification)
+        return ReplyAnalysis(classification=classification, other_details=other_details)
 
     raw_fields = payload.get("requested_fields", [])
     if not isinstance(raw_fields, list):
@@ -118,7 +119,6 @@ def _analysis_from_payload(payload: dict[str, Any], broker_name: str) -> ReplyAn
 
     requested_fields: list[VerificationField] = []
     seen: set[VerificationField] = set()
-    other_details = str(payload.get("other_details") or "").strip()
     for raw in raw_fields:
         field = _verification_field_from_raw(raw)
         if field is None:

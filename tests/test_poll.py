@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 from smokescreen.brokers.registry import BrokerRegistry
 from smokescreen.config import Settings
 from smokescreen.jobs.poll import (
+    _broker_reply_excerpt,
     _poll_label_query,
     _process_thread,
     run_poll,
@@ -688,6 +689,163 @@ def test_broker_reply_excerpt_uses_parsed_reply(tmp_path):
     ]["content"]
     assert "Please upload a signed authorization form." in classifier_prompt
     assert "Please delete my profile" not in classifier_prompt
+    store.close()
+
+
+def test_excerpt_uses_classifier_other_details_when_present(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    record = _record(status=BrokerStatus.AWAITING_RESPONSE)
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Re: request",
+                    body=(
+                        "THIS EMAIL RESPONSE IS AN AUTOREPLY\n\n"
+                        "Please use our portal links for any support request."
+                    ),
+                )
+            ]
+        }
+    )
+    anthropic_client = _mock_anthropic(
+        '{"classification":"NEEDS_MANUAL",'
+        '"requested_fields":[],'
+        '"other_details":"Middle initial, additional addresses, phone numbers, '
+        'emails, and usernames."}'
+    )
+
+    processed = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        ai_client=anthropic_client,
+    )
+
+    assert processed is True
+    updated = store.get("labeled")
+    assert updated.needs_manual_reason is not None
+    assert updated.needs_manual_reason.broker_reply_excerpt == (
+        "Classifier summary: Middle initial, additional addresses, phone "
+        "numbers, emails, and usernames."
+    )
+    assert updated.needs_manual_reason.classifier_output["other_details"] == (
+        "Middle initial, additional addresses, phone numbers, emails, and usernames."
+    )
+    store.close()
+
+
+def test_excerpt_skips_autoreply_boilerplate():
+    message = EmailMessage(
+        subject="Re: request",
+        body=(
+            "THIS EMAIL RESPONSE IS AN AUTOREPLY\n\n"
+            "https://portal.example/privacy\n"
+            "https://portal.example/opt-out\n\n"
+            "-----\n"
+            "Please complete the opt-out in the privacy portal."
+        ),
+    )
+
+    assert (
+        _broker_reply_excerpt(message)
+        == "Please complete the opt-out in the privacy portal."
+    )
+
+
+def test_excerpt_skips_satisfaction_survey_wrapper():
+    message = EmailMessage(
+        subject="Re: request",
+        body=(
+            "How would you rate our support?\n\n"
+            "Please take a moment to answer our customer satisfaction survey.\n\n"
+            "## In replies all text above this line is added to the ticket ##\n"
+            "Middle initial, additional addresses, phone numbers, emails, and "
+            "usernames."
+        ),
+    )
+
+    assert _broker_reply_excerpt(message) == (
+        "Middle initial, additional addresses, phone numbers, emails, and "
+        "usernames."
+    )
+
+
+def test_excerpt_skips_ticketing_separator_and_shows_quoted_content():
+    message = EmailMessage(
+        subject="Re: request",
+        body=(
+            "Please reply above this line.\n\n"
+            "## In replies all text above this line is added to the ticket ##\n"
+            "> Please provide the phone numbers and email aliases on the listing.\n"
+            "> We cannot process the request without them."
+        ),
+    )
+
+    assert _broker_reply_excerpt(message) == (
+        "Please provide the phone numbers and email aliases on the listing.\n"
+        "We cannot process the request without them."
+    )
+
+
+def test_excerpt_max_1500_chars():
+    message = EmailMessage(subject="Re: request", body="x" * 1600)
+
+    assert _broker_reply_excerpt(message) == "x" * 1500
+
+
+def test_raw_reply_body_stored_on_needs_manual_reason(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    record = _record(status=BrokerStatus.AWAITING_RESPONSE)
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    raw_body = (
+        "Please log in to our privacy portal to finish the opt-out.\n\n"
+        "On Sat, Jul 4, 2026 at 1:53 PM Mark Derdzinski <mark@example.com> wrote:\n"
+        "> Please delete my profile."
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Re: request",
+                    body=raw_body,
+                )
+            ]
+        }
+    )
+
+    processed = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        ai_client=_mock_anthropic("NEEDS_MANUAL"),
+    )
+
+    assert processed is True
+    updated = store.get("labeled")
+    assert updated.needs_manual_reason is not None
+    assert updated.needs_manual_reason.raw_reply_body == raw_body
     store.close()
 
 

@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock3,
+  Copy,
   ExternalLink,
   LogOut,
   Mail,
@@ -1386,14 +1387,28 @@ function ManualReasonDetails({
   sourceEmailLabel?: string;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [showFullReply, setShowFullReply] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle");
   const reason = record.needs_manual_reason;
   const classifierOutputText = reason ? formatClassifierOutput(reason.classifier_output) : "";
   const transitionedAt = reason ? formatFriendlyTimestamp(reason.transitioned_at) : null;
   const brokerReplyExcerpt = reason?.broker_reply_excerpt.trim() ?? "";
+  const rawReplyBody = reason?.raw_reply_body ?? "";
+  const showFullReplyControl =
+    rawReplyBody.trim().length > 0 &&
+    rawReplyBody.length > brokerReplyExcerpt.length &&
+    rawReplyBody !== brokerReplyExcerpt;
   const savedReply = record.notes.trim();
   const showSavedReply = savedReply.length > 0 && savedReply !== brokerReplyExcerpt;
   const showMissingReplyFallback = !reason && !savedReply;
   const verificationGap = getVerificationProfileGap(record);
+  const copyFullReply = async () => {
+    if (!rawReplyBody) {
+      return;
+    }
+    await navigator.clipboard.writeText(rawReplyBody);
+    setCopyStatus("copied");
+  };
 
   return (
     <details
@@ -1483,9 +1498,35 @@ function ManualReasonDetails({
           ) : null}
           {brokerReplyExcerpt ? (
             <div className="lg:col-span-2">
-              <div className="ss-label mb-[5px]">Broker reply excerpt</div>
+              <div className="mb-[5px] flex flex-wrap items-center justify-between gap-2">
+                <div className="ss-label">Broker reply excerpt</div>
+                {showFullReplyControl ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowFullReply((value) => !value)}
+                  >
+                    {showFullReply ? "Hide full reply" : "Show full reply"}
+                  </Button>
+                ) : null}
+              </div>
               <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-sm border border-border bg-surface px-[11px] py-[9px] font-mono text-xs leading-relaxed text-content-body">
                 {brokerReplyExcerpt}
+              </pre>
+            </div>
+          ) : null}
+          {showFullReplyControl && showFullReply ? (
+            <div className="lg:col-span-2">
+              <div className="mb-[5px] flex flex-wrap items-center justify-between gap-2">
+                <div className="ss-label">Full broker reply</div>
+                <Button type="button" variant="outline" size="sm" onClick={copyFullReply}>
+                  <Copy className="h-4 w-4" />
+                  {copyStatus === "copied" ? "Copied" : "Copy to clipboard"}
+                </Button>
+              </div>
+              <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-sm border border-border bg-surface px-[11px] py-[9px] font-mono text-xs leading-relaxed text-content-body">
+                {rawReplyBody}
               </pre>
             </div>
           ) : null}

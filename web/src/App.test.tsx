@@ -1817,6 +1817,124 @@ describe("NeedsAttentionPage", () => {
     expect(screen.getByText(/2026/)).toBeInTheDocument();
   });
 
+  it("test_needs_attention_shows_excerpt_by_default", async () => {
+    const replyExcerpt = "Classifier summary: Broker needs the phone number from the listing.";
+    const rawReply = `${replyExcerpt}\n\nFull raw broker reply with headers and quoted history.`;
+    mockApi([
+      {
+        body: [
+          optOut({
+            broker_id: "manual",
+            broker_name: "Manual Broker",
+            needs_manual_reason: {
+              reason_code: "classifier_returned_needs_manual",
+              short_summary: "Classifier flagged the broker reply for manual review.",
+              broker_reply_excerpt: replyExcerpt,
+              raw_reply_body: rawReply,
+              classifier_output: { classification: "NEEDS_MANUAL" },
+              missing_fields: [],
+              transitioned_at: "2026-06-22T15:30:00Z",
+            },
+            status: "NEEDS_MANUAL",
+          }),
+        ],
+        path: "/api/optouts?status=needs_attention",
+      },
+      { body: brokerSelectionResponse(["manual"]), path: "/api/brokers/selections" },
+    ]);
+
+    renderWithProviders(<NeedsAttentionPage />);
+
+    expect(await screen.findByText("Manual Broker")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Needs Attention Details"));
+
+    expect(screen.getByText(replyExcerpt)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show full reply" })).toBeInTheDocument();
+    expect(screen.queryByText("Full raw broker reply with headers and quoted history.")).not.toBeInTheDocument();
+  });
+
+  it("test_needs_attention_show_full_reply_expands_to_raw", async () => {
+    const replyExcerpt = "Classifier summary: Broker needs the phone number from the listing.";
+    const rawReply = `${replyExcerpt}\n\nFull raw broker reply with headers and quoted history.`;
+    mockApi([
+      {
+        body: [
+          optOut({
+            broker_id: "manual",
+            broker_name: "Manual Broker",
+            needs_manual_reason: {
+              reason_code: "classifier_returned_needs_manual",
+              short_summary: "Classifier flagged the broker reply for manual review.",
+              broker_reply_excerpt: replyExcerpt,
+              raw_reply_body: rawReply,
+              classifier_output: { classification: "NEEDS_MANUAL" },
+              missing_fields: [],
+              transitioned_at: "2026-06-22T15:30:00Z",
+            },
+            status: "NEEDS_MANUAL",
+          }),
+        ],
+        path: "/api/optouts?status=needs_attention",
+      },
+      { body: brokerSelectionResponse(["manual"]), path: "/api/brokers/selections" },
+    ]);
+
+    renderWithProviders(<NeedsAttentionPage />);
+
+    expect(await screen.findByText("Manual Broker")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Needs Attention Details"));
+    fireEvent.click(screen.getByRole("button", { name: "Show full reply" }));
+
+    expect(screen.getByText("Full broker reply")).toBeInTheDocument();
+    expect(
+      screen.getByText((_, element) => element?.tagName.toLowerCase() === "pre" && element.textContent === rawReply),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide full reply" })).toBeInTheDocument();
+  });
+
+  it("test_needs_attention_copy_full_reply", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const replyExcerpt = "Classifier summary: Broker needs the phone number from the listing.";
+    const rawReply = `${replyExcerpt}\n\nFull raw broker reply with headers and quoted history.`;
+    mockApi([
+      {
+        body: [
+          optOut({
+            broker_id: "manual",
+            broker_name: "Manual Broker",
+            needs_manual_reason: {
+              reason_code: "classifier_returned_needs_manual",
+              short_summary: "Classifier flagged the broker reply for manual review.",
+              broker_reply_excerpt: replyExcerpt,
+              raw_reply_body: rawReply,
+              classifier_output: { classification: "NEEDS_MANUAL" },
+              missing_fields: [],
+              transitioned_at: "2026-06-22T15:30:00Z",
+            },
+            status: "NEEDS_MANUAL",
+          }),
+        ],
+        path: "/api/optouts?status=needs_attention",
+      },
+      { body: brokerSelectionResponse(["manual"]), path: "/api/brokers/selections" },
+    ]);
+
+    renderWithProviders(<NeedsAttentionPage />);
+
+    expect(await screen.findByText("Manual Broker")).toBeInTheDocument();
+    await user.click(screen.getByText("Needs Attention Details"));
+    await user.click(screen.getByRole("button", { name: "Show full reply" }));
+    await user.click(screen.getByRole("button", { name: "Copy to clipboard" }));
+
+    expect(writeText).toHaveBeenCalledWith(rawReply);
+    expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+  });
+
   it("marks an item handled after manual review", async () => {
     const user = userEvent.setup();
     const handledIds: string[] = [];

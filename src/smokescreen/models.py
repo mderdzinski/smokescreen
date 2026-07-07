@@ -147,6 +147,7 @@ class NeedsManualReason(BaseModel):
     reason_code: str
     short_summary: str
     broker_reply_excerpt: str = ""
+    raw_reply_body: str | None = None
     classifier_output: dict[str, Any] = Field(default_factory=dict)
     missing_fields: list[str] = Field(default_factory=list)
     transitioned_at: datetime = Field(default_factory=utc_now)
