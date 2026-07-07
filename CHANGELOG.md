@@ -1,3 +1,10 @@
+## [0.28.2](https://github.com/mderdzinski/smokescreen/compare/v0.28.1...v0.28.2) (2026-07-07)
+
+
+### Bug Fixes
+
+* suppress Windows navbar vertical scroll artifact ([#1](https://github.com/mderdzinski/smokescreen/issues/1)) ([bff1577](https://github.com/mderdzinski/smokescreen/commit/bff1577cc3d07564389944109e5c742f597ec00b))
+
 ## [0.28.1](https://github.com/mderdzinski/smokescreen/compare/v0.28.0...v0.28.1) (2026-07-05)
 
 
