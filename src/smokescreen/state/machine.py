@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from smokescreen.models import BrokerStatus
+from datetime import datetime
+
+from smokescreen.models import BrokerStatus, OptOutRecord, StateTransition, utc_now
 
 # States that expect a broker reply. If they remain unchanged for
 # `state_timeout_days`, the poll job pings once (transitioning to the paired
@@ -116,3 +118,60 @@ def validate_transition(current: BrokerStatus, target: BrokerStatus) -> None:
     allowed = TRANSITIONS.get(current, set())
     if target not in allowed:
         raise InvalidTransition(current, target)
+
+
+def _status_value(status: BrokerStatus | str) -> str:
+    if isinstance(status, BrokerStatus):
+        return status.value
+    return str(status)
+
+
+def append_transition(
+    record: OptOutRecord,
+    from_status: BrokerStatus | str,
+    to_status: BrokerStatus | str,
+    *,
+    reason: str | None = None,
+    message_id: str | None = None,
+    transitioned_at: datetime | None = None,
+) -> StateTransition | None:
+    """Append a history entry for a real status transition."""
+    from_value = _status_value(from_status)
+    to_value = _status_value(to_status)
+    if from_value == to_value:
+        return None
+
+    transition = StateTransition(
+        from_status=from_value,
+        to_status=to_value,
+        transitioned_at=transitioned_at or utc_now(),
+        reason=reason,
+        message_id=message_id if message_id is not None else record.last_message_id,
+    )
+    record.state_history.append(transition)
+    return transition
+
+
+def transition_record_status(
+    record: OptOutRecord,
+    target: BrokerStatus,
+    *,
+    reason: str | None = None,
+    message_id: str | None = None,
+    transitioned_at: datetime | None = None,
+    validate: bool = True,
+) -> StateTransition | None:
+    """Set a record status and persist the transition history entry."""
+    current = record.status
+    if validate and current != target:
+        validate_transition(current, target)
+
+    record.status = target
+    return append_transition(
+        record,
+        current,
+        target,
+        reason=reason,
+        message_id=message_id,
+        transitioned_at=transitioned_at,
+    )

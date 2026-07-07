@@ -1,9 +1,16 @@
 """Tests for the state machine."""
 
+from datetime import UTC, datetime
+
 import pytest
 
-from smokescreen.models import BrokerStatus
-from smokescreen.state.machine import InvalidTransition, validate_transition
+from smokescreen.models import BrokerStatus, OptOutRecord
+from smokescreen.state.machine import (
+    InvalidTransition,
+    append_transition,
+    transition_record_status,
+    validate_transition,
+)
 
 WAITING_REPLY_STATES = (
     BrokerStatus.INITIAL_SENT,
@@ -138,3 +145,74 @@ def test_any_active_state_can_fail():
     validate_transition(BrokerStatus.FOLLOW_UP_SENT, BrokerStatus.FAILED)
     validate_transition(BrokerStatus.FOLLOW_UP_SENT_PINGED, BrokerStatus.FAILED)
     validate_transition(BrokerStatus.REJECTED_REBUTTED, BrokerStatus.FAILED)
+
+
+def test_append_transition_records_state_history_entry():
+    transitioned_at = datetime(2026, 7, 7, 15, 45, tzinfo=UTC)
+    record = OptOutRecord(
+        broker_id="spokeo",
+        status=BrokerStatus.INITIAL_SENT,
+        last_message_id="msg-123",
+    )
+
+    transition = append_transition(
+        record,
+        BrokerStatus.INITIAL_SENT,
+        BrokerStatus.NEEDS_MANUAL,
+        reason="broker requested unavailable info",
+        transitioned_at=transitioned_at,
+    )
+
+    assert transition is not None
+    assert record.state_history == [transition]
+    assert transition.from_status == "INITIAL_SENT"
+    assert transition.to_status == "NEEDS_MANUAL"
+    assert transition.transitioned_at == transitioned_at
+    assert transition.reason == "broker requested unavailable info"
+    assert transition.message_id == "msg-123"
+
+
+def test_append_transition_skips_noop_status_change():
+    record = OptOutRecord(broker_id="spokeo", status=BrokerStatus.INFO_REQUESTED)
+
+    transition = append_transition(
+        record,
+        BrokerStatus.INFO_REQUESTED,
+        BrokerStatus.INFO_REQUESTED,
+        reason="same state",
+    )
+
+    assert transition is None
+    assert record.state_history == []
+
+
+def test_transition_record_status_validates_sets_status_and_logs_history():
+    transitioned_at = datetime(2026, 7, 7, 15, 50, tzinfo=UTC)
+    record = OptOutRecord(broker_id="spokeo", status=BrokerStatus.PENDING)
+
+    transition = transition_record_status(
+        record,
+        BrokerStatus.INITIAL_SENT,
+        reason="initial opt-out request sent",
+        message_id="sent-1",
+        transitioned_at=transitioned_at,
+    )
+
+    assert record.status == BrokerStatus.INITIAL_SENT
+    assert transition is not None
+    assert record.state_history == [transition]
+    assert transition.from_status == "PENDING"
+    assert transition.to_status == "INITIAL_SENT"
+    assert transition.reason == "initial opt-out request sent"
+    assert transition.message_id == "sent-1"
+    assert transition.transitioned_at == transitioned_at
+
+
+def test_transition_record_status_preserves_validation_behavior():
+    record = OptOutRecord(broker_id="spokeo", status=BrokerStatus.PENDING)
+
+    with pytest.raises(InvalidTransition):
+        transition_record_status(record, BrokerStatus.COMPLETED)
+
+    assert record.status == BrokerStatus.PENDING
+    assert record.state_history == []

@@ -1,6 +1,8 @@
 """Tests for the SQLite state store."""
 
+import sqlite3
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -9,6 +11,7 @@ from smokescreen.models import (
     BrokerStatus,
     NeedsManualReason,
     OptOutRecord,
+    StateTransition,
     VerificationAddress,
     VerificationDocument,
     VerificationProfile,
@@ -86,6 +89,85 @@ def test_upsert_persists_info_request_metadata(store):
     assert fetched.requested_fields == ["home_address", "documents"]
     assert fetched.missing_fields == ["documents"]
     assert fetched.requested_other_details == "Signed form"
+
+
+def test_upsert_persists_state_history(store):
+    transitioned_at = datetime(2026, 7, 7, 15, 45, tzinfo=UTC)
+    record = OptOutRecord(
+        broker_id="spokeo",
+        status=BrokerStatus.INITIAL_SENT,
+        state_history=[
+            StateTransition(
+                from_status="PENDING",
+                to_status="INITIAL_SENT",
+                transitioned_at=transitioned_at,
+                reason="initial opt-out request sent",
+                message_id="sent-1",
+            )
+        ],
+    )
+
+    store.upsert(record)
+
+    fetched = store.get("spokeo")
+    assert fetched is not None
+    assert len(fetched.state_history) == 1
+    transition = fetched.state_history[0]
+    assert transition.from_status == "PENDING"
+    assert transition.to_status == "INITIAL_SENT"
+    assert transition.transitioned_at == transitioned_at
+    assert transition.reason == "initial opt-out request sent"
+    assert transition.message_id == "sent-1"
+
+
+def test_existing_sqlite_records_without_state_history_load_empty(tmp_path):
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("""
+        CREATE TABLE opt_outs (
+            broker_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL,
+            retries INTEGER NOT NULL DEFAULT 0,
+            thread_id TEXT,
+            last_message_id TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_completed_at TEXT,
+            notes TEXT NOT NULL DEFAULT '',
+            needs_manual_reason TEXT,
+            previous_status TEXT,
+            requested_fields TEXT NOT NULL DEFAULT '[]',
+            missing_fields TEXT NOT NULL DEFAULT '[]',
+            requested_other_details TEXT NOT NULL DEFAULT ''
+        )
+    """)
+    conn.execute(
+        """
+        INSERT INTO opt_outs (
+            broker_id, status, created_at, updated_at, requested_fields,
+            missing_fields, requested_other_details
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "legacy",
+            BrokerStatus.NEEDS_MANUAL.value,
+            "2026-07-07T15:00:00+00:00",
+            "2026-07-07T15:30:00+00:00",
+            "[]",
+            "[]",
+            "",
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    migrated_store = SQLiteStore(db_path)
+
+    fetched = migrated_store.get("legacy")
+    assert fetched is not None
+    assert fetched.state_history == []
+    migrated_store.close()
 
 
 def test_list_all(store):

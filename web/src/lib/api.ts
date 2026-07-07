@@ -31,6 +31,14 @@ export interface NeedsManualReason {
   transitioned_at: string;
 }
 
+export interface StateTransition {
+  from_status: string;
+  to_status: string;
+  transitioned_at: string;
+  reason: string | null;
+  message_id: string | null;
+}
+
 export interface OptOutRecord {
   broker_id: string;
   status: BrokerStatus;
@@ -44,6 +52,7 @@ export interface OptOutRecord {
   requested_fields: string[];
   missing_fields: string[];
   requested_other_details: string;
+  state_history: StateTransition[];
   created_at: string;
   updated_at: string;
   broker_name: string;

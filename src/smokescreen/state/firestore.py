@@ -13,6 +13,7 @@ from smokescreen.models import (
     OptOutRecord,
     PendingWhitelistEntry,
     PendingWhitelistStatus,
+    StateTransition,
     VerificationProfile,
     WhitelistEntry,
     WhitelistSource,
@@ -96,6 +97,20 @@ class FirestoreStore:
             return []
         return [item for item in value if isinstance(item, str)]
 
+    def _state_history(self, value: Any) -> list[StateTransition]:
+        if not isinstance(value, list):
+            return []
+
+        transitions: list[StateTransition] = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            try:
+                transitions.append(StateTransition.model_validate(item))
+            except ValueError:
+                continue
+        return transitions
+
     def _doc_to_record(self, broker_id: str, data: dict) -> OptOutRecord:
         return OptOutRecord(
             broker_id=broker_id,
@@ -116,6 +131,7 @@ class FirestoreStore:
             requested_fields=self._string_list(data.get("requested_fields")),
             missing_fields=self._string_list(data.get("missing_fields")),
             requested_other_details=data.get("requested_other_details", ""),
+            state_history=self._state_history(data.get("state_history")),
         )
 
     def _doc_to_whitelist_entry(self, doc) -> WhitelistEntry:
@@ -182,6 +198,10 @@ class FirestoreStore:
                 "requested_fields": record.requested_fields,
                 "missing_fields": record.missing_fields,
                 "requested_other_details": record.requested_other_details,
+                "state_history": [
+                    transition.model_dump(mode="json")
+                    for transition in record.state_history
+                ],
             }
         )
 

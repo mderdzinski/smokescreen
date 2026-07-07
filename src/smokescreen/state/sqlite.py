@@ -13,6 +13,7 @@ from smokescreen.models import (
     OptOutRecord,
     PendingWhitelistEntry,
     PendingWhitelistStatus,
+    StateTransition,
     VerificationProfile,
     WhitelistEntry,
     WhitelistSource,
@@ -47,7 +48,8 @@ class SQLiteStore:
                 previous_status TEXT,
                 requested_fields TEXT NOT NULL DEFAULT '[]',
                 missing_fields TEXT NOT NULL DEFAULT '[]',
-                requested_other_details TEXT NOT NULL DEFAULT ''
+                requested_other_details TEXT NOT NULL DEFAULT '',
+                state_history TEXT NOT NULL DEFAULT '[]'
             )
         """)
         cols = [
@@ -80,6 +82,13 @@ class SQLiteStore:
                 """
                 ALTER TABLE opt_outs
                 ADD COLUMN requested_other_details TEXT NOT NULL DEFAULT ''
+                """
+            )
+        if "state_history" not in cols:
+            self._conn.execute(
+                """
+                ALTER TABLE opt_outs
+                ADD COLUMN state_history TEXT NOT NULL DEFAULT '[]'
                 """
             )
         self._conn.execute("""
@@ -162,6 +171,7 @@ class SQLiteStore:
             requested_fields=self._json_list(row["requested_fields"]),
             missing_fields=self._json_list(row["missing_fields"]),
             requested_other_details=row["requested_other_details"],
+            state_history=self._state_history(row["state_history"]),
         )
 
     def _json_list(self, raw: str | None) -> list[str]:
@@ -185,6 +195,26 @@ class SQLiteStore:
         if not isinstance(parsed, dict):
             return None
         return NeedsManualReason.model_validate(parsed)
+
+    def _state_history(self, raw: str | None) -> list[StateTransition]:
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(parsed, list):
+            return []
+
+        transitions: list[StateTransition] = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            try:
+                transitions.append(StateTransition.model_validate(item))
+            except ValueError:
+                continue
+        return transitions
 
     def get(self, broker_id: str) -> OptOutRecord | None:
         row = self._conn.execute(
@@ -214,8 +244,9 @@ class SQLiteStore:
                                   last_message_id, created_at, updated_at,
                                   last_completed_at, notes, needs_manual_reason,
                                   previous_status, requested_fields,
-                                  missing_fields, requested_other_details)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  missing_fields, requested_other_details,
+                                  state_history)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(broker_id) DO UPDATE SET
                 status = excluded.status,
                 previous_status = excluded.previous_status,
@@ -228,7 +259,8 @@ class SQLiteStore:
                 needs_manual_reason = excluded.needs_manual_reason,
                 requested_fields = excluded.requested_fields,
                 missing_fields = excluded.missing_fields,
-                requested_other_details = excluded.requested_other_details
+                requested_other_details = excluded.requested_other_details,
+                state_history = excluded.state_history
             """,
             (
                 record.broker_id,
@@ -251,6 +283,12 @@ class SQLiteStore:
                 json.dumps(record.requested_fields),
                 json.dumps(record.missing_fields),
                 record.requested_other_details,
+                json.dumps(
+                    [
+                        transition.model_dump(mode="json")
+                        for transition in record.state_history
+                    ]
+                ),
             ),
         )
         self._conn.commit()

@@ -341,6 +341,7 @@ def test_list_optouts_includes_needs_manual_reason(client):
         "requested_fields": ["phone_number"],
         "other_details": "",
     }
+    assert data[0]["state_history"] == []
 
 
 def test_list_optouts_needs_attention_excludes_disabled_brokers(client):
@@ -363,9 +364,19 @@ def test_list_optouts_invalid_status(client):
 
 
 def test_reset_optout(seeded_client):
+    from smokescreen.api import get_store
+
     resp = seeded_client.post("/api/optouts/spokeo/reset")
     assert resp.status_code == 200
     assert resp.json()["status"] == "reset"
+    saved = get_store().get("spokeo")
+    assert saved is not None
+    assert saved.status == BrokerStatus.PENDING
+    assert len(saved.state_history) == 1
+    transition = saved.state_history[0]
+    assert transition.from_status == "INITIAL_SENT"
+    assert transition.to_status == "PENDING"
+    assert transition.reason == "manual reset"
 
 
 def test_reset_disabled_broker_returns_400(client):
@@ -433,6 +444,11 @@ def test_retry_classification_restores_previous_status(client):
     assert saved.notes == ""
     assert saved.needs_manual_reason is None
     assert saved.retries == 0
+    assert len(saved.state_history) == 1
+    transition = saved.state_history[0]
+    assert transition.from_status == "NEEDS_MANUAL"
+    assert transition.to_status == "INFO_REQUESTED"
+    assert transition.reason == "retry manual classification"
 
 
 def test_retry_classification_requires_needs_manual_status(client):
@@ -575,6 +591,11 @@ def test_accept_rejection_transitions_to_terminal_rejected(client):
     assert saved.status == BrokerStatus.REJECTED
     assert saved.previous_status is None
     assert saved.needs_manual_reason is None
+    assert len(saved.state_history) == 1
+    transition = saved.state_history[0]
+    assert transition.from_status == "NEEDS_MANUAL"
+    assert transition.to_status == "REJECTED"
+    assert transition.reason == "broker rejection accepted"
 
     attention_resp = client.get("/api/optouts?status=needs_attention")
     assert attention_resp.status_code == 200
@@ -687,6 +708,11 @@ def test_escalate_rejection_composes_with_user_context(monkeypatch):
         assert saved is not None
         assert saved.status == BrokerStatus.REJECTED_REBUTTED
         assert saved.needs_manual_reason is None
+        assert len(saved.state_history) == 1
+        transition = saved.state_history[0]
+        assert transition.from_status == "NEEDS_MANUAL"
+        assert transition.to_status == "REJECTED_REBUTTED"
+        assert transition.reason == "sent broker rejection rebuttal"
         store.close()
 
 
@@ -720,6 +746,11 @@ def test_mark_optout_handled_from_attention_states(client, status):
     assert saved.thread_id == "thread-123"
     assert saved.last_message_id == "message-123"
     assert saved.last_completed_at is not None
+    assert len(saved.state_history) == 1
+    transition = saved.state_history[0]
+    assert transition.from_status == status.value
+    assert transition.to_status == "COMPLETED"
+    assert transition.reason == "marked handled manually"
     needs_attention = client.get("/api/optouts?status=needs_attention")
     assert needs_attention.status_code == 200
     assert needs_attention.json() == []

@@ -120,6 +120,7 @@ function optOut(overrides: Partial<OptOutRecord>): OptOutRecord {
     requested_fields: [],
     requested_other_details: "",
     retries: 0,
+    state_history: [],
     status: "AWAITING_RESPONSE",
     thread_id: "thread-1",
     updated_at: "2026-06-21T12:00:00Z",
@@ -1814,7 +1815,57 @@ describe("NeedsAttentionPage", () => {
     expect(screen.getByText("Please send the phone number associated with this listing.")).toBeInTheDocument();
     expect(screen.getAllByText("phone_number").length).toBeGreaterThan(0);
     expect(screen.getByText(/"classification": "INFO_REQUEST"/)).toBeInTheDocument();
-    expect(screen.getByText(/2026/)).toBeInTheDocument();
+    expect(screen.getAllByText(/2026/).length).toBeGreaterThan(0);
+  });
+
+  it("shows the state timeline in expanded needs-manual details", async () => {
+    mockApi([
+      {
+        body: [
+          optOut({
+            broker_id: "manual",
+            broker_name: "Manual Broker",
+            needs_manual_reason: {
+              reason_code: "info_request_missing_fields",
+              short_summary: "Broker requested a phone number.",
+              broker_reply_excerpt: "Please send your phone number.",
+              classifier_output: { classification: "INFO_REQUEST" },
+              missing_fields: ["phone_number"],
+              transitioned_at: "2026-07-07T15:00:00Z",
+            },
+            state_history: [
+              {
+                from_status: "PENDING",
+                to_status: "INITIAL_SENT",
+                transitioned_at: "2026-07-07T12:00:00Z",
+                reason: "initial opt-out request sent",
+                message_id: "sent-1",
+              },
+              {
+                from_status: "INITIAL_SENT",
+                to_status: "NEEDS_MANUAL",
+                transitioned_at: "2026-07-07T15:00:00Z",
+                reason: "broker requested unavailable info",
+                message_id: "reply-1",
+              },
+            ],
+            status: "NEEDS_MANUAL",
+          }),
+        ],
+        path: "/api/optouts?status=needs_attention",
+      },
+      { body: brokerSelectionResponse(["manual"]), path: "/api/brokers/selections" },
+    ]);
+
+    renderWithProviders(<NeedsAttentionPage />);
+
+    expect(await screen.findByText("Manual Broker")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Needs Attention Details"));
+
+    const timeline = screen.getByTestId("state-timeline");
+    expect(within(timeline).getAllByText("Request sent").length).toBeGreaterThan(0);
+    expect(within(timeline).getByText("broker requested unavailable info")).toBeInTheDocument();
+    expect(screen.getByTestId("state-timeline-latest")).toHaveClass("border-bd-olive");
   });
 
   it("test_needs_attention_shows_excerpt_by_default", async () => {

@@ -38,7 +38,11 @@ from smokescreen.models import (
     utc_now,
 )
 from smokescreen.state.broker_selections import list_or_seed_enabled_brokers
-from smokescreen.state.machine import InvalidTransition, validate_transition
+from smokescreen.state.machine import (
+    InvalidTransition,
+    transition_record_status,
+    validate_transition,
+)
 from smokescreen.state.selection_size import (
     broker_selection_size_warning,
     estimate_broker_selection_document_size_bytes,
@@ -541,7 +545,14 @@ async def reset_optout(broker_id: str):
     except InvalidTransition:
         # Force reset so human-reviewed attention states can be retried.
         pass
-    record.status = BrokerStatus.PENDING
+    now = utc_now()
+    transition_record_status(
+        record,
+        BrokerStatus.PENDING,
+        reason="manual reset",
+        transitioned_at=now,
+        validate=False,
+    )
     record.retries = 0
     record.previous_status = None
     record.thread_id = None
@@ -551,7 +562,7 @@ async def reset_optout(broker_id: str):
     record.requested_fields = []
     record.missing_fields = []
     record.requested_other_details = ""
-    record.updated_at = utc_now()
+    record.updated_at = now
     store.upsert(record)
     return {"status": "reset", "broker_id": broker_id}
 
@@ -579,13 +590,20 @@ async def retry_optout_classification(broker_id: str):
             400,
             "Cannot retry: previous status is not retryable. Use Reset to start over.",
         ) from err
-    record.status = previous_status
+    now = utc_now()
+    transition_record_status(
+        record,
+        previous_status,
+        reason="retry manual classification",
+        transitioned_at=now,
+        validate=False,
+    )
     record.previous_status = None
     record.last_message_id = None
     record.notes = ""
     record.needs_manual_reason = None
     record.retries = 0
-    record.updated_at = utc_now()
+    record.updated_at = now
     store.upsert(record)
     return _optout_response(record, registry)
 
@@ -660,7 +678,13 @@ async def accept_rejection(broker_id: str):
         ) from err
 
     now = utc_now()
-    record.status = BrokerStatus.REJECTED
+    transition_record_status(
+        record,
+        BrokerStatus.REJECTED,
+        reason="broker rejection accepted",
+        transitioned_at=now,
+        validate=False,
+    )
     record.previous_status = None
     record.needs_manual_reason = None
     record.updated_at = now
@@ -732,7 +756,13 @@ async def mark_optout_handled(broker_id: str):
     with suppress(InvalidTransition):
         validate_transition(record.status, BrokerStatus.COMPLETED)
     now = utc_now()
-    record.status = BrokerStatus.COMPLETED
+    transition_record_status(
+        record,
+        BrokerStatus.COMPLETED,
+        reason="marked handled manually",
+        transitioned_at=now,
+        validate=False,
+    )
     record.previous_status = None
     record.needs_manual_reason = None
     record.last_completed_at = now

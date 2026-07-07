@@ -153,6 +153,16 @@ class NeedsManualReason(BaseModel):
     transitioned_at: datetime = Field(default_factory=utc_now)
 
 
+class StateTransition(BaseModel):
+    """One persisted opt-out status transition."""
+
+    from_status: str
+    to_status: str
+    transitioned_at: datetime = Field(default_factory=utc_now)
+    reason: str | None = None
+    message_id: str | None = None
+
+
 class OptOutRecord(BaseModel):
     """Tracks opt-out progress for a single broker."""
 
@@ -170,6 +180,7 @@ class OptOutRecord(BaseModel):
     requested_fields: list[str] = Field(default_factory=list)
     missing_fields: list[str] = Field(default_factory=list)
     requested_other_details: str = ""
+    state_history: list[StateTransition] = Field(default_factory=list)
 
 
 class EmailMessage(BaseModel):

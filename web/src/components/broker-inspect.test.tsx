@@ -23,6 +23,7 @@ function optOut(overrides: Partial<OptOutRecord> = {}): OptOutRecord {
     requested_fields: [],
     requested_other_details: "",
     retries: 2,
+    state_history: [],
     status: "AWAITING_RESPONSE",
     thread_id: "thread-1",
     updated_at: "2026-06-21T12:00:00Z",
@@ -104,6 +105,110 @@ describe("BrokerInspectAction", () => {
     expect(within(dialog).getByText("Broker asked for proof of identity.")).toBeInTheDocument();
     expect(within(dialog).getByText("Internal review note.")).toBeInTheDocument();
     expect(within(dialog).queryByText("This raw reply should not render in inspect.")).not.toBeInTheDocument();
+  });
+
+  it("renders state history transitions oldest to newest", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <BrokerInspectAction
+        brokerName="Acme Data"
+        record={optOut({
+          state_history: [
+            {
+              from_status: "PENDING",
+              to_status: "INITIAL_SENT",
+              transitioned_at: "2026-07-07T12:00:00Z",
+              reason: "initial opt-out request sent",
+              message_id: "sent-1",
+            },
+            {
+              from_status: "INITIAL_SENT",
+              to_status: "INFO_REQUESTED",
+              transitioned_at: "2026-07-07T13:00:00Z",
+              reason: "broker asked for verification info",
+              message_id: "reply-1",
+            },
+            {
+              from_status: "INFO_REQUESTED",
+              to_status: "FOLLOW_UP_SENT",
+              transitioned_at: "2026-07-07T13:05:00Z",
+              reason: "sent requested verification info",
+              message_id: "sent-2",
+            },
+          ],
+          status: "FOLLOW_UP_SENT",
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Inspect Acme Data record" }));
+
+    const timeline = within(screen.getByRole("dialog", { name: "Acme Data" })).getByTestId("state-timeline");
+    const items = within(timeline).getAllByRole("listitem");
+    expect(items).toHaveLength(3);
+    expect(within(items[0]!).getByText("Queued")).toBeInTheDocument();
+    expect(within(items[0]!).getByText("Request sent")).toBeInTheDocument();
+    expect(within(items[1]!).getByText("Info requested")).toBeInTheDocument();
+    expect(within(items[2]!).getByText("Follow-up sent")).toBeInTheDocument();
+    expect(within(items[2]!).getByText("sent requested verification info")).toBeInTheDocument();
+  });
+
+  it("marks the latest state history transition as active", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <BrokerInspectAction
+        brokerName="Acme Data"
+        record={optOut({
+          state_history: [
+            {
+              from_status: "PENDING",
+              to_status: "INITIAL_SENT",
+              transitioned_at: "2026-07-07T12:00:00Z",
+              reason: "initial opt-out request sent",
+              message_id: "sent-1",
+            },
+            {
+              from_status: "INITIAL_SENT",
+              to_status: "NEEDS_MANUAL",
+              transitioned_at: "2026-07-07T14:00:00Z",
+              reason: "broker requested unavailable info",
+              message_id: "reply-2",
+            },
+          ],
+          status: "NEEDS_MANUAL",
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Inspect Acme Data record" }));
+
+    const latest = screen.getByTestId("state-timeline-latest");
+    expect(latest).toHaveClass("border-bd-olive");
+    expect(within(latest).getByText("broker requested unavailable info")).toHaveClass(
+      "font-medium",
+      "text-soft-olive",
+    );
+  });
+
+  it("falls back to the current state when state history is empty", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <BrokerInspectAction
+        brokerName="Acme Data"
+        record={optOut({
+          previous_status: "AWAITING_RESPONSE",
+          state_history: [],
+          status: "NEEDS_MANUAL",
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Inspect Acme Data record" }));
+
+    const current = screen.getByTestId("state-timeline-current");
+    expect(within(current).getByText("Review")).toBeInTheDocument();
+    expect(within(current).getByText(/Current state as of/)).toBeInTheDocument();
+    expect(within(current).getByText("Previous status: Awaiting broker")).toBeInTheDocument();
   });
 
   it("test_inspect_modal_gmail_link_present_when_thread_id", async () => {

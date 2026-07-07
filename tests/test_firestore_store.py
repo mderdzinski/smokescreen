@@ -20,6 +20,7 @@ from smokescreen.models import (
     OptOutRecord,
     PendingWhitelistEntry,
     PendingWhitelistStatus,
+    StateTransition,
     VerificationAddress,
     VerificationDocument,
     VerificationProfile,
@@ -217,6 +218,56 @@ def test_firestore_upsert_persists_info_request_metadata():
     assert fetched.requested_fields == ["home_address", "other"]
     assert fetched.missing_fields == ["other"]
     assert fetched.requested_other_details == "Account number"
+
+
+def test_firestore_upsert_persists_state_history():
+    store = _store()
+    transitioned_at = datetime(2026, 7, 7, 15, 45, tzinfo=UTC)
+    store.upsert(
+        OptOutRecord(
+            broker_id="spokeo",
+            status=BrokerStatus.INITIAL_SENT,
+            state_history=[
+                StateTransition(
+                    from_status="PENDING",
+                    to_status="INITIAL_SENT",
+                    transitioned_at=transitioned_at,
+                    reason="initial opt-out request sent",
+                    message_id="sent-1",
+                )
+            ],
+        )
+    )
+
+    raw_doc = store._collection_ref("test_opt_outs")._docs["spokeo"]
+    assert raw_doc["state_history"] == [
+        {
+            "from_status": "PENDING",
+            "to_status": "INITIAL_SENT",
+            "transitioned_at": "2026-07-07T15:45:00Z",
+            "reason": "initial opt-out request sent",
+            "message_id": "sent-1",
+        }
+    ]
+    fetched = store.get("spokeo")
+    assert fetched is not None
+    assert len(fetched.state_history) == 1
+    assert fetched.state_history[0].transitioned_at == transitioned_at
+
+
+def test_firestore_records_without_state_history_load_empty():
+    store = _store()
+    store._collection_ref("test_opt_outs").document("legacy").set(
+        {
+            "status": BrokerStatus.NEEDS_MANUAL.value,
+            "created_at": datetime(2026, 7, 7, 15, 0, tzinfo=UTC),
+            "updated_at": datetime(2026, 7, 7, 15, 30, tzinfo=UTC),
+        }
+    )
+
+    fetched = store.get("legacy")
+    assert fetched is not None
+    assert fetched.state_history == []
 
 
 def test_firestore_verification_profile_default_and_persist():

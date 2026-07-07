@@ -12,7 +12,7 @@ from smokescreen.email.client import GmailClient
 from smokescreen.email.templates import render_initial_opt_out
 from smokescreen.models import BrokerStatus, OptOutRecord, as_aware_utc, utc_now
 from smokescreen.state.broker_selections import list_or_seed_enabled_brokers
-from smokescreen.state.machine import validate_transition
+from smokescreen.state.machine import transition_record_status
 from smokescreen.state.store import StateStore
 
 log = structlog.get_logger()
@@ -113,12 +113,18 @@ def run_outreach(
                 broker=broker.id,
                 last_completed=str(record.last_completed_at),
             )
-            record.status = BrokerStatus.PENDING
+            now = utc_now()
+            transition_record_status(
+                record,
+                BrokerStatus.PENDING,
+                reason="re-request after interval",
+                transitioned_at=now,
+            )
             record.retries = 0
             record.thread_id = None
             record.last_message_id = None
             record.notes = "Re-request after interval"
-            record.updated_at = utc_now()
+            record.updated_at = now
             store.upsert(record)
 
         # Only process brokers in PENDING state (or not yet tracked)
@@ -163,11 +169,17 @@ def run_outreach(
                 thread_id=thread_id,
             )
 
-        validate_transition(record.status, BrokerStatus.INITIAL_SENT)
-        record.status = BrokerStatus.INITIAL_SENT
+        now = utc_now()
         record.thread_id = thread_id
         record.last_message_id = message_id
-        record.updated_at = utc_now()
+        transition_record_status(
+            record,
+            BrokerStatus.INITIAL_SENT,
+            reason="initial opt-out request sent",
+            message_id=message_id,
+            transitioned_at=now,
+        )
+        record.updated_at = now
         store.upsert(record)
 
         processed.append(broker.id)

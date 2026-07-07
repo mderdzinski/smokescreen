@@ -37,6 +37,12 @@ def test_outreach_dry_run(tmp_path):
     assert record.status == BrokerStatus.INITIAL_SENT
     assert record.thread_id == "dry-run-thread-spokeo"
     assert record.last_message_id == "dry-run-message-spokeo"
+    assert len(record.state_history) == 1
+    transition = record.state_history[0]
+    assert transition.from_status == "PENDING"
+    assert transition.to_status == "INITIAL_SENT"
+    assert transition.reason == "initial opt-out request sent"
+    assert transition.message_id == "dry-run-message-spokeo"
     store.close()
 
 
@@ -88,6 +94,12 @@ def test_outreach_sends_email(tmp_path):
     record = store.get("test-broker")
     assert record.status == BrokerStatus.INITIAL_SENT
     assert record.thread_id == "thread-1"
+    assert len(record.state_history) == 1
+    transition = record.state_history[0]
+    assert transition.from_status == "PENDING"
+    assert transition.to_status == "INITIAL_SENT"
+    assert transition.reason == "initial opt-out request sent"
+    assert transition.message_id == "msg-1"
     store.close()
 
 
@@ -263,6 +275,13 @@ def test_outreach_reissues_completed_after_cadence(tmp_path):
     assert record.thread_id == "new-thread"
     assert record.last_message_id == "new-message"
     assert "Re-request after interval" in record.notes
+    assert len(record.state_history) == 2
+    assert record.state_history[0].from_status == "COMPLETED"
+    assert record.state_history[0].to_status == "PENDING"
+    assert record.state_history[0].reason == "re-request after interval"
+    assert record.state_history[1].from_status == "PENDING"
+    assert record.state_history[1].to_status == "INITIAL_SENT"
+    assert record.state_history[1].message_id == "new-message"
     store.close()
 
 

@@ -42,7 +42,11 @@ from smokescreen.models import (
     as_aware_utc,
     utc_now,
 )
-from smokescreen.state.machine import PINGED_STATE, WAITING_STATES, validate_transition
+from smokescreen.state.machine import (
+    PINGED_STATE,
+    WAITING_STATES,
+    transition_record_status,
+)
 from smokescreen.state.store import StateStore
 
 log = structlog.get_logger()
@@ -575,6 +579,7 @@ def _process_thread(
             ),
             broker_reply_excerpt=_broker_reply_excerpt(latest, latest_reply_body),
             raw_reply_body=latest.body,
+            message_id=latest.message_id,
         )
         _upsert_processed_broker_reply(store, record, latest)
         log.warning(
@@ -612,6 +617,7 @@ def _process_thread(
                 "provider": settings.ai_provider,
                 "error": "classifier_unavailable",
             },
+            message_id=latest.message_id,
         )
         _upsert_processed_broker_reply(store, record, latest)
         return True
@@ -755,8 +761,13 @@ def _handle_classification(
         return False
 
     if classification == ReplyClassification.COMPLETED:
-        validate_transition(record.status, BrokerStatus.COMPLETED)
-        record.status = BrokerStatus.COMPLETED
+        transition_record_status(
+            record,
+            BrokerStatus.COMPLETED,
+            reason="broker completed deletion",
+            message_id=latest.message_id,
+            transitioned_at=now,
+        )
         record.last_completed_at = now
         record.updated_at = now
         _upsert_processed_broker_reply(store, record, latest)
@@ -765,8 +776,13 @@ def _handle_classification(
 
     if classification == ReplyClassification.REJECTED:
         if record.status == BrokerStatus.REJECTED_REBUTTED:
-            validate_transition(record.status, BrokerStatus.REJECTED)
-            record.status = BrokerStatus.REJECTED
+            transition_record_status(
+                record,
+                BrokerStatus.REJECTED,
+                reason="broker rejected after rebuttal",
+                message_id=latest.message_id,
+                transitioned_at=now,
+            )
             record.updated_at = now
             _upsert_processed_broker_reply(store, record, latest)
             log.info("poll_rejected_after_rebuttal", broker=record.broker_id)
@@ -790,6 +806,7 @@ def _handle_classification(
             raw_reply_body=latest.body,
             classifier_output=classifier_output,
             missing_fields=[],
+            message_id=latest.message_id,
             now=now,
         )
         _upsert_processed_broker_reply(store, record, latest)
@@ -811,6 +828,7 @@ def _handle_classification(
             ),
             raw_reply_body=latest.body,
             classifier_output=classifier_output,
+            message_id=latest.message_id,
             now=now,
         )
         _upsert_processed_broker_reply(store, record, latest)
@@ -824,8 +842,13 @@ def _handle_classification(
         return False
 
     if classification == ReplyClassification.ACKNOWLEDGMENT:
-        validate_transition(record.status, BrokerStatus.AWAITING_RESPONSE)
-        record.status = BrokerStatus.AWAITING_RESPONSE
+        transition_record_status(
+            record,
+            BrokerStatus.AWAITING_RESPONSE,
+            reason="broker acknowledged request",
+            message_id=latest.message_id,
+            transitioned_at=now,
+        )
         record.updated_at = now
         _upsert_processed_broker_reply(store, record, latest)
         log.info("poll_ack_awaiting", broker=record.broker_id)
@@ -1005,14 +1028,22 @@ def transition_to_needs_manual(
     raw_reply_body: str | None = None,
     classifier_output: dict[str, Any] | None = None,
     missing_fields: list[str] | None = None,
+    message_id: str | None = None,
     now: datetime | None = None,
 ) -> None:
     """Atomically remember state and reason before moving to manual review."""
     transitioned_at = now or utc_now()
     previous_status = record.status
-    validate_transition(previous_status, BrokerStatus.NEEDS_MANUAL)
     record.previous_status = previous_status
-    record.status = BrokerStatus.NEEDS_MANUAL
+    if message_id is not None:
+        record.last_message_id = message_id
+    transition_record_status(
+        record,
+        BrokerStatus.NEEDS_MANUAL,
+        reason=short_summary,
+        message_id=message_id,
+        transitioned_at=transitioned_at,
+    )
     if notes is not None:
         record.notes = notes
     record.needs_manual_reason = NeedsManualReason(
@@ -1054,7 +1085,14 @@ def _handle_info_request(
         return False
 
     if record.retries >= settings.max_retries:
-        record.status = BrokerStatus.FAILED
+        record.last_message_id = latest.message_id
+        transition_record_status(
+            record,
+            BrokerStatus.FAILED,
+            reason="max retries exceeded",
+            message_id=latest.message_id,
+            transitioned_at=now,
+        )
         record.notes = "Max retries exceeded"
         record.updated_at = now
         _upsert_processed_broker_reply(store, record, latest)
@@ -1100,6 +1138,7 @@ def _handle_info_request(
             raw_reply_body=latest.body,
             classifier_output=classifier_output,
             missing_fields=[field.value for field in missing_fields],
+            message_id=latest.message_id,
             now=now,
         )
         _upsert_processed_broker_reply(store, record, latest)
@@ -1111,8 +1150,13 @@ def _handle_info_request(
         )
         return True
 
-    validate_transition(record.status, BrokerStatus.INFO_REQUESTED)
-    record.status = BrokerStatus.INFO_REQUESTED
+    transition_record_status(
+        record,
+        BrokerStatus.INFO_REQUESTED,
+        reason="broker asked for verification info",
+        message_id=latest.message_id,
+        transitioned_at=now,
+    )
     record.notes = _info_request_sent_notes(requested_fields)
     record.updated_at = now
     _upsert_processed_broker_reply(store, record, latest)
@@ -1162,11 +1206,17 @@ def _handle_info_request(
             thread_id=record.thread_id,
         )
 
-    validate_transition(record.status, BrokerStatus.FOLLOW_UP_SENT)
-    record.status = BrokerStatus.FOLLOW_UP_SENT
+    follow_up_at = utc_now()
+    transition_record_status(
+        record,
+        BrokerStatus.FOLLOW_UP_SENT,
+        reason="sent requested verification info",
+        message_id=latest.message_id,
+        transitioned_at=follow_up_at,
+    )
     record.missing_fields = []
     record.retries += 1
-    record.updated_at = utc_now()
+    record.updated_at = follow_up_at
     _upsert_processed_broker_reply(store, record, latest)
 
     log.info("poll_follow_up_sent", broker=record.broker_id, retries=record.retries)
@@ -1223,12 +1273,18 @@ def _handle_rejection_rebuttal(
             thread_id=record.thread_id,
         )
 
-    validate_transition(record.status, BrokerStatus.REJECTED_REBUTTED)
-    record.status = BrokerStatus.REJECTED_REBUTTED
+    now = utc_now()
+    transition_record_status(
+        record,
+        BrokerStatus.REJECTED_REBUTTED,
+        reason="sent broker rejection rebuttal",
+        message_id=record.last_message_id,
+        transitioned_at=now,
+    )
     record.previous_status = None
     record.needs_manual_reason = None
     record.notes = "Broker rejection rebutted once; waiting for broker response."
-    record.updated_at = utc_now()
+    record.updated_at = now
     _upsert_processed_broker_reply(store, record, latest)
     log.info("poll_rejection_rebuttal_sent", broker=record.broker_id)
     return True
@@ -1687,8 +1743,13 @@ def _send_silent_ping(
         record.last_message_id = sent.message_id
 
     next_status = PINGED_STATE[record.status]
-    validate_transition(record.status, next_status)
-    record.status = next_status
+    transition_record_status(
+        record,
+        next_status,
+        reason="sent silent status-check ping",
+        message_id=record.last_message_id,
+        transitioned_at=now,
+    )
     record.updated_at = now
     store.upsert(record)
     log.info(

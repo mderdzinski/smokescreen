@@ -30,6 +30,7 @@ def test_opt_out_record_defaults():
     assert record.created_at.tzinfo is UTC
     assert record.updated_at.tzinfo is UTC
     assert record.needs_manual_reason is None
+    assert record.state_history == []
 
 
 def test_opt_out_record_accepts_missing_or_null_needs_manual_reason():
@@ -48,6 +49,7 @@ def test_opt_out_record_accepts_missing_or_null_needs_manual_reason():
     )
 
     assert old_record.needs_manual_reason is None
+    assert old_record.state_history == []
     assert null_record.needs_manual_reason is None
 
 

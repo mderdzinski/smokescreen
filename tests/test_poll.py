@@ -212,6 +212,20 @@ def _record(
     )
 
 
+def _history_tuples(
+    record: OptOutRecord,
+) -> list[tuple[str, str, str | None, str | None]]:
+    return [
+        (
+            transition.from_status,
+            transition.to_status,
+            transition.reason,
+            transition.message_id,
+        )
+        for transition in record.state_history
+    ]
+
+
 def test_poll_label_scopes_active_threads(tmp_path):
     settings = _settings(tmp_path, poll_label="custom-label")
     store = SQLiteStore(settings.sqlite_path)
@@ -357,6 +371,14 @@ def test_poll_processes_reply_in_new_thread_from_broker_domain(tmp_path):
     assert updated.status == BrokerStatus.COMPLETED
     assert updated.thread_id == "thread-alt"
     assert updated.last_message_id == "reply-alt"
+    assert _history_tuples(updated) == [
+        (
+            "INITIAL_SENT",
+            "COMPLETED",
+            "broker completed deletion",
+            "reply-alt",
+        )
+    ]
     assert gmail.fetched_threads == ["thread-alt"]
     assert gmail.labeled_threads == [("thread-alt", "custom-label")]
     assert store.list_pending_whitelist(PendingWhitelistStatus.PENDING) == []
@@ -1007,6 +1029,14 @@ def test_poll_processes_self_reply_when_bypass_enabled(tmp_path):
     updated = store.get("labeled")
     assert updated.status == BrokerStatus.AWAITING_RESPONSE
     assert updated.last_message_id == "reply-self"
+    assert _history_tuples(updated) == [
+        (
+            "INITIAL_SENT",
+            "AWAITING_RESPONSE",
+            "broker acknowledged request",
+            "reply-self",
+        )
+    ]
     anthropic_client.messages.create.assert_called_once()
     log.warning.assert_any_call(
         "self_reply_bypass_active",
@@ -1130,6 +1160,20 @@ def test_process_thread_sends_follow_up_reply_from_verification_profile(tmp_path
     assert updated.last_message_id == "reply-labeled"
     assert updated.requested_fields == ["home_address", "phone_number"]
     assert updated.missing_fields == []
+    assert _history_tuples(updated) == [
+        (
+            "AWAITING_RESPONSE",
+            "INFO_REQUESTED",
+            "broker asked for verification info",
+            "reply-labeled",
+        ),
+        (
+            "INFO_REQUESTED",
+            "FOLLOW_UP_SENT",
+            "sent requested verification info",
+            "reply-labeled",
+        ),
+    ]
     store.close()
 
 
@@ -1197,6 +1241,55 @@ def test_info_request_documents_available_auto_responds(tmp_path):
     assert updated.requested_fields == ["documents"]
     assert updated.missing_fields == []
     assert updated.retries == 1
+    store.close()
+
+
+def test_info_request_max_retries_records_failed_transition(tmp_path):
+    settings = _settings(tmp_path, max_retries=1)
+    store = SQLiteStore(settings.sqlite_path)
+    record = _record(status=BrokerStatus.FOLLOW_UP_SENT)
+    record.retries = 1
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="More info needed",
+                    body="Please send your phone number.",
+                )
+            ]
+        }
+    )
+
+    processed = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        ai_client=_mock_anthropic(_info_request_response(["phone_number"])),
+    )
+
+    assert processed is True
+    updated = store.get("labeled")
+    assert updated.status == BrokerStatus.FAILED
+    assert updated.notes == "Max retries exceeded"
+    assert updated.last_message_id == "reply-labeled"
+    assert _history_tuples(updated) == [
+        (
+            "FOLLOW_UP_SENT",
+            "FAILED",
+            "max retries exceeded",
+            "reply-labeled",
+        )
+    ]
     store.close()
 
 
@@ -1311,6 +1404,15 @@ def test_rejected_transitions_to_needs_manual_broker_rejected(tmp_path):
     assert updated.needs_manual_reason.classifier_output["classification"] == "REJECTED"
     assert updated.needs_manual_reason.missing_fields == []
     assert updated.needs_manual_reason.transitioned_at.tzinfo is not None
+    assert _history_tuples(updated) == [
+        (
+            "AWAITING_RESPONSE",
+            "NEEDS_MANUAL",
+            "Broker rejected the deletion request. Review and choose to "
+            "accept or escalate.",
+            "reply-labeled",
+        )
+    ]
     store.close()
 
 
@@ -1351,6 +1453,14 @@ def test_second_rejection_after_rebuttal_transitions_to_terminal_rejected(tmp_pa
     updated = store.get("labeled")
     assert updated.status == BrokerStatus.REJECTED
     assert updated.last_message_id == "reply-labeled"
+    assert _history_tuples(updated) == [
+        (
+            "REJECTED_REBUTTED",
+            "REJECTED",
+            "broker rejected after rebuttal",
+            "reply-labeled",
+        )
+    ]
     store.close()
 
 
@@ -1679,6 +1789,14 @@ def test_process_thread_marks_needs_manual_for_unknown_sender(tmp_path):
         == "Reply received from untrusted sender reply@labeled.example - "
         "approve in Trusted Senders if legitimate"
     )
+    assert _history_tuples(updated) == [
+        (
+            "INITIAL_SENT",
+            "NEEDS_MANUAL",
+            "Reply came from untrusted sender reply@labeled.example.",
+            "reply-labeled",
+        )
+    ]
     log.warning.assert_any_call(
         "poll_needs_manual_untrusted_sender",
         broker="labeled",
@@ -1734,6 +1852,14 @@ def test_run_poll_deduplicates_pending_whitelist_for_repeated_unknown_reply(
     updated = store.get("labeled")
     assert updated.status == BrokerStatus.NEEDS_MANUAL
     assert updated.last_message_id == "vendor-labeled"
+    assert _history_tuples(updated) == [
+        (
+            "INITIAL_SENT",
+            "NEEDS_MANUAL",
+            "Reply came from untrusted sender caseworker@vendor.example.",
+            "vendor-labeled",
+        )
+    ]
     store.close()
 
 
@@ -1974,6 +2100,14 @@ def test_timeout_escalation_pings_stale_waiting_record(tmp_path):
     assert processed == ["labeled"]
     updated = store.get("labeled")
     assert updated.status == BrokerStatus.AWAITING_RESPONSE_PINGED
+    assert _history_tuples(updated) == [
+        (
+            "AWAITING_RESPONSE",
+            "AWAITING_RESPONSE_PINGED",
+            "sent silent status-check ping",
+            "msg-labeled",
+        )
+    ]
     store.close()
 
 
@@ -2025,6 +2159,14 @@ def test_timeout_escalation_second_strike_moves_to_needs_manual(tmp_path):
         updated.needs_manual_reason.classifier_output["timed_out_status"]
         == "AWAITING_RESPONSE_PINGED"
     )
+    assert _history_tuples(updated) == [
+        (
+            "AWAITING_RESPONSE_PINGED",
+            "NEEDS_MANUAL",
+            "No broker reply after two timeout windows.",
+            "msg-labeled",
+        )
+    ]
     store.close()
 
 

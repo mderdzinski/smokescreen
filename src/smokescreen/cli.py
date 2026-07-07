@@ -11,8 +11,9 @@ import structlog
 
 from smokescreen.brokers.registry import BrokerRegistry
 from smokescreen.config import get_settings
-from smokescreen.models import Broker, BrokerStatus
+from smokescreen.models import Broker, BrokerStatus, utc_now
 from smokescreen.state.broker_selections import list_or_seed_enabled_brokers
+from smokescreen.state.machine import transition_record_status
 from smokescreen.state.sqlite import SQLiteStore
 
 log = structlog.get_logger()
@@ -142,11 +143,19 @@ def reset(ctx, broker_id: str) -> None:
         click.echo(f"No record found for {broker_id}")
         return
 
-    record.status = BrokerStatus.PENDING
+    now = utc_now()
+    transition_record_status(
+        record,
+        BrokerStatus.PENDING,
+        reason="manual CLI reset",
+        transitioned_at=now,
+        validate=False,
+    )
     record.retries = 0
     record.thread_id = None
     record.last_message_id = None
     record.notes = ""
+    record.updated_at = now
     store.upsert(record)
     click.echo(f"Reset {broker_id} to PENDING")
 
