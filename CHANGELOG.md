@@ -1,3 +1,10 @@
+## [0.28.5](https://github.com/mderdzinski/smokescreen/compare/v0.28.4...v0.28.5) (2026-07-07)
+
+
+### Bug Fixes
+
+* broker reply excerpt uses classifier summary and skips boilerplate ([f5ebddc](https://github.com/mderdzinski/smokescreen/commit/f5ebddc1ee28f2b9aa153698b2b8c9143c9e4c11))
+
 ## [0.28.4](https://github.com/mderdzinski/smokescreen/compare/v0.28.3...v0.28.4) (2026-07-07)
 
 
