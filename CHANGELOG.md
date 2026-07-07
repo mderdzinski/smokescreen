@@ -1,3 +1,10 @@
+## [0.30.1](https://github.com/mderdzinski/smokescreen/compare/v0.30.0...v0.30.1) (2026-07-07)
+
+
+### Bug Fixes
+
+* classifier reasons about full thread history not just latest broker message ([d394693](https://github.com/mderdzinski/smokescreen/commit/d39469358cbedf98c0cda3229de846c0b88c7cac))
+
 # [0.30.0](https://github.com/mderdzinski/smokescreen/compare/v0.29.0...v0.30.0) (2026-07-07)
 
 
