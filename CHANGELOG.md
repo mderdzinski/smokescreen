@@ -1,3 +1,10 @@
+## [0.30.2](https://github.com/mderdzinski/smokescreen/compare/v0.30.1...v0.30.2) (2026-07-08)
+
+
+### Bug Fixes
+
+* alternate-sender detection filters by date and validates replies ([54a579a](https://github.com/mderdzinski/smokescreen/commit/54a579a6af69dd7603a63ad7252ac0501bdde77e))
+
 ## [0.30.1](https://github.com/mderdzinski/smokescreen/compare/v0.30.0...v0.30.1) (2026-07-07)
 
 
