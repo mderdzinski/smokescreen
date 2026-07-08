@@ -187,12 +187,14 @@ class EmailMessage(BaseModel):
     """An email message (sent or received)."""
 
     message_id: str = ""
+    rfc_message_id: str = ""
     thread_id: str = ""
     sender: str = ""
     to: str = ""
     subject: str = ""
     body: str = ""
     date: datetime | None = None
+    in_reply_to: str = ""
     has_attachments: bool = False
 
 

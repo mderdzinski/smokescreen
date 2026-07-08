@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.utils import parseaddr
 from typing import Any
 
@@ -97,6 +97,8 @@ _EMAIL_HEADER_RE = re.compile(
     r"^\s*(?:from|sent|to|subject|date|cc):\s+.+$", re.IGNORECASE
 )
 _URL_ONLY_RE = re.compile(r"^\s*(?:https?://|www\.)\S+\s*$", re.IGNORECASE)
+_MESSAGE_ID_HEADER_RE = re.compile(r"<([^<>]+)>")
+_DOMAIN_REPLY_FALLBACK_WINDOW_DAYS = 60
 
 # States that expect incoming replies (including their pinged variants and
 # the follow-up-sent state that expects a broker response after we replied).
@@ -110,6 +112,16 @@ _ACTIVE_STATES = {
     BrokerStatus.INFO_REQUESTED,
     BrokerStatus.INFO_REQUESTED_PINGED,
     BrokerStatus.REJECTED_REBUTTED,
+}
+
+_OUTBOUND_REPLY_TARGET_STATES = {
+    BrokerStatus.INITIAL_SENT.value,
+    BrokerStatus.INITIAL_SENT_PINGED.value,
+    BrokerStatus.AWAITING_RESPONSE_PINGED.value,
+    BrokerStatus.INFO_REQUESTED_PINGED.value,
+    BrokerStatus.FOLLOW_UP_SENT.value,
+    BrokerStatus.FOLLOW_UP_SENT_PINGED.value,
+    BrokerStatus.REJECTED_REBUTTED.value,
 }
 
 _PROFILE_FIELD_LABELS = {
@@ -404,9 +416,12 @@ def _find_domain_reply_message(
     candidates: list[tuple[EmailMessage, str]] = []
     seen_message_ids: set[str] = set()
     sender_email = _sender_address(settings.sender_email)
+    outreach_cutoff_at = _record_outreach_cutoff_at(record)
+    earliest_history_at = _earliest_state_history_at(record)
+    outbound_message_ids = _record_outbound_message_ids(record)
 
     for domain in sorted(broker_sender_domains):
-        query = _domain_reply_query(domain)
+        query = _domain_reply_query(domain, _gmail_after_date(outreach_cutoff_at))
         message_ids = gmail.search(query)
         log.info(
             "poll_domain_reply_search",
@@ -437,6 +452,28 @@ def _find_domain_reply_message(
             )
             if matched_domain is None:
                 continue
+
+            if message.thread_id != record.thread_id:
+                log.info(
+                    "poll_domain_reply_thread_discovered",
+                    broker_id=record.broker_id,
+                    previous_thread_id=record.thread_id,
+                    thread_id=message.thread_id,
+                    message_id=message.message_id,
+                    sender=message_sender,
+                    matched_domain=matched_domain,
+                )
+            if not _domain_match_is_valid_reply(
+                settings=settings,
+                record=record,
+                gmail=gmail,
+                message=message,
+                matched_domain=matched_domain,
+                outreach_cutoff_at=outreach_cutoff_at,
+                earliest_history_at=earliest_history_at,
+                outbound_message_ids=outbound_message_ids,
+            ):
+                continue
             candidates.append((message, matched_domain))
 
     if not candidates:
@@ -448,8 +485,207 @@ def _find_domain_reply_message(
     return candidates[0]
 
 
-def _domain_reply_query(domain: str) -> str:
-    return f"in:inbox from:{domain}"
+def _domain_match_is_valid_reply(
+    *,
+    settings: Settings,
+    record: OptOutRecord,
+    gmail: GmailClient,
+    message: EmailMessage,
+    matched_domain: str,
+    outreach_cutoff_at: datetime,
+    earliest_history_at: datetime | None,
+    outbound_message_ids: set[str],
+) -> bool:
+    """Return True only when a domain-search hit is tied to our outreach."""
+    if (
+        earliest_history_at is not None
+        and message.date is not None
+        and as_aware_utc(message.date) < earliest_history_at
+    ):
+        _log_domain_match_rejected(
+            record=record,
+            message=message,
+            matched_domain=matched_domain,
+            reason="before_state_history",
+            outreach_cutoff_at=outreach_cutoff_at,
+            earliest_history_at=earliest_history_at,
+        )
+        return False
+
+    if message.date is not None and as_aware_utc(message.date) < outreach_cutoff_at:
+        _log_domain_match_rejected(
+            record=record,
+            message=message,
+            matched_domain=matched_domain,
+            reason="before_outreach_date",
+            outreach_cutoff_at=outreach_cutoff_at,
+            earliest_history_at=earliest_history_at,
+        )
+        return False
+
+    if message.thread_id == record.thread_id:
+        return True
+
+    in_reply_to_ids = _message_id_tokens(message.in_reply_to)
+    if in_reply_to_ids and in_reply_to_ids & outbound_message_ids:
+        return True
+
+    if in_reply_to_ids:
+        outbound_message_ids.update(
+            _tracked_thread_outbound_message_ids(
+                settings=settings,
+                record=record,
+                gmail=gmail,
+            )
+        )
+        if in_reply_to_ids & outbound_message_ids:
+            return True
+
+    _log_domain_match_rejected(
+        record=record,
+        message=message,
+        matched_domain=matched_domain,
+        reason=(
+            "missing_in_reply_to"
+            if not in_reply_to_ids
+            else "no_matching_in_reply_to"
+        ),
+        outreach_cutoff_at=outreach_cutoff_at,
+        earliest_history_at=earliest_history_at,
+    )
+    return False
+
+
+def _record_outreach_cutoff_at(record: OptOutRecord) -> datetime:
+    initial_sent_at = [
+        as_aware_utc(transition.transitioned_at)
+        for transition in record.state_history
+        if transition.to_status == BrokerStatus.INITIAL_SENT.value
+    ]
+    if initial_sent_at:
+        return max(initial_sent_at)
+
+    earliest_history_at = _earliest_state_history_at(record)
+    if earliest_history_at is not None:
+        return earliest_history_at
+
+    return utc_now() - timedelta(days=_DOMAIN_REPLY_FALLBACK_WINDOW_DAYS)
+
+
+def _earliest_state_history_at(record: OptOutRecord) -> datetime | None:
+    transitioned_at = [
+        as_aware_utc(transition.transitioned_at)
+        for transition in record.state_history
+    ]
+    if not transitioned_at:
+        return None
+    return min(transitioned_at)
+
+
+def _gmail_after_date(value: datetime) -> str:
+    return as_aware_utc(value).strftime("%Y%m%d")
+
+
+def _domain_reply_query(domain: str, after_date: str) -> str:
+    return f"in:inbox from:{domain} after:{after_date}"
+
+
+def _record_outbound_message_ids(record: OptOutRecord) -> set[str]:
+    message_ids: set[str] = set()
+    if record.status.value in _OUTBOUND_REPLY_TARGET_STATES:
+        message_ids.update(_message_id_tokens(record.last_message_id or ""))
+
+    for transition in record.state_history:
+        if transition.to_status not in _OUTBOUND_REPLY_TARGET_STATES:
+            continue
+        message_ids.update(_message_id_tokens(transition.message_id or ""))
+    return message_ids
+
+
+def _tracked_thread_outbound_message_ids(
+    *,
+    settings: Settings,
+    record: OptOutRecord,
+    gmail: GmailClient,
+) -> set[str]:
+    if not record.thread_id:
+        return set()
+
+    try:
+        thread = gmail.get_thread(record.thread_id)
+    except Exception as exc:
+        log.warning(
+            "poll_domain_reply_validation_thread_fetch_failed",
+            broker_id=record.broker_id,
+            thread_id=record.thread_id,
+            error=str(exc),
+        )
+        return set()
+
+    sender_email = _sender_address(settings.sender_email)
+    message_ids: set[str] = set()
+    for thread_message in thread:
+        if _sender_address(thread_message.sender) != sender_email:
+            continue
+        message_ids.update(_message_identity_tokens(thread_message))
+    return message_ids
+
+
+def _message_identity_tokens(message: EmailMessage) -> set[str]:
+    tokens = _message_id_tokens(message.message_id)
+    tokens.update(_message_id_tokens(message.rfc_message_id))
+    return tokens
+
+
+def _message_id_tokens(value: str) -> set[str]:
+    if not value:
+        return set()
+
+    tokens = {
+        normalized
+        for raw in re.split(r"[\s,]+", value)
+        if (normalized := _normalize_message_id(raw))
+    }
+    tokens.update(
+        normalized
+        for match in _MESSAGE_ID_HEADER_RE.finditer(value)
+        if (normalized := _normalize_message_id(match.group(1)))
+    )
+    return tokens
+
+
+def _normalize_message_id(value: str) -> str:
+    return value.strip().strip("<>;,").lower()
+
+
+def _log_domain_match_rejected(
+    *,
+    record: OptOutRecord,
+    message: EmailMessage,
+    matched_domain: str,
+    reason: str,
+    outreach_cutoff_at: datetime,
+    earliest_history_at: datetime | None,
+) -> None:
+    log.info(
+        "poll_domain_match_rejected_as_historical",
+        broker_id=record.broker_id,
+        previous_thread_id=record.thread_id,
+        thread_id=message.thread_id,
+        message_id=message.message_id,
+        sender=_sender_address(message.sender),
+        matched_domain=matched_domain,
+        reason=reason,
+        message_date=(
+            as_aware_utc(message.date).isoformat() if message.date is not None else None
+        ),
+        outreach_cutoff_at=as_aware_utc(outreach_cutoff_at).isoformat(),
+        earliest_state_history_at=(
+            earliest_history_at.isoformat()
+            if earliest_history_at is not None
+            else None
+        ),
+    )
 
 
 def _label_domain_reply_thread(

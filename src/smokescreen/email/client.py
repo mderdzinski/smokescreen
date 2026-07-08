@@ -194,11 +194,13 @@ class GmailClient:
 
         return EmailMessage(
             message_id=msg["id"],
+            rfc_message_id=headers.get("message-id", ""),
             thread_id=msg.get("threadId", ""),
             sender=headers.get("from", ""),
             to=headers.get("to", ""),
             subject=headers.get("subject", ""),
             body=body,
             date=date,
+            in_reply_to=headers.get("in-reply-to", ""),
             has_attachments=has_attachments,
         )

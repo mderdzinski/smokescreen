@@ -1,5 +1,5 @@
 """Tests for polling broker reply threads."""
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 from smokescreen.brokers.registry import BrokerRegistry
@@ -17,12 +17,16 @@ from smokescreen.models import (
     EmailMessage,
     OptOutRecord,
     PendingWhitelistStatus,
+    StateTransition,
     VerificationAddress,
     VerificationDocument,
     VerificationProfile,
     WhitelistEntry,
 )
 from smokescreen.state.sqlite import SQLiteStore
+
+OUTREACH_SENT_AT = datetime(2026, 7, 8, 16, 0, tzinfo=UTC)
+OUTREACH_AFTER_QUERY = "after:20260708"
 
 
 class FakeGmail:
@@ -102,6 +106,22 @@ def _registry() -> BrokerRegistry:
     )
 
 
+def _initial_sent_history(
+    message_id: str = "sent-labeled",
+    *,
+    at: datetime = OUTREACH_SENT_AT,
+) -> list[StateTransition]:
+    return [
+        StateTransition(
+            from_status=BrokerStatus.PENDING.value,
+            to_status=BrokerStatus.INITIAL_SENT.value,
+            transitioned_at=at,
+            reason="initial opt-out request sent",
+            message_id=message_id,
+        )
+    ]
+
+
 def _seed_store(store: SQLiteStore) -> None:
     store.upsert(
         OptOutRecord(
@@ -109,6 +129,7 @@ def _seed_store(store: SQLiteStore) -> None:
             status=BrokerStatus.INITIAL_SENT,
             thread_id="thread-labeled",
             last_message_id="sent-labeled",
+            state_history=_initial_sent_history("sent-labeled"),
         )
     )
     store.upsert(
@@ -117,6 +138,7 @@ def _seed_store(store: SQLiteStore) -> None:
             status=BrokerStatus.INITIAL_SENT,
             thread_id="thread-unlabeled",
             last_message_id="sent-unlabeled",
+            state_history=_initial_sent_history("sent-unlabeled"),
         )
     )
     store.add_whitelist(
@@ -265,7 +287,7 @@ def test_poll_label_scopes_active_threads(tmp_path):
     assert processed == ["labeled"]
     assert gmail.searches == [
         "label:custom-label",
-        "in:inbox from:unlabeled.example",
+        f"in:inbox from:unlabeled.example {OUTREACH_AFTER_QUERY}",
     ]
     assert gmail.fetched_threads == ["thread-labeled"]
     assert store.get("labeled").status == BrokerStatus.NEEDS_MANUAL
@@ -325,6 +347,7 @@ def test_poll_processes_reply_in_new_thread_from_broker_domain(tmp_path):
             status=BrokerStatus.INITIAL_SENT,
             thread_id="thread-original",
             last_message_id="sent-original",
+            state_history=_initial_sent_history("sent-original"),
         )
     )
     store.add_whitelist(
@@ -333,7 +356,7 @@ def test_poll_processes_reply_in_new_thread_from_broker_domain(tmp_path):
     gmail = FakeGmail(
         search_results_by_query={
             "label:custom-label": ["msg-other"],
-            "in:inbox from:labeled.example": ["reply-alt"],
+            f"in:inbox from:labeled.example {OUTREACH_AFTER_QUERY}": ["reply-alt"],
         },
         messages={
             "msg-other": EmailMessage(
@@ -346,6 +369,8 @@ def test_poll_processes_reply_in_new_thread_from_broker_domain(tmp_path):
                 sender="Support <case@notifications.labeled.example>",
                 subject="Re: request",
                 body="Your opt-out request is complete.",
+                date=OUTREACH_SENT_AT + timedelta(hours=1),
+                in_reply_to="sent-original",
             ),
         },
         threads={
@@ -356,6 +381,8 @@ def test_poll_processes_reply_in_new_thread_from_broker_domain(tmp_path):
                     sender="Support <case@notifications.labeled.example>",
                     subject="Re: request",
                     body="Your opt-out request is complete.",
+                    date=OUTREACH_SENT_AT + timedelta(hours=1),
+                    in_reply_to="sent-original",
                 )
             ]
         },
@@ -372,6 +399,12 @@ def test_poll_processes_reply_in_new_thread_from_broker_domain(tmp_path):
     assert updated.thread_id == "thread-alt"
     assert updated.last_message_id == "reply-alt"
     assert _history_tuples(updated) == [
+        (
+            "PENDING",
+            "INITIAL_SENT",
+            "initial opt-out request sent",
+            "sent-original",
+        ),
         (
             "INITIAL_SENT",
             "COMPLETED",
@@ -455,12 +488,13 @@ def test_poll_updates_last_message_id_after_alternate_sender_reply(tmp_path):
             status=BrokerStatus.INITIAL_SENT,
             thread_id="thread-original",
             last_message_id="sent-original",
+            state_history=_initial_sent_history("sent-original"),
         )
     )
     gmail = FakeGmail(
         search_results_by_query={
             "label:custom-label": ["msg-other"],
-            "in:inbox from:labeled.example": ["reply-alt"],
+            f"in:inbox from:labeled.example {OUTREACH_AFTER_QUERY}": ["reply-alt"],
         },
         messages={
             "msg-other": EmailMessage(
@@ -473,6 +507,8 @@ def test_poll_updates_last_message_id_after_alternate_sender_reply(tmp_path):
                 sender="Support <case@notifications.labeled.example>",
                 subject="Identity verification",
                 body="Please send your home address.",
+                date=OUTREACH_SENT_AT + timedelta(hours=1),
+                in_reply_to="sent-original",
             ),
         },
         threads={
@@ -483,6 +519,8 @@ def test_poll_updates_last_message_id_after_alternate_sender_reply(tmp_path):
                     sender="Support <case@notifications.labeled.example>",
                     subject="Identity verification",
                     body="Please send your home address.",
+                    date=OUTREACH_SENT_AT + timedelta(hours=1),
+                    in_reply_to="sent-original",
                 )
             ]
         },
@@ -502,6 +540,257 @@ def test_poll_updates_last_message_id_after_alternate_sender_reply(tmp_path):
     assert updated.thread_id == "thread-alt"
     assert updated.last_message_id == "reply-alt"
     assert anthropic_client.messages.create.call_count == 2
+    store.close()
+
+
+def test_domain_search_filters_by_outreach_date(tmp_path):
+    settings = _settings(tmp_path, poll_label="custom-label")
+    store = SQLiteStore(settings.sqlite_path)
+    store.upsert(
+        OptOutRecord(
+            broker_id="labeled",
+            status=BrokerStatus.INITIAL_SENT,
+            thread_id="thread-original",
+            last_message_id="sent-original",
+            state_history=_initial_sent_history("sent-original"),
+        )
+    )
+    gmail = FakeGmail(
+        search_results_by_query={"label:custom-label": ["msg-other"]},
+        messages={
+            "msg-other": EmailMessage(
+                message_id="msg-other",
+                thread_id="thread-other",
+            )
+        },
+    )
+
+    processed = run_poll(settings, _registry(), store, gmail=gmail)
+
+    assert processed == []
+    assert (
+        f"in:inbox from:labeled.example {OUTREACH_AFTER_QUERY}"
+        in gmail.searches
+    )
+    store.close()
+
+
+def test_domain_match_validates_in_reply_to_header(tmp_path):
+    settings = _settings(
+        tmp_path,
+        anthropic_api_key="test-key",
+        poll_label="",
+    )
+    store = SQLiteStore(settings.sqlite_path)
+    store.upsert(
+        OptOutRecord(
+            broker_id="labeled",
+            status=BrokerStatus.INITIAL_SENT,
+            thread_id="thread-original",
+            last_message_id="sent-original",
+            state_history=_initial_sent_history("sent-original"),
+        )
+    )
+    gmail = FakeGmail(
+        search_results_by_query={
+            f"in:inbox from:labeled.example {OUTREACH_AFTER_QUERY}": ["reply-alt"],
+        },
+        messages={
+            "reply-alt": EmailMessage(
+                message_id="reply-alt",
+                thread_id="thread-alt",
+                sender="Support <case@notifications.labeled.example>",
+                subject="Re: request",
+                body="Your opt-out request is complete.",
+                date=OUTREACH_SENT_AT + timedelta(minutes=5),
+                in_reply_to="sent-original",
+            ),
+        },
+        threads={
+            "thread-original": [
+                EmailMessage(
+                    message_id="sent-original",
+                    thread_id="thread-original",
+                    sender="me@example.com",
+                    subject="Opt out request",
+                    body="Please remove me.",
+                )
+            ],
+            "thread-alt": [
+                EmailMessage(
+                    message_id="reply-alt",
+                    thread_id="thread-alt",
+                    sender="Support <case@notifications.labeled.example>",
+                    subject="Re: request",
+                    body="Your opt-out request is complete.",
+                    date=OUTREACH_SENT_AT + timedelta(minutes=5),
+                    in_reply_to="sent-original",
+                )
+            ],
+        },
+    )
+    anthropic_client = _mock_anthropic("COMPLETED")
+
+    with patch("smokescreen.jobs.poll.Anthropic") as anthropic:
+        anthropic.return_value = anthropic_client
+        processed = run_poll(settings, _registry(), store, gmail=gmail)
+
+    updated = store.get("labeled")
+    assert processed == ["labeled"]
+    assert updated.status == BrokerStatus.COMPLETED
+    assert updated.thread_id == "thread-alt"
+    anthropic_client.messages.create.assert_called_once()
+    store.close()
+
+
+def test_domain_match_rejected_when_before_outreach_date(tmp_path):
+    settings = _settings(
+        tmp_path,
+        anthropic_api_key="test-key",
+        poll_label="",
+    )
+    store = SQLiteStore(settings.sqlite_path)
+    store.upsert(
+        OptOutRecord(
+            broker_id="labeled",
+            status=BrokerStatus.INITIAL_SENT,
+            thread_id="thread-original",
+            last_message_id="sent-original",
+            state_history=_initial_sent_history("sent-original"),
+        )
+    )
+    gmail = FakeGmail(
+        search_results_by_query={
+            f"in:inbox from:labeled.example {OUTREACH_AFTER_QUERY}": ["old-reply"],
+        },
+        messages={
+            "old-reply": EmailMessage(
+                message_id="old-reply",
+                thread_id="thread-old",
+                sender="Support <case@notifications.labeled.example>",
+                subject="Re: old request",
+                body="Please send your home address.",
+                date=OUTREACH_SENT_AT - timedelta(minutes=1),
+                in_reply_to="sent-original",
+            ),
+        },
+    )
+    anthropic_client = _mock_anthropic("COMPLETED")
+
+    with patch("smokescreen.jobs.poll.Anthropic") as anthropic:
+        anthropic.return_value = anthropic_client
+        processed = run_poll(settings, _registry(), store, gmail=gmail)
+
+    updated = store.get("labeled")
+    assert processed == []
+    assert updated.status == BrokerStatus.INITIAL_SENT
+    assert updated.thread_id == "thread-original"
+    anthropic_client.messages.create.assert_not_called()
+    store.close()
+
+
+def test_domain_match_rejected_when_no_matching_in_reply_to(tmp_path):
+    settings = _settings(
+        tmp_path,
+        anthropic_api_key="test-key",
+        poll_label="",
+    )
+    store = SQLiteStore(settings.sqlite_path)
+    store.upsert(
+        OptOutRecord(
+            broker_id="labeled",
+            status=BrokerStatus.INITIAL_SENT,
+            thread_id="thread-original",
+            last_message_id="sent-original",
+            state_history=_initial_sent_history("sent-original"),
+        )
+    )
+    gmail = FakeGmail(
+        search_results_by_query={
+            f"in:inbox from:labeled.example {OUTREACH_AFTER_QUERY}": [
+                "unrelated-reply"
+            ],
+        },
+        messages={
+            "unrelated-reply": EmailMessage(
+                message_id="unrelated-reply",
+                thread_id="thread-unrelated",
+                sender="Support <case@notifications.labeled.example>",
+                subject="Re: old request",
+                body="Please send your home address.",
+                date=OUTREACH_SENT_AT + timedelta(minutes=5),
+                in_reply_to="historical-message",
+            ),
+        },
+        threads={
+            "thread-original": [
+                EmailMessage(
+                    message_id="sent-original",
+                    thread_id="thread-original",
+                    sender="me@example.com",
+                    subject="Opt out request",
+                    body="Please remove me.",
+                    rfc_message_id="<sent-original@example.com>",
+                )
+            ],
+        },
+    )
+    anthropic_client = _mock_anthropic("COMPLETED")
+
+    with patch("smokescreen.jobs.poll.Anthropic") as anthropic:
+        anthropic.return_value = anthropic_client
+        processed = run_poll(settings, _registry(), store, gmail=gmail)
+
+    updated = store.get("labeled")
+    assert processed == []
+    assert updated.status == BrokerStatus.INITIAL_SENT
+    assert updated.thread_id == "thread-original"
+    anthropic_client.messages.create.assert_not_called()
+    store.close()
+
+
+def test_domain_match_does_not_overwrite_thread_id_when_validation_fails(tmp_path):
+    settings = _settings(
+        tmp_path,
+        anthropic_api_key="test-key",
+        poll_label="",
+    )
+    store = SQLiteStore(settings.sqlite_path)
+    store.upsert(
+        OptOutRecord(
+            broker_id="labeled",
+            status=BrokerStatus.INITIAL_SENT,
+            thread_id="thread-original",
+            last_message_id="sent-original",
+            state_history=_initial_sent_history("sent-original"),
+        )
+    )
+    gmail = FakeGmail(
+        search_results_by_query={
+            f"in:inbox from:labeled.example {OUTREACH_AFTER_QUERY}": ["bad-reply"],
+        },
+        messages={
+            "bad-reply": EmailMessage(
+                message_id="bad-reply",
+                thread_id="thread-alt",
+                sender="Support <case@notifications.labeled.example>",
+                subject="Re: old request",
+                body="Please send your home address.",
+                date=OUTREACH_SENT_AT + timedelta(minutes=5),
+            ),
+        },
+    )
+    anthropic_client = _mock_anthropic("COMPLETED")
+
+    with patch("smokescreen.jobs.poll.Anthropic") as anthropic:
+        anthropic.return_value = anthropic_client
+        processed = run_poll(settings, _registry(), store, gmail=gmail)
+
+    updated = store.get("labeled")
+    assert processed == []
+    assert updated.thread_id == "thread-original"
+    assert updated.last_message_id == "sent-original"
+    anthropic_client.messages.create.assert_not_called()
     store.close()
 
 

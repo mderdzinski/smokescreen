@@ -1,5 +1,7 @@
 """Tests for the Gmail API client wrapper."""
 
+import base64
+
 import pytest
 
 from smokescreen.email.client import GmailClient
@@ -131,3 +133,31 @@ def test_label_thread_rejects_blank_label_names():
         client.label_thread("thread-1", " ")
 
     assert service.thread_modify_calls == []
+
+
+def test_parse_message_extracts_reply_headers():
+    service = _FakeGmailService()
+    client = _client_for(service)
+    body = base64.urlsafe_b64encode(b"We received your request.").decode()
+
+    message = client._parse_message(
+        {
+            "id": "gmail-message-id",
+            "threadId": "thread-1",
+            "payload": {
+                "headers": [
+                    {"name": "From", "value": "Support <privacy@example.com>"},
+                    {"name": "To", "value": "me@example.com"},
+                    {"name": "Subject", "value": "Re: request"},
+                    {"name": "Message-ID", "value": "<reply@example.com>"},
+                    {"name": "In-Reply-To", "value": "<sent@example.com>"},
+                ],
+                "body": {"data": body},
+            },
+        }
+    )
+
+    assert message.message_id == "gmail-message-id"
+    assert message.rfc_message_id == "<reply@example.com>"
+    assert message.in_reply_to == "<sent@example.com>"
+    assert message.body == "We received your request."
