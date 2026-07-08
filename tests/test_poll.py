@@ -1,4 +1,5 @@
 """Tests for polling broker reply threads."""
+
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +19,7 @@ from smokescreen.models import (
     OptOutRecord,
     PendingWhitelistStatus,
     StateTransition,
+    ThreadHistoryEntry,
     VerificationAddress,
     VerificationDocument,
     VerificationProfile,
@@ -334,7 +336,7 @@ def test_poll_label_query_quotes_labels_with_spaces():
     assert _poll_label_query("privacy replies") == 'label:"privacy replies"'
 
 
-def test_poll_processes_reply_in_new_thread_from_broker_domain(tmp_path):
+def test_new_thread_discovered_appended_to_thread_ids_not_overwriting(tmp_path):
     settings = _settings(
         tmp_path,
         anthropic_api_key="test-key",
@@ -396,7 +398,8 @@ def test_poll_processes_reply_in_new_thread_from_broker_domain(tmp_path):
     assert processed == ["labeled"]
     updated = store.get("labeled")
     assert updated.status == BrokerStatus.COMPLETED
-    assert updated.thread_id == "thread-alt"
+    assert updated.thread_id == "thread-original"
+    assert updated.thread_ids == ["thread-original", "thread-alt"]
     assert updated.last_message_id == "reply-alt"
     assert _history_tuples(updated) == [
         (
@@ -410,7 +413,7 @@ def test_poll_processes_reply_in_new_thread_from_broker_domain(tmp_path):
             "COMPLETED",
             "broker completed deletion",
             "reply-alt",
-        )
+        ),
     ]
     assert gmail.fetched_threads == ["thread-alt"]
     assert gmail.labeled_threads == [("thread-alt", "custom-label")]
@@ -458,6 +461,124 @@ def test_poll_processes_reply_from_alternate_sender_matching_domain(tmp_path):
     assert updated.status == BrokerStatus.COMPLETED
     assert updated.last_message_id == "reply-labeled"
     assert store.list_pending_whitelist(PendingWhitelistStatus.PENDING) == []
+    anthropic_client.messages.create.assert_called_once()
+    store.close()
+
+
+def test_late_reply_in_current_cycle_processed_correctly(tmp_path):
+    settings = _settings(
+        tmp_path,
+        anthropic_api_key="test-key",
+        poll_label="",
+    )
+    store = SQLiteStore(settings.sqlite_path)
+    current_cycle_start = OUTREACH_SENT_AT - timedelta(days=45)
+    store.upsert(
+        OptOutRecord(
+            broker_id="labeled",
+            status=BrokerStatus.INITIAL_SENT,
+            thread_id="thread-labeled",
+            last_message_id="sent-labeled",
+            state_history=_initial_sent_history(
+                "sent-labeled",
+                at=current_cycle_start,
+            ),
+        )
+    )
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="sent-labeled",
+                    thread_id="thread-labeled",
+                    sender="me@example.com",
+                    subject="Opt out request",
+                    body="Please remove me.",
+                    date=current_cycle_start,
+                ),
+                EmailMessage(
+                    message_id="reply-late",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Re: request",
+                    body="Your opt-out request is complete.",
+                    date=OUTREACH_SENT_AT,
+                ),
+            ]
+        }
+    )
+    anthropic_client = _mock_anthropic("COMPLETED")
+
+    with patch("smokescreen.jobs.poll.Anthropic") as anthropic:
+        anthropic.return_value = anthropic_client
+        processed = run_poll(settings, _registry(), store, gmail=gmail)
+
+    updated = store.get("labeled")
+    assert processed == ["labeled"]
+    assert updated.status == BrokerStatus.COMPLETED
+    assert updated.last_message_id == "reply-late"
+    anthropic_client.messages.create.assert_called_once()
+    store.close()
+
+
+def test_multiple_threads_in_current_cycle_all_polled(tmp_path):
+    settings = _settings(
+        tmp_path,
+        anthropic_api_key="test-key",
+        poll_label="",
+    )
+    store = SQLiteStore(settings.sqlite_path)
+    store.upsert(
+        OptOutRecord(
+            broker_id="labeled",
+            status=BrokerStatus.INITIAL_SENT,
+            thread_id="thread-primary",
+            thread_ids=["thread-primary", "thread-alt"],
+            last_message_id="sent-primary",
+            state_history=_initial_sent_history("sent-primary"),
+        )
+    )
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-primary": [
+                EmailMessage(
+                    message_id="sent-primary",
+                    thread_id="thread-primary",
+                    sender="me@example.com",
+                    subject="Opt out request",
+                    body="Please remove me.",
+                )
+            ],
+            "thread-alt": [
+                EmailMessage(
+                    message_id="reply-alt",
+                    thread_id="thread-alt",
+                    sender="privacy@labeled.example",
+                    subject="Re: request",
+                    body="Your opt-out request is complete.",
+                )
+            ],
+        }
+    )
+    anthropic_client = _mock_anthropic("COMPLETED")
+
+    with patch("smokescreen.jobs.poll.Anthropic") as anthropic:
+        anthropic.return_value = anthropic_client
+        processed = run_poll(settings, _registry(), store, gmail=gmail)
+
+    updated = store.get("labeled")
+    assert processed == ["labeled"]
+    assert gmail.fetched_threads == ["thread-primary", "thread-alt"]
+    assert updated.status == BrokerStatus.COMPLETED
+    assert updated.thread_id == "thread-primary"
+    assert updated.thread_ids == ["thread-primary", "thread-alt"]
+    assert updated.last_message_id == "reply-alt"
     anthropic_client.messages.create.assert_called_once()
     store.close()
 
@@ -537,7 +658,8 @@ def test_poll_updates_last_message_id_after_alternate_sender_reply(tmp_path):
     assert len(gmail.sent_messages) == 1
     updated = store.get("labeled")
     assert updated.status == BrokerStatus.FOLLOW_UP_SENT
-    assert updated.thread_id == "thread-alt"
+    assert updated.thread_id == "thread-original"
+    assert updated.thread_ids == ["thread-original", "thread-alt"]
     assert updated.last_message_id == "reply-alt"
     assert anthropic_client.messages.create.call_count == 2
     store.close()
@@ -568,10 +690,93 @@ def test_domain_search_filters_by_outreach_date(tmp_path):
     processed = run_poll(settings, _registry(), store, gmail=gmail)
 
     assert processed == []
-    assert (
-        f"in:inbox from:labeled.example {OUTREACH_AFTER_QUERY}"
-        in gmail.searches
+    assert f"in:inbox from:labeled.example {OUTREACH_AFTER_QUERY}" in gmail.searches
+    store.close()
+
+
+def test_alternate_sender_uses_current_cycle_start_as_cutoff(tmp_path):
+    settings = _settings(tmp_path, poll_label="")
+    store = SQLiteStore(settings.sqlite_path)
+    prior_start = OUTREACH_SENT_AT - timedelta(days=40)
+    store.upsert(
+        OptOutRecord(
+            broker_id="labeled",
+            status=BrokerStatus.INITIAL_SENT,
+            thread_id="thread-current",
+            last_message_id="sent-current",
+            state_history=[
+                StateTransition(
+                    from_status="PENDING",
+                    to_status="INITIAL_SENT",
+                    transitioned_at=prior_start,
+                    reason="initial opt-out request sent",
+                    message_id="sent-prior",
+                ),
+                StateTransition(
+                    from_status="PENDING",
+                    to_status="INITIAL_SENT",
+                    transitioned_at=OUTREACH_SENT_AT,
+                    reason="initial opt-out request sent",
+                    message_id="sent-current",
+                ),
+            ],
+        )
     )
+    gmail = FakeGmail(
+        threads={
+            "thread-current": [
+                EmailMessage(
+                    message_id="sent-current",
+                    thread_id="thread-current",
+                    sender="me@example.com",
+                    subject="Opt out request",
+                    body="Please remove me.",
+                    date=OUTREACH_SENT_AT,
+                )
+            ]
+        }
+    )
+
+    processed = run_poll(settings, _registry(), store, gmail=gmail)
+
+    assert processed == []
+    assert f"in:inbox from:labeled.example {OUTREACH_AFTER_QUERY}" in gmail.searches
+    store.close()
+
+
+def test_alternate_sender_cutoff_fallback_when_no_state_history(tmp_path):
+    settings = _settings(tmp_path, poll_label="")
+    store = SQLiteStore(settings.sqlite_path)
+    created_at = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
+    store.upsert(
+        OptOutRecord(
+            broker_id="labeled",
+            status=BrokerStatus.INITIAL_SENT,
+            thread_id="thread-current",
+            last_message_id="sent-current",
+            created_at=created_at,
+            updated_at=created_at,
+        )
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-current": [
+                EmailMessage(
+                    message_id="sent-current",
+                    thread_id="thread-current",
+                    sender="me@example.com",
+                    subject="Opt out request",
+                    body="Please remove me.",
+                    date=created_at,
+                )
+            ]
+        }
+    )
+
+    processed = run_poll(settings, _registry(), store, gmail=gmail)
+
+    assert processed == []
+    assert "in:inbox from:labeled.example after:20260701" in gmail.searches
     store.close()
 
 
@@ -638,7 +843,8 @@ def test_domain_match_validates_in_reply_to_header(tmp_path):
     updated = store.get("labeled")
     assert processed == ["labeled"]
     assert updated.status == BrokerStatus.COMPLETED
-    assert updated.thread_id == "thread-alt"
+    assert updated.thread_id == "thread-original"
+    assert updated.thread_ids == ["thread-original", "thread-alt"]
     anthropic_client.messages.create.assert_called_once()
     store.close()
 
@@ -685,6 +891,109 @@ def test_domain_match_rejected_when_before_outreach_date(tmp_path):
     assert processed == []
     assert updated.status == BrokerStatus.INITIAL_SENT
     assert updated.thread_id == "thread-original"
+    anthropic_client.messages.create.assert_not_called()
+    store.close()
+
+
+def test_reply_from_prior_cycle_not_processed_and_not_corrupting(tmp_path):
+    settings = _settings(
+        tmp_path,
+        anthropic_api_key="test-key",
+        poll_label="",
+    )
+    store = SQLiteStore(settings.sqlite_path)
+    prior_start = OUTREACH_SENT_AT - timedelta(days=45)
+    prior_end = OUTREACH_SENT_AT - timedelta(days=15)
+    store.upsert(
+        OptOutRecord(
+            broker_id="labeled",
+            status=BrokerStatus.INITIAL_SENT,
+            thread_id="thread-current",
+            thread_ids=["thread-current"],
+            last_message_id="sent-current",
+            state_history=[
+                StateTransition(
+                    from_status="PENDING",
+                    to_status="INITIAL_SENT",
+                    transitioned_at=prior_start,
+                    reason="initial opt-out request sent",
+                    message_id="sent-prior",
+                ),
+                StateTransition(
+                    from_status="INITIAL_SENT",
+                    to_status="COMPLETED",
+                    transitioned_at=prior_end,
+                    reason="broker completed deletion",
+                    message_id="reply-prior-complete",
+                ),
+                StateTransition(
+                    from_status="PENDING",
+                    to_status="INITIAL_SENT",
+                    transitioned_at=OUTREACH_SENT_AT,
+                    reason="initial opt-out request sent",
+                    message_id="sent-current",
+                ),
+            ],
+            thread_history=[
+                ThreadHistoryEntry(
+                    cycle_number=1,
+                    thread_ids=["thread-prior"],
+                    started_at=prior_start,
+                    ended_at=prior_end,
+                    final_status="COMPLETED",
+                )
+            ],
+        )
+    )
+    gmail = FakeGmail(
+        search_results_by_query={
+            f"in:inbox from:labeled.example {OUTREACH_AFTER_QUERY}": [
+                "reply-prior-late"
+            ],
+        },
+        messages={
+            "reply-prior-late": EmailMessage(
+                message_id="reply-prior-late",
+                thread_id="thread-prior",
+                sender="Support <case@notifications.labeled.example>",
+                subject="Re: old request",
+                body="Your old request was completed.",
+                date=OUTREACH_SENT_AT + timedelta(hours=1),
+                in_reply_to="sent-prior",
+            ),
+        },
+        threads={
+            "thread-current": [
+                EmailMessage(
+                    message_id="sent-current",
+                    thread_id="thread-current",
+                    sender="me@example.com",
+                    subject="New opt out request",
+                    body="Please remove me again.",
+                    date=OUTREACH_SENT_AT,
+                )
+            ]
+        },
+    )
+    anthropic_client = _mock_anthropic("COMPLETED")
+
+    with (
+        patch("smokescreen.jobs.poll.Anthropic") as anthropic,
+        patch("smokescreen.jobs.poll.log") as log,
+    ):
+        anthropic.return_value = anthropic_client
+        processed = run_poll(settings, _registry(), store, gmail=gmail)
+
+    updated = store.get("labeled")
+    assert processed == []
+    assert updated.status == BrokerStatus.INITIAL_SENT
+    assert updated.thread_id == "thread-current"
+    assert updated.thread_ids == ["thread-current"]
+    assert updated.last_message_id == "sent-current"
+    assert any(
+        call.args and call.args[0] == "poll_domain_match_prior_cycle"
+        for call in log.info.call_args_list
+    )
     anthropic_client.messages.create.assert_not_called()
     store.close()
 
@@ -956,8 +1265,7 @@ def test_process_thread_marks_manual_without_anthropic_key(tmp_path):
     assert updated.needs_manual_reason is not None
     assert updated.needs_manual_reason.reason_code == "other"
     assert (
-        updated.needs_manual_reason.short_summary
-        == "No Anthropic API key configured"
+        updated.needs_manual_reason.short_summary == "No Anthropic API key configured"
     )
     assert updated.needs_manual_reason.broker_reply_excerpt == "We need more context."
     assert store.list_pending_whitelist(PendingWhitelistStatus.PENDING) == []
@@ -1008,10 +1316,7 @@ def test_process_thread_persists_manual_review_reply_details(tmp_path):
         "Please log in to our privacy portal to finish the opt-out."
     )
     assert updated.needs_manual_reason is not None
-    assert (
-        updated.needs_manual_reason.reason_code
-        == "classifier_returned_needs_manual"
-    )
+    assert updated.needs_manual_reason.reason_code == "classifier_returned_needs_manual"
     assert updated.needs_manual_reason.broker_reply_excerpt == (
         "Please log in to our privacy portal to finish the opt-out."
     )
@@ -1164,8 +1469,7 @@ def test_excerpt_skips_satisfaction_survey_wrapper():
     )
 
     assert _broker_reply_excerpt(message) == (
-        "Middle initial, additional addresses, phone numbers, emails, and "
-        "usernames."
+        "Middle initial, additional addresses, phone numbers, emails, and usernames."
     )
 
 
@@ -1583,8 +1887,7 @@ def test_info_request_documents_available_auto_responds(tmp_path):
     assert sent["subject"] == "Re: Identity verification"
     assert sent["thread_id"] == "thread-labeled"
     assert (
-        "Available documents on request: Utility Bill, Driver License"
-        in sent["body"]
+        "Available documents on request: Utility Bill, Driver License" in sent["body"]
     )
     assert "Offline file cabinet" not in sent["body"]
     assert "Physical wallet" not in sent["body"]
@@ -1747,8 +2050,7 @@ def test_rejected_transitions_to_needs_manual_broker_rejected(tmp_path):
     assert updated.needs_manual_reason is not None
     assert updated.needs_manual_reason.reason_code == "broker_rejected"
     assert updated.needs_manual_reason.short_summary == (
-        "Broker rejected the deletion request. Review and choose to accept or "
-        "escalate."
+        "Broker rejected the deletion request. Review and choose to accept or escalate."
     )
     assert (
         updated.needs_manual_reason.broker_reply_excerpt
@@ -1857,8 +2159,7 @@ def test_info_request_documents_missing_needs_manual(tmp_path):
     assert updated.missing_fields == ["documents"]
     assert updated.needs_manual_reason is not None
     assert (
-        updated.needs_manual_reason.reason_code
-        == "documents_requested_none_available"
+        updated.needs_manual_reason.reason_code == "documents_requested_none_available"
     )
     assert "documents-not-available" in updated.notes
     store.close()
@@ -2138,8 +2439,7 @@ def test_process_thread_marks_needs_manual_for_unknown_sender(tmp_path):
     assert updated.needs_manual_reason.reason_code == "untrusted_sender_reply"
     assert updated.needs_manual_reason.broker_reply_excerpt == "x" * 250
     assert (
-        updated.notes
-        == "Reply received from untrusted sender reply@labeled.example - "
+        updated.notes == "Reply received from untrusted sender reply@labeled.example - "
         "approve in Trusted Senders if legitimate"
     )
     assert _history_tuples(updated) == [
@@ -2504,10 +2804,7 @@ def test_timeout_escalation_second_strike_moves_to_needs_manual(tmp_path):
     assert "AWAITING_RESPONSE" in updated.notes
     assert updated.previous_status == BrokerStatus.AWAITING_RESPONSE_PINGED
     assert updated.needs_manual_reason is not None
-    assert (
-        updated.needs_manual_reason.reason_code
-        == "timeout_escalation_second_window"
-    )
+    assert updated.needs_manual_reason.reason_code == "timeout_escalation_second_window"
     assert (
         updated.needs_manual_reason.classifier_output["timed_out_status"]
         == "AWAITING_RESPONSE_PINGED"

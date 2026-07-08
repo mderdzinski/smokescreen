@@ -6,7 +6,7 @@ import enum
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 def utc_now() -> datetime:
@@ -163,6 +163,16 @@ class StateTransition(BaseModel):
     message_id: str | None = None
 
 
+class ThreadHistoryEntry(BaseModel):
+    """Thread IDs captured from a completed outreach cycle."""
+
+    cycle_number: int
+    thread_ids: list[str] = Field(default_factory=list)
+    started_at: datetime
+    ended_at: datetime
+    final_status: str
+
+
 class OptOutRecord(BaseModel):
     """Tracks opt-out progress for a single broker."""
 
@@ -171,6 +181,7 @@ class OptOutRecord(BaseModel):
     previous_status: BrokerStatus | None = None
     retries: int = 0
     thread_id: str | None = None
+    thread_ids: list[str] = Field(default_factory=list)
     last_message_id: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
@@ -181,6 +192,32 @@ class OptOutRecord(BaseModel):
     missing_fields: list[str] = Field(default_factory=list)
     requested_other_details: str = ""
     state_history: list[StateTransition] = Field(default_factory=list)
+    thread_history: list[ThreadHistoryEntry] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _normalize_thread_ids(self) -> OptOutRecord:
+        """Keep legacy scalar `thread_id` compatible with multi-thread cycles."""
+        thread_ids = _dedupe_nonempty_strings(self.thread_ids)
+        if self.thread_id:
+            thread_ids = _dedupe_nonempty_strings([self.thread_id, *thread_ids])
+        if not self.thread_id and thread_ids:
+            self.thread_id = thread_ids[0]
+        self.thread_ids = thread_ids
+        return self
+
+
+def _dedupe_nonempty_strings(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        normalized = value.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized)
+    return result
 
 
 class EmailMessage(BaseModel):

@@ -14,6 +14,7 @@ from smokescreen.models import (
     PendingWhitelistEntry,
     PendingWhitelistStatus,
     StateTransition,
+    ThreadHistoryEntry,
     VerificationProfile,
     WhitelistEntry,
     WhitelistSource,
@@ -62,9 +63,7 @@ class FirestoreStore:
         return str(entry_id)
 
     def _next_id(self, counter_name: str) -> int:
-        counter_ref = self._collection_ref(self._meta_collection).document(
-            "counters"
-        )
+        counter_ref = self._collection_ref(self._meta_collection).document("counters")
 
         @firestore.transactional
         def _increment(transaction):
@@ -111,6 +110,20 @@ class FirestoreStore:
                 continue
         return transitions
 
+    def _thread_history(self, value: Any) -> list[ThreadHistoryEntry]:
+        if not isinstance(value, list):
+            return []
+
+        history: list[ThreadHistoryEntry] = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            try:
+                history.append(ThreadHistoryEntry.model_validate(item))
+            except ValueError:
+                continue
+        return history
+
     def _doc_to_record(self, broker_id: str, data: dict) -> OptOutRecord:
         return OptOutRecord(
             broker_id=broker_id,
@@ -122,6 +135,7 @@ class FirestoreStore:
             ),
             retries=data.get("retries", 0),
             thread_id=data.get("thread_id"),
+            thread_ids=self._string_list(data.get("thread_ids")),
             last_message_id=data.get("last_message_id"),
             created_at=self._datetime_or_default(data.get("created_at")),
             updated_at=self._datetime_or_default(data.get("updated_at")),
@@ -132,6 +146,7 @@ class FirestoreStore:
             missing_fields=self._string_list(data.get("missing_fields")),
             requested_other_details=data.get("requested_other_details", ""),
             state_history=self._state_history(data.get("state_history")),
+            thread_history=self._thread_history(data.get("thread_history")),
         )
 
     def _doc_to_whitelist_entry(self, doc) -> WhitelistEntry:
@@ -185,6 +200,7 @@ class FirestoreStore:
                 ),
                 "retries": record.retries,
                 "thread_id": record.thread_id,
+                "thread_ids": record.thread_ids,
                 "last_message_id": record.last_message_id,
                 "created_at": record.created_at,
                 "updated_at": record.updated_at,
@@ -201,6 +217,9 @@ class FirestoreStore:
                 "state_history": [
                     transition.model_dump(mode="json")
                     for transition in record.state_history
+                ],
+                "thread_history": [
+                    entry.model_dump(mode="json") for entry in record.thread_history
                 ],
             }
         )

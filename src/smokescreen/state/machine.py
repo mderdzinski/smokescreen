@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from smokescreen.models import BrokerStatus, OptOutRecord, StateTransition, utc_now
+from smokescreen.models import (
+    BrokerStatus,
+    OptOutRecord,
+    StateTransition,
+    ThreadHistoryEntry,
+    as_aware_utc,
+    utc_now,
+)
 
 # States that expect a broker reply. If they remain unchanged for
 # `state_timeout_days`, the poll job pings once (transitioning to the paired
@@ -124,6 +131,118 @@ def _status_value(status: BrokerStatus | str) -> str:
     if isinstance(status, BrokerStatus):
         return status.value
     return str(status)
+
+
+def current_thread_ids(record: OptOutRecord) -> list[str]:
+    """Return the current-cycle Gmail thread IDs with scalar legacy fallback."""
+    return _dedupe_thread_ids([*(record.thread_ids or []), record.thread_id or ""])
+
+
+def primary_thread_id(record: OptOutRecord) -> str | None:
+    """Return the compatibility primary thread ID for replies."""
+    if record.thread_id:
+        return record.thread_id
+    ids = current_thread_ids(record)
+    return ids[0] if ids else None
+
+
+def set_current_thread(record: OptOutRecord, thread_id: str | None) -> None:
+    """Replace current-cycle thread tracking with one new primary thread."""
+    if not thread_id:
+        record.thread_id = None
+        record.thread_ids = []
+        return
+    record.thread_id = thread_id
+    record.thread_ids = [thread_id]
+
+
+def append_current_thread(record: OptOutRecord, thread_id: str) -> bool:
+    """Append a validated current-cycle thread without replacing the primary."""
+    thread_id = thread_id.strip()
+    if not thread_id:
+        return False
+
+    ids = current_thread_ids(record)
+    if thread_id in ids:
+        record.thread_ids = ids
+        if record.thread_id is None:
+            record.thread_id = ids[0]
+        return False
+
+    if record.thread_id is None:
+        record.thread_id = thread_id
+    record.thread_ids = [*ids, thread_id]
+    return True
+
+
+def clear_current_threads(record: OptOutRecord) -> None:
+    """Clear current-cycle thread tracking."""
+    record.thread_id = None
+    record.thread_ids = []
+
+
+def current_cycle_started_at(record: OptOutRecord) -> datetime:
+    """Return the best known start time for the current outreach cycle."""
+    pending_to_initial = [
+        as_aware_utc(transition.transitioned_at)
+        for transition in record.state_history
+        if transition.from_status == BrokerStatus.PENDING.value
+        and transition.to_status == BrokerStatus.INITIAL_SENT.value
+    ]
+    if pending_to_initial:
+        return max(pending_to_initial)
+
+    initial_sent = [
+        as_aware_utc(transition.transitioned_at)
+        for transition in record.state_history
+        if transition.to_status == BrokerStatus.INITIAL_SENT.value
+    ]
+    if initial_sent:
+        return max(initial_sent)
+
+    if record.created_at is not None:
+        return as_aware_utc(record.created_at)
+    if record.updated_at is not None:
+        return as_aware_utc(record.updated_at)
+    return utc_now()
+
+
+def snapshot_current_cycle(
+    record: OptOutRecord,
+    *,
+    ended_at: datetime,
+    final_status: BrokerStatus | str | None = None,
+) -> ThreadHistoryEntry | None:
+    """Move current-cycle thread IDs into immutable prior-cycle history."""
+    thread_ids = current_thread_ids(record)
+    if not thread_ids:
+        clear_current_threads(record)
+        return None
+
+    entry = ThreadHistoryEntry(
+        cycle_number=len(record.thread_history) + 1,
+        thread_ids=thread_ids,
+        started_at=current_cycle_started_at(record),
+        ended_at=ended_at,
+        final_status=_status_value(final_status or record.status),
+    )
+    record.thread_history.append(entry)
+    clear_current_threads(record)
+    return entry
+
+
+def _dedupe_thread_ids(values: list[str]) -> list[str]:
+    ids: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        if not isinstance(raw, str):
+            continue
+        value = raw.strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        ids.append(value)
+    return ids
 
 
 def append_transition(

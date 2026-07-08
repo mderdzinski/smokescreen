@@ -10,6 +10,7 @@ from smokescreen.models import (
     OptOutRecord,
     PendingWhitelistEntry,
     ReplyClassification,
+    ThreadHistoryEntry,
     WhitelistEntry,
     parse_broker_status,
 )
@@ -26,6 +27,8 @@ def test_opt_out_record_defaults():
     assert record.status == BrokerStatus.PENDING
     assert record.retries == 0
     assert record.thread_id is None
+    assert record.thread_ids == []
+    assert record.thread_history == []
     assert record.notes == ""
     assert record.created_at.tzinfo is UTC
     assert record.updated_at.tzinfo is UTC
@@ -51,6 +54,38 @@ def test_opt_out_record_accepts_missing_or_null_needs_manual_reason():
     assert old_record.needs_manual_reason is None
     assert old_record.state_history == []
     assert null_record.needs_manual_reason is None
+
+
+def test_opt_out_record_treats_legacy_thread_id_as_current_thread_ids():
+    record = OptOutRecord(broker_id="test-broker", thread_id="thread-1")
+
+    assert record.thread_id == "thread-1"
+    assert record.thread_ids == ["thread-1"]
+
+
+def test_opt_out_record_dedupes_thread_ids_and_sets_primary_when_missing():
+    record = OptOutRecord(
+        broker_id="test-broker",
+        thread_id=None,
+        thread_ids=["thread-2", "thread-2", " ", "thread-3"],
+    )
+
+    assert record.thread_id == "thread-2"
+    assert record.thread_ids == ["thread-2", "thread-3"]
+
+
+def test_thread_history_entry_model():
+    entry = ThreadHistoryEntry(
+        cycle_number=1,
+        thread_ids=["thread-1", "thread-2"],
+        started_at="2026-06-01T12:00:00Z",
+        ended_at="2026-06-15T12:00:00Z",
+        final_status="COMPLETED",
+    )
+
+    assert entry.cycle_number == 1
+    assert entry.thread_ids == ["thread-1", "thread-2"]
+    assert entry.final_status == "COMPLETED"
 
 
 def test_needs_manual_reason_defaults_transitioned_at_to_aware_utc():
@@ -110,10 +145,7 @@ def test_parse_broker_status_current_names():
     assert parse_broker_status("INITIAL_SENT") is BrokerStatus.INITIAL_SENT
     assert parse_broker_status("INFO_REQUESTED") is BrokerStatus.INFO_REQUESTED
     assert parse_broker_status("FOLLOW_UP_SENT") is BrokerStatus.FOLLOW_UP_SENT
-    assert (
-        parse_broker_status("REJECTED_REBUTTED")
-        is BrokerStatus.REJECTED_REBUTTED
-    )
+    assert parse_broker_status("REJECTED_REBUTTED") is BrokerStatus.REJECTED_REBUTTED
     assert (
         parse_broker_status("INFO_REQUESTED_PINGED")
         is BrokerStatus.INFO_REQUESTED_PINGED

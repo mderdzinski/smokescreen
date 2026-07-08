@@ -105,6 +105,7 @@ def test_outreach_rerequests_completed_broker(tmp_path):
     updated = store.get("test-broker")
     assert updated.status == BrokerStatus.INITIAL_SENT
     assert updated.thread_id == "dry-run-thread-test-broker"
+    assert updated.thread_ids == ["dry-run-thread-test-broker"]
     assert updated.last_message_id == "dry-run-message-test-broker"
     store.close()
 
@@ -166,18 +167,14 @@ def test_settings_rerequest_interval_custom():
 
 @pytest.mark.parametrize("value", [7, 60, 365])
 def test_settings_rerequest_interval_accepts_boundary(value):
-    s = Settings(
-        sender_email="t@t.com", sender_name="T", rerequest_interval_days=value
-    )
+    s = Settings(sender_email="t@t.com", sender_name="T", rerequest_interval_days=value)
     assert s.rerequest_interval_days == value
 
 
 @pytest.mark.parametrize("value", [0, 1, 6, 366, 1000])
 def test_settings_rerequest_interval_rejects_out_of_bounds(value):
     with pytest.raises(ValidationError):
-        Settings(
-            sender_email="t@t.com", sender_name="T", rerequest_interval_days=value
-        )
+        Settings(sender_email="t@t.com", sender_name="T", rerequest_interval_days=value)
 
 
 # --- Outreach at the bound values (sm-274) ---

@@ -39,12 +39,22 @@ export interface StateTransition {
   message_id: string | null;
 }
 
+export interface ThreadHistoryEntry {
+  cycle_number: number;
+  thread_ids: string[];
+  started_at: string;
+  ended_at: string;
+  final_status: string;
+}
+
 export interface OptOutRecord {
   broker_id: string;
   status: BrokerStatus;
   previous_status: BrokerStatus | null;
   retries: number;
   thread_id: string | null;
+  thread_ids?: string[];
+  thread_history?: ThreadHistoryEntry[];
   last_message_id: string | null;
   last_completed_at: string | null;
   notes: string;

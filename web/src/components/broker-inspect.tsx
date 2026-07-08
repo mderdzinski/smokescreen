@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, ExternalLink, Eye, RefreshCw, X } from "lucide-react";
+import { ArrowRight, ChevronDown, ExternalLink, Eye, RefreshCw, X } from "lucide-react";
 import {
   useEffect,
   useId,
@@ -10,7 +10,13 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { api, type BrokerStatus, type OptOutRecord, type StateTransition } from "../lib/api";
+import {
+  api,
+  type BrokerStatus,
+  type OptOutRecord,
+  type StateTransition,
+  type ThreadHistoryEntry,
+} from "../lib/api";
 import { cn } from "../lib/utils";
 import { BROKER_STATUS_DISPLAY } from "./ui/status-pill";
 import { Badge, type BadgeProps } from "./ui/badge";
@@ -131,7 +137,8 @@ function BrokerInspectDialog({
       ]);
     },
   });
-  const gmailHref = gmailThreadHref(record.thread_id);
+  const currentThreadIds = inspectCurrentThreadIds(record);
+  const threadHistory = record.thread_history ?? [];
   const metadataRows = inspectMetadataRows(record);
   const manualSummary = record.needs_manual_reason?.short_summary.trim();
   const notes = record.notes.trim();
@@ -204,7 +211,7 @@ function BrokerInspectDialog({
   }
 
   function handleRescan() {
-    if (!record.thread_id || rescanMutation.isPending) {
+    if (currentThreadIds.length === 0 || rescanMutation.isPending) {
       return;
     }
     if (!window.confirm(RESCAN_CONFIRM_MESSAGE)) {
@@ -271,15 +278,15 @@ function BrokerInspectDialog({
         </div>
 
         <div className="grid max-h-[calc(92vh-112px)] gap-4 overflow-y-auto px-5 py-5">
-          {gmailHref ? (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-bd-olive bg-fill-olive px-[13px] py-[12px]">
-              <div>
-                <div className="ss-label text-soft-olive">Gmail thread</div>
-                <p className="mt-[5px] break-all font-mono text-xs text-content-body">
-                  {record.thread_id}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
+          {currentThreadIds.length > 0 ? (
+            <div className="grid gap-3 rounded-sm border border-bd-olive bg-fill-olive px-[13px] py-[12px]">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="ss-label text-soft-olive">Current cycle</div>
+                  <p className="mt-[5px] text-xs text-content-muted">
+                    {currentThreadIds.length === 1 ? "1 Gmail thread" : `${currentThreadIds.length} Gmail threads`}
+                  </p>
+                </div>
                 <Button
                   aria-label={`Rescan ${brokerName} record`}
                   disabled={rescanMutation.isPending}
@@ -295,15 +302,29 @@ function BrokerInspectDialog({
                   />
                   {rescanMutation.isPending ? "Rescanning" : "Rescan"}
                 </Button>
-                <Button asChild size="sm" variant="secondary">
-                  <a href={gmailHref} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink aria-hidden="true" />
-                    Open in Gmail
-                  </a>
-                </Button>
               </div>
+              <ul className="grid gap-2">
+                {currentThreadIds.map((threadId) => (
+                  <li
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-sm border border-bd-olive/60 bg-surface-card/70 px-3 py-2"
+                    key={threadId}
+                  >
+                    <p className="min-w-0 break-all font-mono text-xs text-content-body">
+                      {threadId}
+                    </p>
+                    <Button asChild size="sm" variant="secondary">
+                      <a href={gmailThreadHref(threadId) ?? "#"} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink aria-hidden="true" />
+                        Open in Gmail
+                      </a>
+                    </Button>
+                  </li>
+                ))}
+              </ul>
             </div>
           ) : null}
+
+          {threadHistory.length > 0 ? <PreviousCycles cycles={threadHistory} /> : null}
 
           {rescanMutation.error ? (
             <div
@@ -385,6 +406,64 @@ function InspectSection({ children, title }: { children: ReactNode; title: strin
       <h3 className="ss-label mb-[10px] text-content-muted">{title}</h3>
       {children}
     </section>
+  );
+}
+
+function PreviousCycles({ cycles }: { cycles: ThreadHistoryEntry[] }) {
+  return (
+    <details className="group rounded-sm border border-border bg-surface-sunken px-[13px] py-[12px]">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+        <span className="ss-label text-content-muted">Previous cycles</span>
+        <ChevronDown
+          aria-hidden="true"
+          className="h-4 w-4 text-content-muted transition-transform group-open:rotate-180"
+        />
+      </summary>
+      <ol className="mt-3 grid gap-3">
+        {cycles.map((cycle) => (
+          <li
+            className="grid gap-2 rounded-sm border border-border bg-surface-card px-3 py-3"
+            key={threadHistoryEntryKey(cycle)}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="ss-label text-content-muted">Cycle {cycle.cycle_number}</div>
+              <Badge variant={statusBadgeVariantOrOutline(cycle.final_status)}>
+                {statusText(cycle.final_status)}
+              </Badge>
+            </div>
+            <dl className="grid gap-2 sm:grid-cols-2">
+              <div>
+                <dt className="ss-label mb-[5px]">started</dt>
+                <dd className="font-mono text-xs text-content-muted">
+                  {formatDateTime(cycle.started_at)}
+                </dd>
+              </div>
+              <div>
+                <dt className="ss-label mb-[5px]">ended</dt>
+                <dd className="font-mono text-xs text-content-muted">
+                  {formatDateTime(cycle.ended_at)}
+                </dd>
+              </div>
+            </dl>
+            <ul className="grid gap-2">
+              {cycle.thread_ids.map((threadId) => (
+                <li className="flex flex-wrap items-center justify-between gap-2" key={threadId}>
+                  <span className="min-w-0 break-all font-mono text-xs text-content-body">
+                    {threadId}
+                  </span>
+                  <Button asChild size="sm" variant="outline">
+                    <a href={gmailThreadHref(threadId) ?? "#"} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink aria-hidden="true" />
+                      Open in Gmail
+                    </a>
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ol>
+    </details>
   );
 }
 
@@ -565,11 +644,21 @@ function statusLabel(status: BrokerStatus): string {
   return BROKER_STATUS_DISPLAY[status]?.label ?? status;
 }
 
+function statusText(status: string): string {
+  const brokerStatus = toBrokerStatus(status);
+  return brokerStatus ? statusLabel(brokerStatus) : status;
+}
+
 function toBrokerStatus(status: string): BrokerStatus | null {
   if (status in BROKER_STATUS_DISPLAY) {
     return status as BrokerStatus;
   }
   return null;
+}
+
+function statusBadgeVariantOrOutline(status: string): BadgeVariant {
+  const brokerStatus = toBrokerStatus(status);
+  return brokerStatus ? statusBadgeVariant(brokerStatus) : "outline";
 }
 
 function statusBadgeVariant(status: BrokerStatus): BadgeVariant {
@@ -586,6 +675,28 @@ function statusBadgeVariant(status: BrokerStatus): BadgeVariant {
     return "danger";
   }
   return "olive";
+}
+
+function inspectCurrentThreadIds(record: OptOutRecord): string[] {
+  return dedupeStrings([...(record.thread_ids ?? []), record.thread_id ?? ""]);
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  values.forEach((value) => {
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      return;
+    }
+    seen.add(trimmed);
+    result.push(trimmed);
+  });
+  return result;
+}
+
+function threadHistoryEntryKey(cycle: ThreadHistoryEntry): string {
+  return `${cycle.cycle_number}-${cycle.started_at}-${cycle.ended_at}`;
 }
 
 function gmailThreadHref(threadId: string | null): string | null {

@@ -21,6 +21,7 @@ from smokescreen.models import (
     PendingWhitelistEntry,
     PendingWhitelistStatus,
     StateTransition,
+    ThreadHistoryEntry,
     VerificationAddress,
     VerificationDocument,
     VerificationProfile,
@@ -255,6 +256,45 @@ def test_firestore_upsert_persists_state_history():
     assert fetched.state_history[0].transitioned_at == transitioned_at
 
 
+def test_firestore_upsert_persists_thread_ids_and_thread_history():
+    store = _store()
+    started_at = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    ended_at = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
+    store.upsert(
+        OptOutRecord(
+            broker_id="spokeo",
+            status=BrokerStatus.INITIAL_SENT,
+            thread_id="thread-current",
+            thread_ids=["thread-current", "thread-alt"],
+            thread_history=[
+                ThreadHistoryEntry(
+                    cycle_number=1,
+                    thread_ids=["thread-old"],
+                    started_at=started_at,
+                    ended_at=ended_at,
+                    final_status="COMPLETED",
+                )
+            ],
+        )
+    )
+
+    raw_doc = store._collection_ref("test_opt_outs")._docs["spokeo"]
+    assert raw_doc["thread_ids"] == ["thread-current", "thread-alt"]
+    assert raw_doc["thread_history"] == [
+        {
+            "cycle_number": 1,
+            "thread_ids": ["thread-old"],
+            "started_at": "2026-06-01T12:00:00Z",
+            "ended_at": "2026-07-01T12:00:00Z",
+            "final_status": "COMPLETED",
+        }
+    ]
+    fetched = store.get("spokeo")
+    assert fetched is not None
+    assert fetched.thread_ids == ["thread-current", "thread-alt"]
+    assert fetched.thread_history[0].thread_ids == ["thread-old"]
+
+
 def test_firestore_records_without_state_history_load_empty():
     store = _store()
     store._collection_ref("test_opt_outs").document("legacy").set(
@@ -268,6 +308,8 @@ def test_firestore_records_without_state_history_load_empty():
     fetched = store.get("legacy")
     assert fetched is not None
     assert fetched.state_history == []
+    assert fetched.thread_ids == []
+    assert fetched.thread_history == []
 
 
 def test_firestore_verification_profile_default_and_persist():
@@ -470,8 +512,7 @@ def test_poll_adds_pending_whitelist_for_firestore_store():
     updated = store.get("spokeo")
     assert updated.status == BrokerStatus.NEEDS_MANUAL
     assert (
-        updated.notes
-        == "Reply received from untrusted sender verify@spokeo.com - "
+        updated.notes == "Reply received from untrusted sender verify@spokeo.com - "
         "approve in Trusted Senders if legitimate"
     )
 

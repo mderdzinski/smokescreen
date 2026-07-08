@@ -41,6 +41,9 @@ from smokescreen.state.broker_selections import list_or_seed_enabled_brokers
 from smokescreen.state.machine import (
     InvalidTransition,
     append_transition,
+    clear_current_threads,
+    current_thread_ids,
+    primary_thread_id,
     transition_record_status,
     validate_transition,
 )
@@ -556,7 +559,7 @@ async def reset_optout(broker_id: str):
     )
     record.retries = 0
     record.previous_status = None
-    record.thread_id = None
+    clear_current_threads(record)
     record.last_message_id = None
     record.notes = ""
     record.needs_manual_reason = None
@@ -577,7 +580,7 @@ async def retry_optout_classification(broker_id: str):
         raise HTTPException(400, f"No record for broker {broker_id}")
     if record.status != BrokerStatus.NEEDS_MANUAL:
         raise HTTPException(400, f"Broker {broker_id} does not need manual review")
-    if record.thread_id is None:
+    if not current_thread_ids(record):
         raise HTTPException(
             400,
             "Cannot retry: broker record has no thread. Use Reset to start over.",
@@ -616,7 +619,7 @@ async def rescan_optout_classification(broker_id: str):
     record = store.get(broker_id)
     if record is None:
         raise HTTPException(404, f"No record for broker {broker_id}")
-    if record.thread_id is None:
+    if not current_thread_ids(record):
         raise HTTPException(
             400,
             "Cannot rescan: broker record has no thread.",
@@ -673,7 +676,7 @@ def _rejection_review_message(
     body = reason.broker_reply_excerpt if reason else ""
     return EmailMessage(
         message_id=record.last_message_id or "",
-        thread_id=record.thread_id or "",
+        thread_id=primary_thread_id(record) or "",
         sender=broker_email,
         subject=_manual_rejection_subject(record),
         body=body or record.notes,
@@ -738,7 +741,7 @@ async def escalate_rejection(
     if record is None:
         raise HTTPException(404, f"No record for broker {broker_id}")
     _require_broker_rejected_review(record, broker_id)
-    if not record.thread_id:
+    if not current_thread_ids(record):
         raise HTTPException(
             400,
             "Cannot escalate rejection: broker record has no thread.",

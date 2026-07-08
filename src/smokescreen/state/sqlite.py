@@ -14,6 +14,7 @@ from smokescreen.models import (
     PendingWhitelistEntry,
     PendingWhitelistStatus,
     StateTransition,
+    ThreadHistoryEntry,
     VerificationProfile,
     WhitelistEntry,
     WhitelistSource,
@@ -39,6 +40,7 @@ class SQLiteStore:
                 status TEXT NOT NULL,
                 retries INTEGER NOT NULL DEFAULT 0,
                 thread_id TEXT,
+                thread_ids TEXT NOT NULL DEFAULT '[]',
                 last_message_id TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -49,7 +51,8 @@ class SQLiteStore:
                 requested_fields TEXT NOT NULL DEFAULT '[]',
                 missing_fields TEXT NOT NULL DEFAULT '[]',
                 requested_other_details TEXT NOT NULL DEFAULT '',
-                state_history TEXT NOT NULL DEFAULT '[]'
+                state_history TEXT NOT NULL DEFAULT '[]',
+                thread_history TEXT NOT NULL DEFAULT '[]'
             )
         """)
         cols = [
@@ -89,6 +92,20 @@ class SQLiteStore:
                 """
                 ALTER TABLE opt_outs
                 ADD COLUMN state_history TEXT NOT NULL DEFAULT '[]'
+                """
+            )
+        if "thread_ids" not in cols:
+            self._conn.execute(
+                """
+                ALTER TABLE opt_outs
+                ADD COLUMN thread_ids TEXT NOT NULL DEFAULT '[]'
+                """
+            )
+        if "thread_history" not in cols:
+            self._conn.execute(
+                """
+                ALTER TABLE opt_outs
+                ADD COLUMN thread_history TEXT NOT NULL DEFAULT '[]'
                 """
             )
         self._conn.execute("""
@@ -160,6 +177,7 @@ class SQLiteStore:
             ),
             retries=row["retries"],
             thread_id=row["thread_id"],
+            thread_ids=self._json_list(row["thread_ids"]),
             last_message_id=row["last_message_id"],
             created_at=as_aware_utc(datetime.fromisoformat(row["created_at"])),
             updated_at=as_aware_utc(datetime.fromisoformat(row["updated_at"])),
@@ -172,6 +190,7 @@ class SQLiteStore:
             missing_fields=self._json_list(row["missing_fields"]),
             requested_other_details=row["requested_other_details"],
             state_history=self._state_history(row["state_history"]),
+            thread_history=self._thread_history(row["thread_history"]),
         )
 
     def _json_list(self, raw: str | None) -> list[str]:
@@ -216,6 +235,26 @@ class SQLiteStore:
                 continue
         return transitions
 
+    def _thread_history(self, raw: str | None) -> list[ThreadHistoryEntry]:
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(parsed, list):
+            return []
+
+        history: list[ThreadHistoryEntry] = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            try:
+                history.append(ThreadHistoryEntry.model_validate(item))
+            except ValueError:
+                continue
+        return history
+
     def get(self, broker_id: str) -> OptOutRecord | None:
         row = self._conn.execute(
             "SELECT * FROM opt_outs WHERE broker_id = ?", (broker_id,)
@@ -241,17 +280,18 @@ class SQLiteStore:
         self._conn.execute(
             """
             INSERT INTO opt_outs (broker_id, status, retries, thread_id,
-                                  last_message_id, created_at, updated_at,
+                                  thread_ids, last_message_id, created_at, updated_at,
                                   last_completed_at, notes, needs_manual_reason,
                                   previous_status, requested_fields,
                                   missing_fields, requested_other_details,
-                                  state_history)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  state_history, thread_history)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(broker_id) DO UPDATE SET
                 status = excluded.status,
                 previous_status = excluded.previous_status,
                 retries = excluded.retries,
                 thread_id = excluded.thread_id,
+                thread_ids = excluded.thread_ids,
                 last_message_id = excluded.last_message_id,
                 updated_at = excluded.updated_at,
                 last_completed_at = excluded.last_completed_at,
@@ -260,13 +300,15 @@ class SQLiteStore:
                 requested_fields = excluded.requested_fields,
                 missing_fields = excluded.missing_fields,
                 requested_other_details = excluded.requested_other_details,
-                state_history = excluded.state_history
+                state_history = excluded.state_history,
+                thread_history = excluded.thread_history
             """,
             (
                 record.broker_id,
                 record.status.value,
                 record.retries,
                 record.thread_id,
+                json.dumps(record.thread_ids),
                 record.last_message_id,
                 record.created_at.isoformat(),
                 record.updated_at.isoformat(),
@@ -288,6 +330,9 @@ class SQLiteStore:
                         transition.model_dump(mode="json")
                         for transition in record.state_history
                     ]
+                ),
+                json.dumps(
+                    [entry.model_dump(mode="json") for entry in record.thread_history]
                 ),
             ),
         )

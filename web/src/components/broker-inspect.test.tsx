@@ -26,6 +26,8 @@ function optOut(overrides: Partial<OptOutRecord> = {}): OptOutRecord {
     state_history: [],
     status: "AWAITING_RESPONSE",
     thread_id: "thread-1",
+    thread_ids: ["thread-1"],
+    thread_history: [],
     updated_at: "2026-06-21T12:00:00Z",
     ...overrides,
   };
@@ -221,6 +223,43 @@ describe("BrokerInspectAction", () => {
     expect(link).toHaveAttribute("href", "https://mail.google.com/mail/u/0/#inbox/thread-1");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("test_inspect_modal_shows_previous_cycles_section", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <BrokerInspectAction
+        brokerName="Acme Data"
+        record={optOut({
+          thread_id: "thread-current",
+          thread_ids: ["thread-current", "thread-alt"],
+          thread_history: [
+            {
+              cycle_number: 1,
+              thread_ids: ["thread-old-a", "thread-old-b"],
+              started_at: "2026-05-01T12:00:00Z",
+              ended_at: "2026-05-15T12:00:00Z",
+              final_status: "COMPLETED",
+            },
+          ],
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Inspect Acme Data record" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Acme Data" });
+    expect(within(dialog).getByText("Current cycle")).toBeInTheDocument();
+    expect(within(dialog).getAllByText("thread-current").length).toBeGreaterThan(0);
+    expect(within(dialog).getByText("thread-alt")).toBeInTheDocument();
+
+    const previousCycles = within(dialog).getByText("Previous cycles");
+    await user.click(previousCycles);
+
+    expect(within(dialog).getByText("Cycle 1")).toBeInTheDocument();
+    expect(within(dialog).getByText("Removed")).toBeInTheDocument();
+    expect(within(dialog).getByText("thread-old-a")).toBeInTheDocument();
+    expect(within(dialog).getByText("thread-old-b")).toBeInTheDocument();
   });
 
   it("test_inspect_modal_shows_rescan_button_when_thread_id_present", async () => {

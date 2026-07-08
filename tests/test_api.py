@@ -16,6 +16,7 @@ from smokescreen.models import (
     BrokerStatus,
     NeedsManualReason,
     OptOutRecord,
+    ThreadHistoryEntry,
     VerificationAddress,
     VerificationDocument,
     VerificationProfile,
@@ -342,6 +343,45 @@ def test_list_optouts_includes_needs_manual_reason(client):
         "other_details": "",
     }
     assert data[0]["state_history"] == []
+
+
+def test_inspect_response_includes_thread_history(client):
+    from smokescreen.api import get_store
+
+    store = get_store()
+    store.upsert(
+        OptOutRecord(
+            broker_id="spokeo",
+            status=BrokerStatus.INITIAL_SENT,
+            thread_id="thread-current",
+            thread_ids=["thread-current", "thread-alt"],
+            thread_history=[
+                ThreadHistoryEntry(
+                    cycle_number=1,
+                    thread_ids=["thread-old"],
+                    started_at="2026-06-01T12:00:00Z",
+                    ended_at="2026-06-15T12:00:00Z",
+                    final_status="COMPLETED",
+                )
+            ],
+        )
+    )
+    store.set_enabled_brokers(["spokeo"])
+
+    resp = client.get("/api/optouts")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data[0]["thread_ids"] == ["thread-current", "thread-alt"]
+    assert data[0]["thread_history"] == [
+        {
+            "cycle_number": 1,
+            "thread_ids": ["thread-old"],
+            "started_at": "2026-06-01T12:00:00Z",
+            "ended_at": "2026-06-15T12:00:00Z",
+            "final_status": "COMPLETED",
+        }
+    ]
 
 
 def test_list_optouts_needs_attention_excludes_disabled_brokers(client):
@@ -695,8 +735,7 @@ def test_accept_rejection_requires_broker_rejected_reason(client):
 
     assert resp.status_code == 400
     assert (
-        resp.json()["detail"]
-        == "Broker spokeo is not awaiting broker rejection review"
+        resp.json()["detail"] == "Broker spokeo is not awaiting broker rejection review"
     )
     saved = store.get("spokeo")
     assert saved is not None

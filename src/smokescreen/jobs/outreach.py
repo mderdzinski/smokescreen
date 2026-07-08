@@ -12,7 +12,11 @@ from smokescreen.email.client import GmailClient
 from smokescreen.email.templates import render_initial_opt_out
 from smokescreen.models import BrokerStatus, OptOutRecord, as_aware_utc, utc_now
 from smokescreen.state.broker_selections import list_or_seed_enabled_brokers
-from smokescreen.state.machine import transition_record_status
+from smokescreen.state.machine import (
+    set_current_thread,
+    snapshot_current_cycle,
+    transition_record_status,
+)
 from smokescreen.state.store import StateStore
 
 log = structlog.get_logger()
@@ -103,6 +107,7 @@ def run_outreach(
 
     for broker in brokers_to_process:
         record = store.get(broker.id)
+        cycle_final_status = record.status if record is not None else None
 
         # Check if a completed broker is due for re-request
         if record is not None and _check_rerequest(
@@ -121,7 +126,6 @@ def run_outreach(
                 transitioned_at=now,
             )
             record.retries = 0
-            record.thread_id = None
             record.last_message_id = None
             record.notes = "Re-request after interval"
             record.updated_at = now
@@ -170,7 +174,12 @@ def run_outreach(
             )
 
         now = utc_now()
-        record.thread_id = thread_id
+        snapshot_current_cycle(
+            record,
+            ended_at=now,
+            final_status=cycle_final_status,
+        )
+        set_current_thread(record, thread_id)
         record.last_message_id = message_id
         transition_record_status(
             record,

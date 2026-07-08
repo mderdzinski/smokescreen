@@ -4,10 +4,14 @@ from datetime import UTC, datetime
 
 import pytest
 
-from smokescreen.models import BrokerStatus, OptOutRecord
+from smokescreen.models import BrokerStatus, OptOutRecord, StateTransition
 from smokescreen.state.machine import (
     InvalidTransition,
+    append_current_thread,
     append_transition,
+    current_thread_ids,
+    set_current_thread,
+    snapshot_current_cycle,
     transition_record_status,
     validate_transition,
 )
@@ -104,18 +108,12 @@ def test_needs_manual_can_restore_previous_waiting_state(target):
 def test_pinged_transitions():
     """Every waiting state can transition to its paired pinged variant, and
     every pinged variant can escalate to NEEDS_MANUAL."""
-    validate_transition(
-        BrokerStatus.INITIAL_SENT, BrokerStatus.INITIAL_SENT_PINGED
-    )
+    validate_transition(BrokerStatus.INITIAL_SENT, BrokerStatus.INITIAL_SENT_PINGED)
     validate_transition(
         BrokerStatus.AWAITING_RESPONSE, BrokerStatus.AWAITING_RESPONSE_PINGED
     )
-    validate_transition(
-        BrokerStatus.INFO_REQUESTED, BrokerStatus.INFO_REQUESTED_PINGED
-    )
-    validate_transition(
-        BrokerStatus.FOLLOW_UP_SENT, BrokerStatus.FOLLOW_UP_SENT_PINGED
-    )
+    validate_transition(BrokerStatus.INFO_REQUESTED, BrokerStatus.INFO_REQUESTED_PINGED)
+    validate_transition(BrokerStatus.FOLLOW_UP_SENT, BrokerStatus.FOLLOW_UP_SENT_PINGED)
 
     validate_transition(BrokerStatus.INITIAL_SENT_PINGED, BrokerStatus.NEEDS_MANUAL)
     validate_transition(
@@ -239,3 +237,56 @@ def test_transition_record_status_preserves_validation_behavior():
 
     assert record.status == BrokerStatus.PENDING
     assert record.state_history == []
+
+
+def test_append_current_thread_preserves_primary_thread_id():
+    record = OptOutRecord(broker_id="spokeo", thread_id="thread-primary")
+
+    appended = append_current_thread(record, "thread-alt")
+
+    assert appended is True
+    assert record.thread_id == "thread-primary"
+    assert current_thread_ids(record) == ["thread-primary", "thread-alt"]
+
+
+def test_set_current_thread_replaces_current_cycle_threads():
+    record = OptOutRecord(
+        broker_id="spokeo",
+        thread_id="thread-old",
+        thread_ids=["thread-old", "thread-alt"],
+    )
+
+    set_current_thread(record, "thread-new")
+
+    assert record.thread_id == "thread-new"
+    assert record.thread_ids == ["thread-new"]
+
+
+def test_cycle_transition_snapshots_prior_thread_ids_to_history():
+    started_at = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    ended_at = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
+    record = OptOutRecord(
+        broker_id="spokeo",
+        status=BrokerStatus.COMPLETED,
+        thread_id="thread-a",
+        thread_ids=["thread-a", "thread-b"],
+        state_history=[
+            StateTransition(
+                from_status="PENDING",
+                to_status="INITIAL_SENT",
+                transitioned_at=started_at,
+                message_id="sent-1",
+            )
+        ],
+    )
+    snapshot = snapshot_current_cycle(record, ended_at=ended_at)
+
+    assert snapshot is not None
+    assert record.thread_id is None
+    assert record.thread_ids == []
+    assert record.thread_history == [snapshot]
+    assert snapshot.cycle_number == 1
+    assert snapshot.thread_ids == ["thread-a", "thread-b"]
+    assert snapshot.started_at == started_at
+    assert snapshot.ended_at == ended_at
+    assert snapshot.final_status == "COMPLETED"

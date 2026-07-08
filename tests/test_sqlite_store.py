@@ -12,6 +12,7 @@ from smokescreen.models import (
     NeedsManualReason,
     OptOutRecord,
     StateTransition,
+    ThreadHistoryEntry,
     VerificationAddress,
     VerificationDocument,
     VerificationProfile,
@@ -120,6 +121,36 @@ def test_upsert_persists_state_history(store):
     assert transition.message_id == "sent-1"
 
 
+def test_upsert_persists_thread_ids_and_thread_history(store):
+    started_at = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    ended_at = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
+    record = OptOutRecord(
+        broker_id="spokeo",
+        status=BrokerStatus.INITIAL_SENT,
+        thread_id="thread-current",
+        thread_ids=["thread-current", "thread-alt"],
+        thread_history=[
+            ThreadHistoryEntry(
+                cycle_number=1,
+                thread_ids=["thread-old"],
+                started_at=started_at,
+                ended_at=ended_at,
+                final_status="COMPLETED",
+            )
+        ],
+    )
+
+    store.upsert(record)
+
+    fetched = store.get("spokeo")
+    assert fetched is not None
+    assert fetched.thread_id == "thread-current"
+    assert fetched.thread_ids == ["thread-current", "thread-alt"]
+    assert len(fetched.thread_history) == 1
+    assert fetched.thread_history[0].thread_ids == ["thread-old"]
+    assert fetched.thread_history[0].started_at == started_at
+
+
 def test_existing_sqlite_records_without_state_history_load_empty(tmp_path):
     db_path = tmp_path / "legacy.db"
     conn = sqlite3.connect(db_path)
@@ -167,6 +198,8 @@ def test_existing_sqlite_records_without_state_history_load_empty(tmp_path):
     fetched = migrated_store.get("legacy")
     assert fetched is not None
     assert fetched.state_history == []
+    assert fetched.thread_ids == []
+    assert fetched.thread_history == []
     migrated_store.close()
 
 
