@@ -145,6 +145,11 @@ Terraform provisions:
 - Service accounts and IAM bindings for Cloud Run, Scheduler, Firestore, Secret
   Manager, Vertex AI, and IAP.
 
+The dashboard Cloud Run service is sized for solo-user traffic: 0.5 vCPU,
+512Mi RAM, zero minimum instances, one maximum instance, request-scoped CPU, and
+startup CPU boost. Cloud Run controls idle instance retention, so Terraform
+keeps CPU idle behavior explicit instead of relying on revision defaults.
+
 Gemini is the default reply classifier provider. It uses Vertex AI through the
 Cloud Run service accounts and does not require a separate AI API key or
 provider-specific Secret Manager secret.

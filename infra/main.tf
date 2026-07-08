@@ -180,8 +180,14 @@ resource "google_cloud_run_v2_service" "dashboard" {
   ingress     = "INGRESS_TRAFFIC_ALL"
   iap_enabled = true
 
+  scaling {
+    min_instance_count = 0
+  }
+
   template {
-    service_account = google_service_account.dashboard.email
+    service_account                  = google_service_account.dashboard.email
+    execution_environment            = "EXECUTION_ENVIRONMENT_GEN1"
+    max_instance_request_concurrency = 1
 
     scaling {
       min_instance_count = 0
@@ -293,11 +299,17 @@ resource "google_cloud_run_v2_service" "dashboard" {
         }
       }
 
+      # Sized for solo-user dashboard traffic: 0.5 vCPU, 512Mi RAM.
+      # Keep CPU request-scoped and startup-boosted to reduce idle cost while
+      # preserving acceptable cold starts for the IAP-protected dashboard.
       resources {
         limits = {
-          cpu    = "1"
+          cpu    = "0.5"
           memory = "512Mi"
         }
+
+        cpu_idle          = true
+        startup_cpu_boost = true
       }
     }
   }
