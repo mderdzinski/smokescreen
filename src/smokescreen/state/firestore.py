@@ -13,6 +13,7 @@ from smokescreen.models import (
     OptOutRecord,
     PendingWhitelistEntry,
     PendingWhitelistStatus,
+    ProfileGapLedgerEntry,
     StateTransition,
     ThreadHistoryEntry,
     VerificationProfile,
@@ -39,6 +40,8 @@ class FirestoreStore:
     - {collection}_email_whitelist/{id} for approved sender emails.
     - {collection}_pending_whitelist/{id} for senders awaiting approval.
     - {collection}_meta/counters for monotonically increasing integer IDs.
+    - profile_gap_ledger/{broker_id}__{field_name} for broker-requested
+      verification profile fields the user has not populated yet.
     """
 
     def __init__(
@@ -52,6 +55,7 @@ class FirestoreStore:
         self._whitelist_collection = f"{collection}_email_whitelist"
         self._pending_whitelist_collection = f"{collection}_pending_whitelist"
         self._meta_collection = f"{collection}_meta"
+        self._profile_gap_collection = "profile_gap_ledger"
 
     def _ref(self, broker_id: str):
         return self._db.collection(self._collection).document(broker_id)
@@ -61,6 +65,14 @@ class FirestoreStore:
 
     def _doc_id(self, entry_id: int) -> str:
         return str(entry_id)
+
+    def _profile_gap_doc_id(self, broker_id: str, field_name: str) -> str:
+        return f"{broker_id}__{field_name}"
+
+    def _profile_gap_ref(self, broker_id: str, field_name: str):
+        return self._collection_ref(self._profile_gap_collection).document(
+            self._profile_gap_doc_id(broker_id, field_name)
+        )
 
     def _next_id(self, counter_name: str) -> int:
         counter_ref = self._collection_ref(self._meta_collection).document("counters")
@@ -171,6 +183,16 @@ class FirestoreStore:
             status=PendingWhitelistStatus(
                 data.get("status", PendingWhitelistStatus.PENDING.value)
             ),
+        )
+
+    def _doc_to_profile_gap(self, doc) -> ProfileGapLedgerEntry:
+        data = doc.to_dict()
+        return ProfileGapLedgerEntry(
+            broker_id=data["broker_id"],
+            field_name=data["field_name"],
+            first_asked_at=self._datetime_or_default(data.get("first_asked_at")),
+            last_asked_at=self._datetime_or_default(data.get("last_asked_at")),
+            ask_count=int(data.get("ask_count", 1)),
         )
 
     def get(self, broker_id: str) -> OptOutRecord | None:
@@ -426,3 +448,44 @@ class FirestoreStore:
             {"profile": normalized.model_dump(), "updated_at": utc_now().isoformat()}
         )
         return normalized
+
+    # --- Profile gap ledger ---
+
+    def record_profile_gap(
+        self,
+        broker_id: str,
+        field_name: str,
+        asked_at: datetime | None = None,
+    ) -> ProfileGapLedgerEntry:
+        normalized_broker_id = broker_id.strip()
+        normalized_field_name = field_name.strip()
+        if not normalized_broker_id or not normalized_field_name:
+            raise ValueError("broker_id and field_name are required")
+
+        asked = as_aware_utc(asked_at) if asked_at is not None else utc_now()
+        ref = self._profile_gap_ref(normalized_broker_id, normalized_field_name)
+        doc = ref.get()
+        if doc.exists:
+            data = doc.to_dict() or {}
+            first_asked_at = self._datetime_or_default(
+                data.get("first_asked_at"), asked
+            )
+            ask_count = int(data.get("ask_count", 0)) + 1
+        else:
+            first_asked_at = asked
+            ask_count = 1
+
+        ref.set(
+            {
+                "broker_id": normalized_broker_id,
+                "field_name": normalized_field_name,
+                "first_asked_at": first_asked_at,
+                "last_asked_at": asked,
+                "ask_count": ask_count,
+            }
+        )
+        return self._doc_to_profile_gap(ref.get())
+
+    def list_profile_gap_ledger(self) -> list[ProfileGapLedgerEntry]:
+        docs = self._collection_ref(self._profile_gap_collection).stream()
+        return [self._doc_to_profile_gap(doc) for doc in docs]

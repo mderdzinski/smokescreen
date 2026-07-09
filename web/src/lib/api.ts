@@ -164,6 +164,15 @@ export interface VerificationProfile {
   additional_notes: string | null;
 }
 
+export interface ProfileGap {
+  field_name: string;
+  field_label: string;
+  ask_count: number;
+  broker_ids: string[];
+  first_asked_at: string;
+  last_asked_at: string;
+}
+
 export interface FriendlySettings {
   sender_email: string;
   sender_name: string;
@@ -358,6 +367,7 @@ export const api = {
   getExtendedStats: () => requestJson<ExtendedStats>("/api/stats/extended"),
   getSettings: () => requestJson<FriendlySettings>("/api/settings"),
   getVerificationProfile: () => requestJson<VerificationProfile>("/api/settings/verification-profile"),
+  getProfileGaps: () => requestJson<ProfileGap[]>("/api/settings/profile-gaps"),
   putVerificationProfile: (profile: VerificationProfile) =>
     requestJson<VerificationProfile>(
       "/api/settings/verification-profile",

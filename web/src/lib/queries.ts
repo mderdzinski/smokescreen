@@ -53,6 +53,13 @@ export function useVerificationProfile() {
   });
 }
 
+export function useProfileGaps() {
+  return useQuery({
+    queryKey: ["settings", "profile-gaps"],
+    queryFn: api.getProfileGaps,
+  });
+}
+
 export function useOptOuts(status?: OptOutStatusFilter, options: { includeDisabled?: boolean } = {}) {
   const includeDisabled = options.includeDisabled ?? false;
   return useQuery({

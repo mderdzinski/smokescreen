@@ -130,6 +130,16 @@ class VerificationProfile(BaseModel):
     additional_notes: str | None = None
 
 
+class ProfileGapLedgerEntry(BaseModel):
+    """A broker/profile field pair requested while the field was unavailable."""
+
+    broker_id: str
+    field_name: str
+    first_asked_at: datetime = Field(default_factory=utc_now)
+    last_asked_at: datetime = Field(default_factory=utc_now)
+    ask_count: int = 1
+
+
 class Broker(BaseModel):
     """A data broker from the registry."""
 

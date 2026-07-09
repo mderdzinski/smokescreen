@@ -13,6 +13,7 @@ from smokescreen.models import (
     OptOutRecord,
     PendingWhitelistEntry,
     PendingWhitelistStatus,
+    ProfileGapLedgerEntry,
     StateTransition,
     ThreadHistoryEntry,
     VerificationProfile,
@@ -146,6 +147,16 @@ class SQLiteStore:
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 profile_json TEXT NOT NULL,
                 updated_at TEXT NOT NULL
+            )
+        """)
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS profile_gap_ledger (
+                broker_id TEXT NOT NULL,
+                field_name TEXT NOT NULL,
+                first_asked_at TEXT NOT NULL,
+                last_asked_at TEXT NOT NULL,
+                ask_count INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (broker_id, field_name)
             )
         """)
         meta_exists = (
@@ -565,6 +576,65 @@ class SQLiteStore:
         )
         self._conn.commit()
         return normalized
+
+    # --- Profile gap ledger ---
+
+    def record_profile_gap(
+        self,
+        broker_id: str,
+        field_name: str,
+        asked_at: datetime | None = None,
+    ) -> ProfileGapLedgerEntry:
+        normalized_broker_id = broker_id.strip()
+        normalized_field_name = field_name.strip()
+        if not normalized_broker_id or not normalized_field_name:
+            raise ValueError("broker_id and field_name are required")
+
+        asked = as_aware_utc(asked_at) if asked_at is not None else utc_now()
+        self._conn.execute(
+            """
+            INSERT INTO profile_gap_ledger (
+                broker_id, field_name, first_asked_at, last_asked_at, ask_count
+            )
+            VALUES (?, ?, ?, ?, 1)
+            ON CONFLICT(broker_id, field_name) DO UPDATE SET
+                last_asked_at = excluded.last_asked_at,
+                ask_count = profile_gap_ledger.ask_count + 1
+            """,
+            (
+                normalized_broker_id,
+                normalized_field_name,
+                asked.isoformat(),
+                asked.isoformat(),
+            ),
+        )
+        self._conn.commit()
+        row = self._conn.execute(
+            """
+            SELECT * FROM profile_gap_ledger
+            WHERE broker_id = ? AND field_name = ?
+            """,
+            (normalized_broker_id, normalized_field_name),
+        ).fetchone()
+        return self._row_to_profile_gap(row)
+
+    def list_profile_gap_ledger(self) -> list[ProfileGapLedgerEntry]:
+        rows = self._conn.execute(
+            """
+            SELECT * FROM profile_gap_ledger
+            ORDER BY field_name, broker_id
+            """
+        ).fetchall()
+        return [self._row_to_profile_gap(row) for row in rows]
+
+    def _row_to_profile_gap(self, row: sqlite3.Row) -> ProfileGapLedgerEntry:
+        return ProfileGapLedgerEntry(
+            broker_id=row["broker_id"],
+            field_name=row["field_name"],
+            first_asked_at=as_aware_utc(datetime.fromisoformat(row["first_asked_at"])),
+            last_asked_at=as_aware_utc(datetime.fromisoformat(row["last_asked_at"])),
+            ask_count=int(row["ask_count"]),
+        )
 
     def close(self) -> None:
         self._conn.close()

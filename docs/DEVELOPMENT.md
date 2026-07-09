@@ -220,6 +220,21 @@ PR checklist for Firestore changes:
 - [ ] Run `terraform -chdir=infra validate`.
 - [ ] Do not rely on a Console-created index for permanent production use.
 
+## Profile Gap Ledger
+
+Smokescreen tracks verification profile fields that brokers requested while the
+field was not populated in Settings. The poll job writes one
+`profile_gap_ledger` Firestore document per broker and profile field when an
+`INFO_REQUEST` reply transitions to `NEEDS_MANUAL` because known requested
+fields are missing. Freeform `other_details` is intentionally not parsed into
+this ledger.
+
+`GET /api/settings/profile-gaps` reads the ledger, filters out fields now
+present in the current Verification Profile, aggregates by field across
+brokers, and sorts by total request count. The dashboard renders the result as
+a quiet advisory only in Settings -> Verification Profile; empty responses hide
+the panel.
+
 ## Semantic Release
 
 Pushes to `main` run semantic-release with Conventional Commits to update

@@ -42,6 +42,7 @@ import {
   type AdvancedSettings,
   type AiProvider,
   type FriendlySettings,
+  type ProfileGap,
   type SettingsUpdate,
   type VerificationAddress,
   type VerificationDocument,
@@ -50,6 +51,7 @@ import {
 import {
   useAdvancedSettings,
   usePendingWhitelist,
+  useProfileGaps,
   useSettings,
   useVerificationProfile,
 } from "../lib/queries";
@@ -310,10 +312,12 @@ export function SettingsPage() {
   const settingsQuery = useSettings();
   const advancedQuery = useAdvancedSettings();
   const verificationProfileQuery = useVerificationProfile();
+  const profileGapsQuery = useProfileGaps();
   const pendingWhitelistQuery = usePendingWhitelist();
   const settings = settingsQuery.data;
   const advancedSettings = advancedQuery.data;
   const verificationProfile = verificationProfileQuery.data;
+  const profileGaps = profileGapsQuery.data ?? [];
   const [draft, setDraft] = useState<SettingsDraft | null>(null);
   const [savedDraft, setSavedDraft] = useState<SettingsDraft | null>(null);
   const [profileDraft, setProfileDraft] = useState<VerificationProfile | null>(null);
@@ -427,7 +431,10 @@ export function SettingsPage() {
     mutationFn: (profile: VerificationProfile) => api.putVerificationProfile(profile),
     onSuccess: async () => {
       setMessage("Verification profile saved.");
-      await queryClient.invalidateQueries({ queryKey: ["settings", "verification-profile"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["settings", "verification-profile"] }),
+        queryClient.invalidateQueries({ queryKey: ["settings", "profile-gaps"] }),
+      ]);
     },
   });
 
@@ -461,6 +468,7 @@ export function SettingsPage() {
     void settingsQuery.refetch();
     void advancedQuery.refetch();
     void verificationProfileQuery.refetch();
+    void profileGapsQuery.refetch();
     void pendingWhitelistQuery.refetch();
   }
 
@@ -495,6 +503,7 @@ export function SettingsPage() {
         setProfileDraft(hydrated);
         setSavedProfileDraft(hydrated);
         queryClient.setQueryData(["settings", "verification-profile"], savedProfile);
+        void queryClient.invalidateQueries({ queryKey: ["settings", "profile-gaps"] });
       },
     });
   }
@@ -635,6 +644,7 @@ export function SettingsPage() {
                     label="02 · Verification Profile"
                     title="Fields brokers may ask for"
                   />
+                  <ProfileGapAdvisory gaps={profileGaps} />
                   <VerificationProfileForm
                     draft={profileDraft}
                     isSaving={saveProfileMutation.isPending}
@@ -874,6 +884,66 @@ function SectionHead({
       <span className="ss-label text-brand-strong">{label}</span>
       <h2 className="mt-1 font-display text-xl font-semibold leading-tight text-content-strong">{title}</h2>
       <p className="mt-1 max-w-[60ch] text-sm leading-relaxed text-content-muted">{description}</p>
+    </div>
+  );
+}
+
+function ProfileGapAdvisory({ gaps }: { gaps: ProfileGap[] }) {
+  if (!gaps.length) {
+    return null;
+  }
+
+  return (
+    <div
+      className="mb-5 grid gap-3 rounded-sm border border-bd-amber bg-fill-amber px-4 py-[14px]"
+      data-testid="profile-gap-advisory"
+    >
+      <div>
+        <h3 className="font-display text-sm font-semibold text-content-strong">Field requests from brokers</h3>
+        <p className="mt-[3px] max-w-[62ch] text-sm leading-relaxed text-content-body">
+          Adding these to your Verification Profile may help future opt-outs proceed without manual review.
+        </p>
+      </div>
+      <div className="grid gap-2">
+        {gaps.map((gap) => {
+          const brokerCount = gap.broker_ids.length;
+          const brokerText = `${brokerCount} broker${brokerCount === 1 ? "" : "s"} asked`;
+          const totalText =
+            gap.ask_count > brokerCount
+              ? ` · ${gap.ask_count} total request${gap.ask_count === 1 ? "" : "s"}`
+              : "";
+          return (
+            <div className="rounded-sm border border-border bg-surface-sunken px-3 py-2" key={gap.field_name}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-display text-sm font-semibold text-content-strong">{gap.field_label}</span>
+                <span className="font-mono text-2xs font-semibold uppercase tracking-label text-content-muted">
+                  {brokerText}
+                  {totalText}
+                </span>
+              </div>
+              <details className="group mt-2">
+                <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 text-xs font-semibold text-content-body transition-colors duration-fast ease-standard hover:text-content-strong [&::-webkit-details-marker]:hidden">
+                  <span>Which brokers?</span>
+                  <ChevronDown
+                    aria-hidden="true"
+                    className="h-3.5 w-3.5 transition-transform duration-fast ease-standard group-open:rotate-180"
+                  />
+                </summary>
+                <ul className="mt-2 flex flex-wrap gap-1.5">
+                  {gap.broker_ids.map((brokerId) => (
+                    <li
+                      className="rounded-sm border border-border bg-surface-sunken px-2 py-1 font-mono text-xs text-content-muted"
+                      key={brokerId}
+                    >
+                      {brokerId}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

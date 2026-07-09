@@ -6,6 +6,7 @@ import os
 import re
 import time
 from contextlib import suppress
+from datetime import datetime
 from json import JSONDecodeError
 from math import ceil
 from pathlib import Path
@@ -34,6 +35,7 @@ from smokescreen.models import (
     PendingWhitelistStatus,
     ReplyAnalysis,
     ReplyClassification,
+    VerificationField,
     VerificationProfile,
     WhitelistEntry,
     WhitelistSource,
@@ -165,6 +167,15 @@ class BrokerSelectionsResponse(BaseModel):
     enabled_broker_ids: list[str]
     selection_document_size_bytes: int
     selection_size_warning: str | None = None
+
+
+class ProfileGapResponse(BaseModel):
+    field_name: str
+    field_label: str
+    ask_count: int
+    broker_ids: list[str]
+    first_asked_at: datetime
+    last_asked_at: datetime
 
 
 GMAIL_CREDENTIALS_REQUIRED_DETAIL = {
@@ -1267,6 +1278,106 @@ async def put_verification_profile_endpoint(
     profile: VerificationProfile,
 ) -> VerificationProfile:
     return get_store().set_verification_profile(profile)
+
+
+PROFILE_GAP_FIELD_LABELS: dict[VerificationField, str] = {
+    VerificationField.HOME_ADDRESS: "Home address",
+    VerificationField.PHONE_NUMBER: "Phone number",
+    VerificationField.EMAIL_ALIAS: "Email alias",
+    VerificationField.DATE_OF_BIRTH: "Date of birth",
+    VerificationField.LAST_FOUR_SSN: "Last four SSN",
+    VerificationField.EMPLOYER_NAME: "Employer name",
+    VerificationField.DOCUMENTS: "Documents",
+}
+
+
+@app.get("/api/settings/profile-gaps", response_model=list[ProfileGapResponse])
+async def get_profile_gaps_endpoint() -> list[ProfileGapResponse]:
+    store = get_store()
+    return _profile_gap_response(store)
+
+
+def _profile_gap_response(store: StateStore) -> list[ProfileGapResponse]:
+    profile = store.get_verification_profile()
+    aggregates: dict[VerificationField, dict[str, Any]] = {}
+
+    for entry in store.list_profile_gap_ledger():
+        field = _profile_gap_field(entry.field_name)
+        if field is None or field == VerificationField.OTHER:
+            continue
+        if _profile_has_verification_field(profile, field):
+            continue
+
+        aggregate = aggregates.setdefault(
+            field,
+            {
+                "ask_count": 0,
+                "broker_ids": set(),
+                "first_asked_at": entry.first_asked_at,
+                "last_asked_at": entry.last_asked_at,
+            },
+        )
+        aggregate["ask_count"] += entry.ask_count
+        aggregate["broker_ids"].add(entry.broker_id)
+        aggregate["first_asked_at"] = min(
+            as_aware_utc(aggregate["first_asked_at"]),
+            as_aware_utc(entry.first_asked_at),
+        )
+        aggregate["last_asked_at"] = max(
+            as_aware_utc(aggregate["last_asked_at"]),
+            as_aware_utc(entry.last_asked_at),
+        )
+
+    gaps = [
+        ProfileGapResponse(
+            field_name=field.value,
+            field_label=PROFILE_GAP_FIELD_LABELS[field],
+            ask_count=aggregate["ask_count"],
+            broker_ids=sorted(aggregate["broker_ids"]),
+            first_asked_at=aggregate["first_asked_at"],
+            last_asked_at=aggregate["last_asked_at"],
+        )
+        for field, aggregate in aggregates.items()
+        if aggregate["ask_count"] > 0
+    ]
+    return sorted(
+        gaps,
+        key=lambda gap: (-gap.ask_count, gap.field_label, gap.field_name),
+    )
+
+
+def _profile_gap_field(field_name: str) -> VerificationField | None:
+    try:
+        return VerificationField(field_name)
+    except ValueError:
+        return None
+
+
+def _profile_has_verification_field(
+    profile: VerificationProfile,
+    field: VerificationField,
+) -> bool:
+    if field == VerificationField.HOME_ADDRESS:
+        return any(
+            address.street.strip()
+            and address.city.strip()
+            and address.state.strip()
+            and address.zip.strip()
+            for address in profile.home_addresses
+        )
+    if field == VerificationField.PHONE_NUMBER:
+        return any(value.strip() for value in profile.phone_numbers)
+    if field == VerificationField.EMAIL_ALIAS:
+        return any(value.strip() for value in profile.email_aliases)
+    if field == VerificationField.DATE_OF_BIRTH:
+        return bool((profile.date_of_birth or "").strip())
+    if field == VerificationField.LAST_FOUR_SSN:
+        return bool((profile.last_four_ssn or "").strip())
+    if field == VerificationField.EMPLOYER_NAME:
+        return bool((profile.employer_name or "").strip())
+    if field == VerificationField.DOCUMENTS:
+        return any(document.label.strip() for document in profile.documents)
+    return False
 
 
 @app.get("/api/settings/advanced")

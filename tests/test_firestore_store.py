@@ -343,6 +343,26 @@ def test_firestore_verification_profile_default_and_persist():
     assert store.get_verification_profile() == profile
 
 
+def test_firestore_profile_gap_ledger_create_and_update():
+    store = _store()
+    first = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
+    second = datetime(2026, 7, 2, 12, 0, tzinfo=UTC)
+
+    created = store.record_profile_gap("spokeo", "phone_number", first)
+    updated = store.record_profile_gap("spokeo", "phone_number", second)
+
+    assert created.ask_count == 1
+    assert updated.ask_count == 2
+    assert updated.first_asked_at == first
+    assert updated.last_asked_at == second
+    assert store.list_profile_gap_ledger() == [updated]
+    raw_doc = store._collection_ref("profile_gap_ledger")._docs[
+        "spokeo__phone_number"
+    ]
+    assert raw_doc["broker_id"] == "spokeo"
+    assert raw_doc["field_name"] == "phone_number"
+
+
 def test_firestore_whitelist_crud_and_registry_sync():
     store = _store()
     broker = Broker(

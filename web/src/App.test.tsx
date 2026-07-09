@@ -19,6 +19,7 @@ import type {
   FriendlySettings,
   OptOutRecord,
   PendingWhitelistEntry,
+  ProfileGap,
   VerificationProfile,
   WhitelistEntry,
 } from "./lib/api";
@@ -1162,16 +1163,26 @@ describe("SettingsPage", () => {
     message_subject: "Opt-out request",
     status: "pending",
   };
+  const profileGap: ProfileGap = {
+    ask_count: 2,
+    broker_ids: ["acme", "second"],
+    field_label: "Phone number",
+    field_name: "phone_number",
+    first_asked_at: "2026-07-01T12:00:00Z",
+    last_asked_at: "2026-07-03T12:00:00Z",
+  };
 
   function settingsPageRoutes({
     advancedBody = advancedSettings,
     pendingBody = [pendingSender],
+    profileGapsBody = [],
     profileBody = verificationProfile,
     settingsBody = settings,
     whitelistBody = [trustedSender],
   }: {
     advancedBody?: AdvancedSettings;
     pendingBody?: PendingWhitelistEntry[];
+    profileGapsBody?: ProfileGap[];
     profileBody?: VerificationProfile;
     settingsBody?: FriendlySettings;
     whitelistBody?: WhitelistEntry[];
@@ -1179,6 +1190,7 @@ describe("SettingsPage", () => {
     return [
       { body: settingsBody, path: "/api/settings" },
       { body: profileBody, path: "/api/settings/verification-profile" },
+      { body: profileGapsBody, path: "/api/settings/profile-gaps" },
       { body: advancedBody, path: "/api/settings/advanced" },
       { body: whitelistBody, path: "/api/whitelist" },
       { body: pendingBody, path: "/api/whitelist/pending" },
@@ -1205,6 +1217,47 @@ describe("SettingsPage", () => {
 
     await user.click(within(rail).getByRole("button", { name: "Cadence" }));
     expect(within(rail).getByRole("button", { name: "Cadence" })).toHaveAttribute("aria-current", "true");
+  });
+
+  it("test_settings_shows_gap_advisory_panel_when_gaps_exist", async () => {
+    mockApi(settingsPageRoutes({ profileGapsBody: [profileGap] }));
+
+    renderWithProviders(<SettingsPage />);
+
+    expect(await screen.findByTestId("profile-gap-advisory")).toBeInTheDocument();
+    expect(screen.getByText("Field requests from brokers")).toBeInTheDocument();
+    expect(
+      screen.getByText("Adding these to your Verification Profile may help future opt-outs proceed without manual review."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Phone number")).toBeInTheDocument();
+    expect(screen.getByText("2 brokers asked")).toBeInTheDocument();
+  });
+
+  it("test_settings_hides_gap_advisory_panel_when_no_gaps", async () => {
+    mockApi(settingsPageRoutes({ profileGapsBody: [] }));
+
+    renderWithProviders(<SettingsPage />);
+
+    expect(await screen.findByLabelText("Full name")).toBeInTheDocument();
+    expect(screen.queryByTestId("profile-gap-advisory")).not.toBeInTheDocument();
+    expect(screen.queryByText("Field requests from brokers")).not.toBeInTheDocument();
+  });
+
+  it("test_gap_advisory_expands_broker_list_on_click", async () => {
+    const user = userEvent.setup();
+    mockApi(settingsPageRoutes({ profileGapsBody: [profileGap] }));
+
+    renderWithProviders(<SettingsPage />);
+
+    await screen.findByTestId("profile-gap-advisory");
+    const disclosure = screen.getByText("Which brokers?").closest("details");
+    expect(disclosure).not.toHaveAttribute("open");
+
+    await user.click(screen.getByText("Which brokers?"));
+
+    expect(disclosure).toHaveAttribute("open");
+    expect(screen.getByText("acme")).toBeInTheDocument();
+    expect(screen.getByText("second")).toBeInTheDocument();
   });
 
   it("filters trusted senders inside a scrollable container and restores the full list when cleared", async () => {

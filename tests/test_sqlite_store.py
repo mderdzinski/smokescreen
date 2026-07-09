@@ -302,3 +302,17 @@ def test_profile_documents_field_persists(store):
 
     assert store.set_verification_profile(profile) == profile
     assert store.get_verification_profile() == profile
+
+
+def test_profile_gap_ledger_create_and_update(store):
+    first = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
+    second = datetime(2026, 7, 2, 12, 0, tzinfo=UTC)
+
+    created = store.record_profile_gap("spokeo", "phone_number", first)
+    updated = store.record_profile_gap("spokeo", "phone_number", second)
+
+    assert created.ask_count == 1
+    assert updated.ask_count == 2
+    assert updated.first_asked_at == first
+    assert updated.last_asked_at == second
+    assert store.list_profile_gap_ledger() == [updated]

@@ -1524,6 +1524,12 @@ def _handle_info_request(
             message_id=latest.message_id,
             now=now,
         )
+        _record_profile_gap_ledger(
+            store=store,
+            broker_id=record.broker_id,
+            missing_fields=missing_fields,
+            asked_at=now,
+        )
         _upsert_processed_broker_reply(store, record, latest)
         log.info(
             "poll_info_request_needs_manual",
@@ -1604,6 +1610,43 @@ def _handle_info_request(
 
     log.info("poll_follow_up_sent", broker=record.broker_id, retries=record.retries)
     return True
+
+
+def _record_profile_gap_ledger(
+    *,
+    store: StateStore,
+    broker_id: str,
+    missing_fields: list[VerificationField],
+    asked_at: datetime,
+) -> None:
+    ledger_fields = [
+        field for field in _dedupe_requested_fields(missing_fields)
+        if field != VerificationField.OTHER
+    ]
+    if not ledger_fields:
+        return
+
+    try:
+        for field in ledger_fields:
+            store.record_profile_gap(
+                broker_id=broker_id,
+                field_name=field.value,
+                asked_at=asked_at,
+            )
+    except Exception as exc:
+        log.warning(
+            "poll_profile_gap_ledger_update_failed",
+            broker=broker_id,
+            missing_fields=[field.value for field in ledger_fields],
+            error=str(exc),
+        )
+        return
+
+    log.info(
+        "poll_profile_gap_ledger_updated",
+        broker=broker_id,
+        missing_fields=[field.value for field in ledger_fields],
+    )
 
 
 def _handle_rejection_rebuttal(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol
 
 from smokescreen.models import (
@@ -9,6 +10,7 @@ from smokescreen.models import (
     OptOutRecord,
     PendingWhitelistEntry,
     PendingWhitelistStatus,
+    ProfileGapLedgerEntry,
     VerificationProfile,
     WhitelistEntry,
 )
@@ -105,4 +107,17 @@ class StateStore(Protocol):
         self, profile: VerificationProfile
     ) -> VerificationProfile:
         """Persist and return the normalized verification profile."""
+        ...
+
+    def record_profile_gap(
+        self,
+        broker_id: str,
+        field_name: str,
+        asked_at: datetime | None = None,
+    ) -> ProfileGapLedgerEntry:
+        """Create or update one broker/profile-field gap ledger entry."""
+        ...
+
+    def list_profile_gap_ledger(self) -> list[ProfileGapLedgerEntry]:
+        """List all broker/profile-field gap ledger entries."""
         ...

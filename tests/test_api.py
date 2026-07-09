@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -1478,6 +1479,56 @@ def test_verification_profile_endpoint_round_trip(settings_client):
     get_resp = client.get("/api/settings/verification-profile")
     assert get_resp.status_code == 200
     assert get_resp.json() == profile.model_dump()
+
+
+def test_profile_gaps_endpoint_filters_populated_fields(settings_client):
+    from smokescreen.api import get_store
+
+    client, _ = settings_client
+    store = get_store()
+    first = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
+    store.record_profile_gap("spokeo", "phone_number", first)
+    store.record_profile_gap("spokeo", "email_alias", first)
+    store.set_verification_profile(VerificationProfile(phone_numbers=["+1 555 0100"]))
+
+    resp = client.get("/api/settings/profile-gaps")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["field_name"] == "email_alias"
+    assert data[0]["field_label"] == "Email alias"
+    assert data[0]["ask_count"] == 1
+    assert data[0]["broker_ids"] == ["spokeo"]
+
+
+def test_profile_gaps_endpoint_aggregates_across_brokers(settings_client):
+    from smokescreen.api import get_store
+
+    client, _ = settings_client
+    store = get_store()
+    first = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
+    second = datetime(2026, 7, 2, 12, 0, tzinfo=UTC)
+    third = datetime(2026, 7, 3, 12, 0, tzinfo=UTC)
+    store.record_profile_gap("spokeo", "phone_number", first)
+    store.record_profile_gap("beenverified", "phone_number", second)
+    store.record_profile_gap("spokeo", "phone_number", third)
+    store.record_profile_gap("beenverified", "email_alias", third)
+
+    resp = client.get("/api/settings/profile-gaps")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert [entry["field_name"] for entry in data] == [
+        "phone_number",
+        "email_alias",
+    ]
+    assert data[0]["field_label"] == "Phone number"
+    assert data[0]["ask_count"] == 3
+    assert data[0]["broker_ids"] == ["beenverified", "spokeo"]
+    assert data[0]["first_asked_at"] == "2026-07-01T12:00:00Z"
+    assert data[0]["last_asked_at"] == "2026-07-03T12:00:00Z"
+    assert data[1]["ask_count"] == 1
 
 
 def test_get_advanced_settings(settings_client):

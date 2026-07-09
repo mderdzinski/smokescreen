@@ -2215,6 +2215,93 @@ def test_process_thread_info_request_missing_profile_field_needs_manual(tmp_path
     store.close()
 
 
+def test_ledger_entry_created_on_needs_manual_transition(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    record = _record(status=BrokerStatus.AWAITING_RESPONSE)
+    store.upsert(record)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+    gmail = FakeGmail(
+        threads={
+            "thread-labeled": [
+                EmailMessage(
+                    message_id="reply-labeled",
+                    thread_id="thread-labeled",
+                    sender="privacy@labeled.example",
+                    subject="Identity verification",
+                    body="Please send your phone number.",
+                )
+            ]
+        }
+    )
+
+    processed = _process_thread(
+        settings=settings,
+        record=record,
+        broker_name="Labeled Broker",
+        broker_email="privacy@labeled.example",
+        store=store,
+        gmail=gmail,
+        ai_client=_mock_anthropic(_info_request_response(["phone_number"])),
+    )
+
+    assert processed is True
+    entries = store.list_profile_gap_ledger()
+    assert len(entries) == 1
+    assert entries[0].broker_id == "labeled"
+    assert entries[0].field_name == "phone_number"
+    assert entries[0].ask_count == 1
+    assert entries[0].first_asked_at == entries[0].last_asked_at
+    store.close()
+
+
+def test_ledger_entry_updated_on_repeat_broker_ask(tmp_path):
+    settings = _settings(tmp_path)
+    store = SQLiteStore(settings.sqlite_path)
+    store.add_whitelist(
+        WhitelistEntry(broker_id="labeled", email="privacy@labeled.example")
+    )
+
+    for message_id in ("reply-one", "reply-two"):
+        record = _record(status=BrokerStatus.AWAITING_RESPONSE)
+        record.last_message_id = f"sent-{message_id}"
+        store.upsert(record)
+        gmail = FakeGmail(
+            threads={
+                "thread-labeled": [
+                    EmailMessage(
+                        message_id=message_id,
+                        thread_id="thread-labeled",
+                        sender="privacy@labeled.example",
+                        subject="Identity verification",
+                        body="Please send your phone number.",
+                    )
+                ]
+            }
+        )
+
+        processed = _process_thread(
+            settings=settings,
+            record=record,
+            broker_name="Labeled Broker",
+            broker_email="privacy@labeled.example",
+            store=store,
+            gmail=gmail,
+            ai_client=_mock_anthropic(_info_request_response(["phone_number"])),
+        )
+        assert processed is True
+
+    entries = store.list_profile_gap_ledger()
+    assert len(entries) == 1
+    assert entries[0].broker_id == "labeled"
+    assert entries[0].field_name == "phone_number"
+    assert entries[0].ask_count == 2
+    assert entries[0].last_asked_at >= entries[0].first_asked_at
+    store.close()
+
+
 def test_process_thread_info_request_other_needs_manual(tmp_path):
     settings = _settings(tmp_path)
     store = SQLiteStore(settings.sqlite_path)
@@ -2257,6 +2344,7 @@ def test_process_thread_info_request_other_needs_manual(tmp_path):
     assert updated.missing_fields == ["other"]
     assert updated.requested_other_details == "Account number"
     assert "Account number" in updated.notes
+    assert store.list_profile_gap_ledger() == []
     store.close()
 
 
