@@ -57,8 +57,9 @@ import { Metric } from "./components/ui/metric";
 import { Poof, ScanSweep, SplashScreen, useCountUp } from "./components/ui/motion";
 import { StatusPill } from "./components/ui/status-pill";
 import { EmptyState, ErrorState, LoadingState } from "./components/status-state";
-import { BrokerInspectAction, StateTimeline } from "./components/broker-inspect";
+import { BrokerInspectAction } from "./components/broker-inspect";
 import { PollNowButton } from "./components/poll-now-button";
+import { StateTimeline } from "./components/state-timeline";
 import { SettingsPage as SettingsConsolePage } from "./pages/SettingsPage";
 
 type BrokerStatusGroup = "working" | "done" | "attention";
@@ -1429,12 +1430,16 @@ function ManualReasonDetails({
       </summary>
       {isOpen ? (
         <div className="grid gap-3 border-t border-border px-[13px] py-[11px] lg:grid-cols-2">
-          {record.status === "NEEDS_MANUAL" ? (
-            <div className="lg:col-span-2">
-              <div className="ss-label mb-[7px]">State timeline</div>
-              <StateTimeline record={record} />
-            </div>
-          ) : null}
+          <div className="lg:col-span-2">
+            <div className="ss-label mb-[7px]">State timeline</div>
+            <StateTimeline
+              compact
+              previousStatus={record.previous_status}
+              stateHistory={record.state_history}
+              status={record.status}
+              updatedAt={record.updated_at}
+            />
+          </div>
           {guidance ? (
             <div>
               <div className="ss-label mb-[5px]">{guidance.title}</div>

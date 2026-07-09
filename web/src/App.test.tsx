@@ -1936,7 +1936,7 @@ describe("NeedsAttentionPage", () => {
     expect(screen.getAllByText(/2026/).length).toBeGreaterThan(0);
   });
 
-  it("shows the state timeline in expanded needs-manual details", async () => {
+  it("test_needs_attention_expansion_shows_state_timeline", async () => {
     mockApi([
       {
         body: [
@@ -1983,6 +1983,7 @@ describe("NeedsAttentionPage", () => {
     const timeline = screen.getByTestId("state-timeline");
     expect(within(timeline).getAllByText("Request sent").length).toBeGreaterThan(0);
     expect(within(timeline).getByText("broker requested unavailable info")).toBeInTheDocument();
+    expect(within(timeline).getByText("reply-1")).toBeInTheDocument();
     expect(screen.getByTestId("state-timeline-latest")).toHaveClass("border-bd-olive");
   });
 

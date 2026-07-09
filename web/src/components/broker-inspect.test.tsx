@@ -150,9 +150,12 @@ describe("BrokerInspectAction", () => {
     expect(items).toHaveLength(3);
     expect(within(items[0]!).getByText("Queued")).toBeInTheDocument();
     expect(within(items[0]!).getByText("Request sent")).toBeInTheDocument();
+    expect(within(items[0]!).getByText("sent-1")).toBeInTheDocument();
     expect(within(items[1]!).getByText("Info requested")).toBeInTheDocument();
+    expect(within(items[1]!).getByText("reply-1")).toBeInTheDocument();
     expect(within(items[2]!).getByText("Follow-up sent")).toBeInTheDocument();
     expect(within(items[2]!).getByText("sent requested verification info")).toBeInTheDocument();
+    expect(within(items[2]!).getByText("sent-2")).toBeInTheDocument();
   });
 
   it("marks the latest state history transition as active", async () => {

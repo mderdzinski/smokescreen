@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, ChevronDown, ExternalLink, Eye, RefreshCw, X } from "lucide-react";
+import { ChevronDown, ExternalLink, Eye, RefreshCw, X } from "lucide-react";
 import {
   useEffect,
   useId,
@@ -14,7 +14,6 @@ import {
   api,
   type BrokerStatus,
   type OptOutRecord,
-  type StateTransition,
   type ThreadHistoryEntry,
 } from "../lib/api";
 import { cn } from "../lib/utils";
@@ -22,6 +21,7 @@ import { BROKER_STATUS_DISPLAY } from "./ui/status-pill";
 import { Badge, type BadgeProps } from "./ui/badge";
 import { Button, type ButtonProps } from "./ui/button";
 import { PollNowButton } from "./poll-now-button";
+import { StateTimeline } from "./state-timeline";
 
 const focusableSelector = [
   "a[href]",
@@ -340,7 +340,12 @@ function BrokerInspectDialog({
           ) : null}
 
           <InspectSection title="State timeline">
-            <StateTimeline record={record} />
+            <StateTimeline
+              previousStatus={record.previous_status}
+              stateHistory={record.state_history}
+              status={record.status}
+              updatedAt={record.updated_at}
+            />
           </InspectSection>
 
           <InspectSection title="Metadata">
@@ -469,119 +474,6 @@ function PreviousCycles({ cycles }: { cycles: ThreadHistoryEntry[] }) {
       </ol>
     </details>
   );
-}
-
-export function StateTimeline({ className, record }: { className?: string; record: OptOutRecord }) {
-  const transitions = record.state_history ?? [];
-
-  if (transitions.length === 0) {
-    return (
-      <ol className={cn("grid gap-3", className)} data-testid="state-timeline">
-        <li
-          className="relative grid gap-1 border-l-2 border-bd-olive pl-4"
-          data-testid="state-timeline-current"
-        >
-          <span
-            aria-hidden="true"
-            className="absolute -left-[5px] top-[5px] h-2 w-2 rounded-pill bg-brand"
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <TransitionStatusBadge status={record.status} />
-            <span className="font-mono text-xs font-semibold text-soft-olive">
-              {formatRelativeTime(record.updated_at)}
-            </span>
-          </div>
-          <p className="text-xs leading-relaxed text-content-muted">
-            Current state as of {formatDateTime(record.updated_at)}
-          </p>
-          {record.previous_status ? (
-            <p className="text-xs leading-relaxed text-content-muted">
-              Previous status: {statusLabel(record.previous_status)}
-            </p>
-          ) : null}
-        </li>
-      </ol>
-    );
-  }
-
-  return (
-    <ol className={cn("grid gap-3", className)} data-testid="state-timeline">
-      {transitions.map((transition, index) => {
-        const isLatest = index === transitions.length - 1;
-        return (
-          <StateTimelineItem
-            isLatest={isLatest}
-            key={stateTransitionKey(transition, index)}
-            transition={transition}
-          />
-        );
-      })}
-    </ol>
-  );
-}
-
-function StateTimelineItem({
-  isLatest,
-  transition,
-}: {
-  isLatest: boolean;
-  transition: StateTransition;
-}) {
-  const reason = transition.reason?.trim();
-
-  return (
-    <li
-      className={cn(
-        "relative grid gap-2 border-l-2 pl-4",
-        isLatest ? "border-bd-olive" : "border-border",
-      )}
-      data-testid={isLatest ? "state-timeline-latest" : undefined}
-    >
-      <span
-        aria-hidden="true"
-        className={cn(
-          "absolute -left-[5px] top-[5px] rounded-pill",
-          isLatest ? "h-2.5 w-2.5 bg-brand" : "h-2 w-2 bg-border",
-        )}
-      />
-      <div className="flex flex-wrap items-center gap-2">
-        <TransitionStatusBadge status={transition.from_status} />
-        <ArrowRight aria-hidden="true" className="h-3.5 w-3.5 text-content-faint" />
-        <TransitionStatusBadge status={transition.to_status} />
-        <span
-          className={cn(
-            "font-mono text-xs",
-            isLatest ? "font-semibold text-soft-olive" : "text-content-muted",
-          )}
-        >
-          {formatRelativeTime(transition.transitioned_at)}
-        </span>
-      </div>
-      {reason ? (
-        <p
-          className={cn(
-            "text-xs leading-relaxed",
-            isLatest ? "font-medium text-soft-olive" : "text-content-muted",
-          )}
-        >
-          {reason}
-        </p>
-      ) : null}
-    </li>
-  );
-}
-
-function TransitionStatusBadge({ status }: { status: string }) {
-  const brokerStatus = toBrokerStatus(status);
-  return (
-    <Badge variant={brokerStatus ? statusBadgeVariant(brokerStatus) : "outline"}>
-      {brokerStatus ? statusLabel(brokerStatus) : status}
-    </Badge>
-  );
-}
-
-function stateTransitionKey(transition: StateTransition, index: number): string {
-  return `${transition.from_status}-${transition.to_status}-${transition.transitioned_at}-${index}`;
 }
 
 function getFocusableElements(root: HTMLElement | null): HTMLElement[] {
