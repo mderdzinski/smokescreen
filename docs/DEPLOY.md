@@ -139,6 +139,7 @@ Terraform provisions:
 - Cloud Run dashboard service behind IAP.
 - Cloud Run jobs for polling and outreach.
 - Cloud Scheduler jobs for scheduled polling and outreach.
+- Artifact Registry Docker repository ownership and cleanup policies.
 - Firestore in native mode for deployed state storage and Terraform-managed
   composite indexes.
 - Secret Manager secret containers.
@@ -149,6 +150,30 @@ The dashboard Cloud Run service is sized for solo-user traffic: 0.5 vCPU,
 512Mi RAM, zero minimum instances, one maximum instance, request-scoped CPU, and
 startup CPU boost. Cloud Run controls idle instance retention, so Terraform
 keeps CPU idle behavior explicit instead of relying on revision defaults.
+
+Terraform also manages the Docker Artifact Registry repository that stores
+Smokescreen images. Cleanup policies keep the 10 most recent image versions and
+delete only untagged image versions older than 30 days. Artifact Registry runs
+cleanup policies automatically in the background; changes usually take effect
+within about one day and no manual image deletion is required.
+
+For the existing Smokescreen deployment, the release workflow imports the
+pre-created repository into Terraform state before apply if it is not already
+managed. For local first-time Terraform runs against an existing repository,
+run the same import once after `terraform init` and before `terraform plan` or
+`terraform apply`:
+
+```bash
+terraform import google_artifact_registry_repository.smokescreen \
+  "projects/${PROJECT_ID}/locations/us-central1/repositories/${ARTIFACT_REPO}"
+```
+
+Cloud Run does not expose a Terraform-supported setting to retain exactly 10
+service revisions through the v2 provider. The provider rejects
+`run.googleapis.com/*` annotations on v2 services and revision templates. Cloud
+Run does not bill inactive revisions, never deletes the only/latest/trafficable
+revision by user deletion, and automatically deletes older revisions only after
+the service exceeds the platform revision limit.
 
 Gemini is the default reply classifier provider. It uses Vertex AI through the
 Cloud Run service accounts and does not require a separate AI API key or

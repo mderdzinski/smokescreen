@@ -161,6 +161,25 @@ jobs:
         working-directory: infra
         run: terraform init -input=false -backend-config="bucket=${{ vars.TFSTATE_BUCKET }}"
 
+      - name: Import Artifact Registry repository
+        working-directory: infra
+        env:
+          TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ vars.GCP_REGION }}
+          TF_VAR_sender_email: ${{ vars.SMOKESCREEN_SENDER_EMAIL }}
+          TF_VAR_sender_name: ${{ vars.SMOKESCREEN_SENDER_NAME }}
+          TF_VAR_dashboard_allowed_user: ${{ vars.DASHBOARD_ALLOWED_USER }}
+          TF_VAR_image: ${{ steps.deploy-vars.outputs.image_repo }}:${{ needs.release.outputs.tag }}
+          TF_VAR_artifact_repository_id: ${{ steps.deploy-vars.outputs.artifact_repo_name }}
+          TF_VAR_artifact_repository_location: us-central1
+        run: |
+          import_id="projects/${{ vars.GCP_PROJECT_ID }}/locations/us-central1/repositories/${{ steps.deploy-vars.outputs.artifact_repo_name }}"
+          if terraform state show google_artifact_registry_repository.smokescreen >/dev/null 2>&1; then
+            echo "Artifact Registry repository is already managed by Terraform."
+          else
+            terraform import -input=false google_artifact_registry_repository.smokescreen "${import_id}"
+          fi
+
       - name: Terraform apply
         working-directory: infra
         env:
@@ -170,4 +189,6 @@ jobs:
           TF_VAR_sender_name: ${{ vars.SMOKESCREEN_SENDER_NAME }}
           TF_VAR_dashboard_allowed_user: ${{ vars.DASHBOARD_ALLOWED_USER }}
           TF_VAR_image: ${{ steps.deploy-vars.outputs.image_repo }}:${{ needs.release.outputs.tag }}
+          TF_VAR_artifact_repository_id: ${{ steps.deploy-vars.outputs.artifact_repo_name }}
+          TF_VAR_artifact_repository_location: us-central1
         run: terraform apply -auto-approve -input=false

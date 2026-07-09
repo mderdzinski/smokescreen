@@ -9,6 +9,18 @@ variable "region" {
   default     = "us-central1"
 }
 
+variable "artifact_repository_id" {
+  description = "Artifact Registry Docker repository ID that stores Smokescreen images."
+  type        = string
+  default     = "smokescreen"
+}
+
+variable "artifact_repository_location" {
+  description = "Artifact Registry location for Smokescreen images. The stock release workflow publishes to us-central1."
+  type        = string
+  default     = "us-central1"
+}
+
 variable "sender_email" {
   description = "Email address for sending opt-out requests"
   type        = string

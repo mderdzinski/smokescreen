@@ -27,6 +27,36 @@ data "google_project" "current" {
   project_id = var.project_id
 }
 
+# --- Artifact Registry ---
+
+resource "google_artifact_registry_repository" "smokescreen" {
+  repository_id = var.artifact_repository_id
+  location      = var.artifact_repository_location
+  format        = "DOCKER"
+  description   = "Smokescreen container images"
+
+  cleanup_policy_dry_run = false
+
+  cleanup_policies {
+    id     = "keep-recent-versions"
+    action = "KEEP"
+
+    most_recent_versions {
+      keep_count = 10
+    }
+  }
+
+  cleanup_policies {
+    id     = "delete-old-untagged-images"
+    action = "DELETE"
+
+    condition {
+      tag_state  = "UNTAGGED"
+      older_than = "2592000s"
+    }
+  }
+}
+
 # --- Firestore ---
 
 resource "google_firestore_database" "default" {

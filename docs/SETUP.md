@@ -129,6 +129,10 @@ gcloud artifacts repositories create "$ARTIFACT_REPO" \
 gcloud auth configure-docker "${REGION}-docker.pkg.dev"
 ```
 
+Terraform imports this existing repository on first apply and manages its
+cleanup policies afterwards. Keep `$ARTIFACT_REPO` aligned with the Terraform
+`artifact_repository_id` variable, which defaults to `smokescreen`.
+
 If you want your fork's GitHub Actions to publish your own Docker images to
 your Artifact Registry repository, see
 [DEVELOPMENT.md#setting-up-ci-for-a-fork](DEVELOPMENT.md#setting-up-ci-for-a-fork).
