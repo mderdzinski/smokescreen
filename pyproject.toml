@@ -1,6 +1,6 @@
 [project]
 name = "smokescreen"
-version = "0.30.3"
+version = "0.31.0"
 description = "Data broker opt-out automation"
 readme = "README.md"
 license = "Apache-2.0"
@@ -65,7 +65,7 @@ quote-style = "double"
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.30.3"
+version = "0.31.0"
 tag_format = "v$version"
 
 [tool.pytest.ini_options]

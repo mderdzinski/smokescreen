@@ -1,3 +1,10 @@
+# [0.31.0](https://github.com/mderdzinski/smokescreen/compare/v0.30.3...v0.31.0) (2026-07-09)
+
+
+### Features
+
+* profile-gap advisory tracks broker-requested fields not in verification profile ([1cf7a1b](https://github.com/mderdzinski/smokescreen/commit/1cf7a1b1c00609edf998f6a160de7c9f03a99f38))
+
 ## [0.30.3](https://github.com/mderdzinski/smokescreen/compare/v0.30.2...v0.30.3) (2026-07-08)
 
 
