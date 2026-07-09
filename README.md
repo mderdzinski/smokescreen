@@ -506,6 +506,7 @@ The dashboard server exposes a REST API:
 | `POST` | `/api/optouts/{broker_id}/retry_classification` | Retry classification for a `NEEDS_MANUAL` record with an existing Gmail thread |
 | `POST` | `/api/optouts/{broker_id}/handled` | Mark a needs-attention record handled/completed |
 | `POST` | `/api/outreach` | Run outreach for enabled brokers or an explicit broker subset |
+| `POST` | `/api/poll` | Queue the deployed poll job immediately; rate-limited to one request per minute |
 | `GET` | `/api/version` | Running app version |
 | `GET` | `/api/stats` | Completion stats |
 | `GET` | `/api/stats/extended` | Extended dashboard metrics and recent activity |

@@ -117,6 +117,21 @@ class Settings(BaseSettings):
         default="opt_outs",
         description="Firestore collection name",
     )
+    cloud_run_project: str = Field(
+        default="",
+        description=(
+            "GCP project for triggering Cloud Run Jobs; defaults to the "
+            "Firestore project or Google ADC project environment"
+        ),
+    )
+    cloud_run_region: str = Field(
+        default="us-central1",
+        description="GCP region for the manual poll Cloud Run Job trigger",
+    )
+    cloud_run_poll_job: str = Field(
+        default="smokescreen-poll",
+        description="Cloud Run Job name to execute for manual poll triggers",
+    )
 
     # Job settings
     max_retries: int = Field(

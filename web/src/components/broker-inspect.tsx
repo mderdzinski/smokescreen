@@ -21,6 +21,7 @@ import { cn } from "../lib/utils";
 import { BROKER_STATUS_DISPLAY } from "./ui/status-pill";
 import { Badge, type BadgeProps } from "./ui/badge";
 import { Button, type ButtonProps } from "./ui/button";
+import { PollNowButton } from "./poll-now-button";
 
 const focusableSelector = [
   "a[href]",
@@ -287,21 +288,24 @@ function BrokerInspectDialog({
                     {currentThreadIds.length === 1 ? "1 Gmail thread" : `${currentThreadIds.length} Gmail threads`}
                   </p>
                 </div>
-                <Button
-                  aria-label={`Rescan ${brokerName} record`}
-                  disabled={rescanMutation.isPending}
-                  onClick={handleRescan}
-                  size="sm"
-                  title={RESCAN_TOOLTIP}
-                  type="button"
-                  variant="secondary"
-                >
-                  <RefreshCw
-                    aria-hidden="true"
-                    className={cn(rescanMutation.isPending && "animate-spin")}
-                  />
-                  {rescanMutation.isPending ? "Rescanning" : "Rescan"}
-                </Button>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <PollNowButton />
+                  <Button
+                    aria-label={`Rescan ${brokerName} record`}
+                    disabled={rescanMutation.isPending}
+                    onClick={handleRescan}
+                    size="sm"
+                    title={RESCAN_TOOLTIP}
+                    type="button"
+                    variant="secondary"
+                  >
+                    <RefreshCw
+                      aria-hidden="true"
+                      className={cn(rescanMutation.isPending && "animate-spin")}
+                    />
+                    {rescanMutation.isPending ? "Rescanning" : "Rescan"}
+                  </Button>
+                </div>
               </div>
               <ul className="grid gap-2">
                 {currentThreadIds.map((threadId) => (

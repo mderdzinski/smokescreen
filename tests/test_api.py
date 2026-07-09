@@ -133,6 +133,103 @@ def test_unknown_api_path_does_not_fall_through_to_react(client, monkeypatch, tm
     assert resp.status_code == 404
 
 
+# --- Manual poll endpoint ---
+
+
+def test_manual_poll_endpoint_queues_cloud_run_job(monkeypatch):
+    monkeypatch.setattr(api_module, "_manual_poll_last_triggered_at", None)
+    queued_jobs: list[str] = []
+
+    with tempfile.NamedTemporaryFile(suffix=".db") as f:
+        settings = Settings(
+            sqlite_path=Path(f.name),
+            firestore_project="smokescreen-test",
+            cloud_run_region="us-east1",
+        )
+        store = SQLiteStore(settings.sqlite_path)
+        registry = BrokerRegistry(_make_brokers())
+        init_app(store, registry, settings)
+        test_client = TestClient(app)
+
+        def fake_run_poll_job(settings: Settings) -> None:
+            queued_jobs.append(api_module._manual_poll_job_name(settings))
+
+        monkeypatch.setattr(api_module, "_run_cloud_run_poll_job", fake_run_poll_job)
+
+        resp = test_client.post("/api/poll")
+
+        assert resp.status_code == 202
+        assert resp.json() == {"status": "queued", "message": "Poll run queued"}
+        assert queued_jobs == [
+            "projects/smokescreen-test/locations/us-east1/jobs/smokescreen-poll"
+        ]
+        store.close()
+
+
+def test_manual_poll_endpoint_rate_limits_with_retry_after(monkeypatch):
+    monkeypatch.setattr(api_module, "_manual_poll_last_triggered_at", None)
+    monkeypatch.setattr(api_module.time, "monotonic", lambda: 100.0)
+    queued_count = 0
+
+    with tempfile.NamedTemporaryFile(suffix=".db") as f:
+        settings = Settings(
+            sqlite_path=Path(f.name),
+            firestore_project="smokescreen-test",
+        )
+        store = SQLiteStore(settings.sqlite_path)
+        registry = BrokerRegistry(_make_brokers())
+        init_app(store, registry, settings)
+        test_client = TestClient(app)
+
+        def fake_run_poll_job(settings: Settings) -> None:
+            nonlocal queued_count
+            queued_count += 1
+
+        monkeypatch.setattr(api_module, "_run_cloud_run_poll_job", fake_run_poll_job)
+
+        first = test_client.post("/api/poll")
+        second = test_client.post("/api/poll")
+
+        assert first.status_code == 202
+        assert second.status_code == 429
+        assert second.headers["Retry-After"] == "60"
+        assert second.json()["detail"]["code"] == "poll_rate_limited"
+        assert queued_count == 1
+        store.close()
+
+
+def test_manual_poll_endpoint_releases_rate_limit_when_queue_fails(monkeypatch):
+    monkeypatch.setattr(api_module, "_manual_poll_last_triggered_at", None)
+    queued_count = 0
+
+    with tempfile.NamedTemporaryFile(suffix=".db") as f:
+        settings = Settings(
+            sqlite_path=Path(f.name),
+            firestore_project="smokescreen-test",
+        )
+        store = SQLiteStore(settings.sqlite_path)
+        registry = BrokerRegistry(_make_brokers())
+        init_app(store, registry, settings)
+        test_client = TestClient(app)
+
+        def fake_run_poll_job(settings: Settings) -> None:
+            nonlocal queued_count
+            queued_count += 1
+            if queued_count == 1:
+                raise RuntimeError("Cloud Run unavailable")
+
+        monkeypatch.setattr(api_module, "_run_cloud_run_poll_job", fake_run_poll_job)
+
+        first = test_client.post("/api/poll")
+        second = test_client.post("/api/poll")
+
+        assert first.status_code == 502
+        assert first.json()["detail"]["code"] == "poll_queue_failed"
+        assert second.status_code == 202
+        assert queued_count == 2
+        store.close()
+
+
 # --- Broker endpoints ---
 
 

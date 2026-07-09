@@ -58,6 +58,7 @@ import { Poof, ScanSweep, SplashScreen, useCountUp } from "./components/ui/motio
 import { StatusPill } from "./components/ui/status-pill";
 import { EmptyState, ErrorState, LoadingState } from "./components/status-state";
 import { BrokerInspectAction, StateTimeline } from "./components/broker-inspect";
+import { PollNowButton } from "./components/poll-now-button";
 import { SettingsPage as SettingsConsolePage } from "./pages/SettingsPage";
 
 type BrokerStatusGroup = "working" | "done" | "attention";
@@ -427,6 +428,7 @@ export function OverviewPage() {
               <RefreshCcw />
               Refresh
             </Button>
+            <PollNowButton size="md" variant="secondary" />
           </div>
         </div>
       </Card>

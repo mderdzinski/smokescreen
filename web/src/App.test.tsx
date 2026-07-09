@@ -341,6 +341,71 @@ describe("OverviewPage", () => {
     expect(screen.getAllByText("Empty for now.")).toHaveLength(2);
   });
 
+  it("queues a manual poll from the overview action bar", async () => {
+    const user = userEvent.setup();
+    const pollCalls: string[] = [];
+    mockApi([
+      { body: emptyStats, path: "/api/stats/extended" },
+      { body: [], path: "/api/optouts" },
+      { body: brokerSelectionResponse(["acme"]), path: "/api/brokers/selections" },
+      {
+        assert: (request) => pollCalls.push(request.path),
+        body: { message: "Poll run queued", status: "queued" },
+        method: "POST",
+        path: "/api/poll",
+        status: 202,
+      },
+    ]);
+
+    renderWithProviders(<OverviewPage />);
+
+    await screen.findByRole("heading", { name: "0 brokers requesting removal of your data" });
+    await user.click(screen.getByRole("button", { name: "Poll now" }));
+
+    await waitFor(() => expect(pollCalls).toEqual(["/api/poll"]));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Poll queued. State will update within about a minute.",
+    );
+  });
+
+  it("shows a rate-limit toast when overview poll-now is throttled", async () => {
+    const user = userEvent.setup();
+    mockApi([
+      { body: emptyStats, path: "/api/stats/extended" },
+      { body: [], path: "/api/optouts" },
+      { body: brokerSelectionResponse(["acme"]), path: "/api/brokers/selections" },
+      {
+        method: "POST",
+        path: "/api/poll",
+        respond: () =>
+          new Response(
+            JSON.stringify({
+              detail: {
+                code: "poll_rate_limited",
+                message: "Manual poll trigger is limited to once per minute.",
+              },
+            }),
+            {
+              headers: {
+                "Content-Type": "application/json",
+                "Retry-After": "42",
+              },
+              status: 429,
+            },
+          ),
+      },
+    ]);
+
+    renderWithProviders(<OverviewPage />);
+
+    await screen.findByRole("heading", { name: "0 brokers requesting removal of your data" });
+    await user.click(screen.getByRole("button", { name: "Poll now" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Please wait a moment before triggering another poll.",
+    );
+  });
+
   it("warns when no brokers are enabled and outreach will not run", async () => {
     mockApi([
       { body: emptyStats, path: "/api/stats/extended" },

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from contextlib import suppress
 from json import JSONDecodeError
+from math import ceil
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -171,6 +174,10 @@ GMAIL_CREDENTIALS_REQUIRED_DETAIL = {
         "the batch without sending email."
     ),
 }
+MANUAL_POLL_RATE_LIMIT_SECONDS = 60
+POLL_QUEUED_RESPONSE = {"status": "queued", "message": "Poll run queued"}
+_manual_poll_rate_limit_lock = Lock()
+_manual_poll_last_triggered_at: float | None = None
 
 
 def _gmail_client_from_settings(settings: Settings):
@@ -197,6 +204,66 @@ def _gmail_client_from_settings(settings: Settings):
             status_code=400,
             detail=GMAIL_CREDENTIALS_REQUIRED_DETAIL,
         ) from exc
+
+
+def _manual_poll_job_name(settings: Settings) -> str:
+    project = (
+        settings.cloud_run_project.strip()
+        or settings.firestore_project.strip()
+        or settings.gemini_project.strip()
+        or os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip()
+        or os.environ.get("GCLOUD_PROJECT", "").strip()
+    )
+    if not project:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "poll_project_missing",
+                "message": (
+                    "Manual poll trigger requires SMOKESCREEN_CLOUD_RUN_PROJECT "
+                    "or SMOKESCREEN_FIRESTORE_PROJECT."
+                ),
+            },
+        )
+
+    region = settings.cloud_run_region.strip() or "us-central1"
+    job = settings.cloud_run_poll_job.strip() or "smokescreen-poll"
+    return f"projects/{project}/locations/{region}/jobs/{job}"
+
+
+def _run_cloud_run_poll_job(settings: Settings) -> None:
+    from google.cloud import run_v2
+
+    client = run_v2.JobsClient()
+    client.run_job(name=_manual_poll_job_name(settings), timeout=10)
+
+
+def _try_acquire_manual_poll_slot(
+    now: float | None = None,
+) -> tuple[bool, int, float]:
+    global _manual_poll_last_triggered_at
+
+    requested_at = time.monotonic() if now is None else now
+    with _manual_poll_rate_limit_lock:
+        if _manual_poll_last_triggered_at is not None:
+            elapsed = requested_at - _manual_poll_last_triggered_at
+            if elapsed < MANUAL_POLL_RATE_LIMIT_SECONDS:
+                retry_after = max(
+                    1,
+                    ceil(MANUAL_POLL_RATE_LIMIT_SECONDS - elapsed),
+                )
+                return False, retry_after, requested_at
+
+        _manual_poll_last_triggered_at = requested_at
+        return True, 0, requested_at
+
+
+def _release_manual_poll_slot(requested_at: float) -> None:
+    global _manual_poll_last_triggered_at
+
+    with _manual_poll_rate_limit_lock:
+        if _manual_poll_last_triggered_at == requested_at:
+            _manual_poll_last_triggered_at = None
 
 
 def _slugify(text: str) -> str:
@@ -524,6 +591,37 @@ def _optout_response(record: OptOutRecord, registry: BrokerRegistry) -> dict[str
     data["broker_domain"] = broker.domain if broker else ""
     data["broker_privacy_email"] = broker.privacy_email if broker else ""
     return data
+
+
+@app.post("/api/poll", status_code=202)
+async def trigger_manual_poll():
+    acquired, retry_after, requested_at = _try_acquire_manual_poll_slot()
+    if not acquired:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "poll_rate_limited",
+                "message": "Manual poll trigger is limited to once per minute.",
+            },
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    try:
+        _run_cloud_run_poll_job(get_settings_obj())
+    except HTTPException:
+        _release_manual_poll_slot(requested_at)
+        raise
+    except Exception as exc:
+        _release_manual_poll_slot(requested_at)
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "poll_queue_failed",
+                "message": "Could not queue a poll run.",
+            },
+        ) from exc
+
+    return POLL_QUEUED_RESPONSE
 
 
 @app.post("/api/optouts/{broker_id}/reset")

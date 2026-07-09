@@ -138,7 +138,7 @@ Terraform provisions:
 
 - Cloud Run dashboard service behind IAP.
 - Cloud Run jobs for polling and outreach.
-- Cloud Scheduler jobs for scheduled polling and outreach.
+- Cloud Scheduler jobs for hourly scheduled polling and daily outreach.
 - Artifact Registry Docker repository ownership and cleanup policies.
 - Firestore in native mode for deployed state storage and Terraform-managed
   composite indexes.
@@ -464,17 +464,26 @@ to `SMOKESCREEN_ALLOW_SELF_REPLY` and lets poll process replies from
 
 ## Verify Scheduled Polling
 
+Scheduled polling runs hourly at the top of the hour in UTC. Broker replies
+usually arrive over days or weeks, so hourly background polling keeps cost down
+without materially changing user-visible progress. When you need immediate
+feedback after Retry, broker debugging, or profile changes, use **Poll now** in
+the dashboard or call `POST /api/poll`; the manual trigger queues the
+`smokescreen-poll` Cloud Run Job and is limited to one request per minute.
+
 Check the configured polling schedule:
 
 ```bash
 gcloud scheduler jobs describe smokescreen-poll-schedule \
   --location="$REGION" \
-  --format="value(schedule,httpTarget.uri,httpTarget.oauthToken.serviceAccountEmail)"
+  --format="value(schedule,timeZone,httpTarget.uri,httpTarget.oauthToken.serviceAccountEmail)"
 ```
 
 Force one poll job execution after secrets are populated:
 
 ```bash
+curl -X POST "https://DASHBOARD_HOST/api/poll"
+
 gcloud scheduler jobs run smokescreen-poll-schedule --location="$REGION"
 
 gcloud run jobs executions list \

@@ -156,6 +156,24 @@ Label creation and thread modification require OAuth tokens with
 permission. Re-run the local OAuth flow and refresh deployed token secrets after
 changing scopes.
 
+## Manual Poll Now
+
+Deployed scheduled polling runs hourly because real broker replies usually
+arrive over days or weeks. For faster feedback during manual review or broker
+debugging, the dashboard exposes **Poll now** on Overview and in the inspect
+modal. It calls `POST /api/poll`, which queues the `smokescreen-poll` Cloud Run
+Job and returns `202` immediately with:
+
+```json
+{"status": "queued", "message": "Poll run queued"}
+```
+
+The endpoint is limited to one trigger per minute and returns `429` with a
+`Retry-After` header when throttled. Retry classification does not auto-trigger
+the Cloud Run job because Retry only updates local record state while poll
+execution depends on deployed Cloud Run project, region, and IAM configuration.
+After using Retry, click **Poll now** when you want immediate reclassification.
+
 ## End-to-End Synthetic Broker Testing
 
 For solo testing without a second email account, deploy the synthetic broker

@@ -242,6 +242,18 @@ resource "google_cloud_run_v2_service" "dashboard" {
         value = var.project_id
       }
       env {
+        name  = "SMOKESCREEN_CLOUD_RUN_PROJECT"
+        value = var.project_id
+      }
+      env {
+        name  = "SMOKESCREEN_CLOUD_RUN_REGION"
+        value = var.region
+      }
+      env {
+        name  = "SMOKESCREEN_CLOUD_RUN_POLL_JOB"
+        value = "smokescreen-poll"
+      }
+      env {
         name  = "SMOKESCREEN_SENDER_EMAIL"
         value = var.sender_email
       }
@@ -612,9 +624,10 @@ resource "google_cloud_run_v2_job" "outreach" {
 # --- Cloud Scheduler ---
 
 resource "google_cloud_scheduler_job" "poll_schedule" {
-  name     = "smokescreen-poll-schedule"
-  schedule = "*/10 * * * *"
-  region   = var.region
+  name      = "smokescreen-poll-schedule"
+  schedule  = "0 * * * *"
+  time_zone = "Etc/UTC"
+  region    = var.region
 
   depends_on = [google_cloud_run_v2_job_iam_member.poll_scheduler_invoker]
 
@@ -662,6 +675,14 @@ resource "google_cloud_run_v2_job_iam_member" "poll_scheduler_invoker" {
   name     = google_cloud_run_v2_job.poll_and_reply.name
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.smokescreen.email}"
+}
+
+resource "google_cloud_run_v2_job_iam_member" "dashboard_poll_runner" {
+  project  = var.project_id
+  location = google_cloud_run_v2_job.poll_and_reply.location
+  name     = google_cloud_run_v2_job.poll_and_reply.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.dashboard.email}"
 }
 
 resource "google_cloud_run_v2_job_iam_member" "outreach_scheduler_invoker" {

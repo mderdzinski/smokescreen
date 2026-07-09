@@ -278,6 +278,30 @@ describe("BrokerInspectAction", () => {
     );
   });
 
+  it("queues a manual poll from the inspect modal", async () => {
+    const user = userEvent.setup();
+    const pollCalls: string[] = [];
+    mockApi([
+      {
+        assert: (request) => pollCalls.push(request.path),
+        body: { message: "Poll run queued", status: "queued" },
+        method: "POST",
+        path: "/api/poll",
+        status: 202,
+      },
+    ]);
+    renderWithProviders(<BrokerInspectAction brokerName="Acme Data" record={optOut()} />);
+
+    await user.click(screen.getByRole("button", { name: "Inspect Acme Data record" }));
+    const dialog = screen.getByRole("dialog", { name: "Acme Data" });
+    await user.click(within(dialog).getByRole("button", { name: "Poll now" }));
+
+    await waitFor(() => expect(pollCalls).toEqual(["/api/poll"]));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Poll queued. State will update within about a minute.",
+    );
+  });
+
   it("test_inspect_modal_rescan_confirmation_flow", async () => {
     const user = userEvent.setup();
     const updatedRecord = optOut({

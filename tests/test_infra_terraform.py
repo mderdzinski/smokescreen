@@ -142,3 +142,27 @@ def test_dashboard_cloud_run_resources_are_cost_sized() -> None:
     _assert_assignment(limits, "memory", '"512Mi"')
     _assert_assignment(resources, "cpu_idle", "true")
     _assert_assignment(resources, "startup_cpu_boost", "true")
+
+
+def test_poll_scheduler_runs_hourly_in_utc() -> None:
+    source = MAIN_TF.read_text()
+    poll_schedule = _block(
+        source,
+        'resource "google_cloud_scheduler_job" "poll_schedule"',
+    )
+
+    _assert_assignment(poll_schedule, "schedule", '"0 * * * *"')
+    _assert_assignment(poll_schedule, "time_zone", '"Etc/UTC"')
+    assert "paused" not in poll_schedule
+
+
+def test_dashboard_service_account_can_trigger_poll_job() -> None:
+    source = MAIN_TF.read_text()
+    poll_runner = _block(
+        source,
+        'resource "google_cloud_run_v2_job_iam_member" "dashboard_poll_runner"',
+    )
+
+    _assert_assignment(poll_runner, "role", '"roles/run.invoker"')
+    assert "google_cloud_run_v2_job.poll_and_reply.name" in poll_runner
+    assert "google_service_account.dashboard.email" in poll_runner

@@ -516,6 +516,23 @@ wheels = [
 ]
 
 [[package]]
+name = "google-cloud-run"
+version = "0.16.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "grpc-google-iam-v1" },
+    { name = "grpcio" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/27/3f/d2887a46446311c10871dde73e97bc9c07b08963ff92cb0a78a564d87a45/google_cloud_run-0.16.1.tar.gz", hash = "sha256:568bf7fceba8f844a39b69858a8e642f6cca27eab7246c621d9d341c289b1158", size = 513602 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/37/27/aed6476e16083dfe4da93633331b0561e0160249d44e81d96077185afe27/google_cloud_run-0.16.1-py3-none-any.whl", hash = "sha256:8b7b91b20270cff5514a0af7ac2009572b3d3501a075868cf956a1f8cc6e61f2", size = 459007 },
+]
+
+[[package]]
 name = "google-cloud-secret-manager"
 version = "2.26.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1527,7 +1544,7 @@ wheels = [
 
 [[package]]
 name = "smokescreen"
-version = "0.25.6"
+version = "0.30.3"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
@@ -1537,6 +1554,7 @@ dependencies = [
     { name = "google-auth-httplib2" },
     { name = "google-auth-oauthlib" },
     { name = "google-cloud-firestore" },
+    { name = "google-cloud-run" },
     { name = "google-cloud-secret-manager" },
     { name = "google-cloud-storage" },
     { name = "google-genai" },
@@ -1575,6 +1593,7 @@ requires-dist = [
     { name = "google-auth-httplib2", specifier = ">=0.2.0" },
     { name = "google-auth-oauthlib", specifier = ">=1.1.0" },
     { name = "google-cloud-firestore", specifier = ">=2.13.0" },
+    { name = "google-cloud-run", specifier = ">=0.16.0" },
     { name = "google-cloud-secret-manager", specifier = ">=2.17.0" },
     { name = "google-cloud-storage", specifier = ">=2.13.0" },
     { name = "google-genai", specifier = ">=2.10.0" },

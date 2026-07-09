@@ -133,6 +133,11 @@ export interface OutreachResult {
   dry_run: boolean;
 }
 
+export interface PollQueueResult {
+  status: "queued";
+  message: string;
+}
+
 export type AiProvider = "anthropic" | "gemini";
 
 export interface VerificationAddress {
@@ -220,6 +225,18 @@ export interface PendingWhitelistEntry {
   status: "pending";
 }
 
+export class ApiRequestError extends Error {
+  retryAfter: string | null;
+  status: number;
+
+  constructor(message: string, status: number, retryAfter: string | null) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.retryAfter = retryAfter;
+  }
+}
+
 async function responseErrorMessage(response: Response): Promise<string> {
   const fallback = `Request failed with ${response.status}`;
   const text = await response.text();
@@ -258,7 +275,11 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(await responseErrorMessage(response));
+    throw new ApiRequestError(
+      await responseErrorMessage(response),
+      response.status,
+      response.headers.get("Retry-After"),
+    );
   }
 
   return (await response.json()) as T;
@@ -274,7 +295,11 @@ async function requestVoid(path: string, init?: RequestInit): Promise<void> {
   });
 
   if (!response.ok) {
-    throw new Error(await responseErrorMessage(response));
+    throw new ApiRequestError(
+      await responseErrorMessage(response),
+      response.status,
+      response.headers.get("Retry-After"),
+    );
   }
 }
 
@@ -349,6 +374,10 @@ export const api = {
     }),
   runOutreach: (brokerIds: string[]) =>
     requestJson<OutreachResult>("/api/outreach", jsonRequest("POST", { broker_ids: brokerIds })),
+  queuePoll: () =>
+    requestJson<PollQueueResult>("/api/poll", {
+      method: "POST",
+    }),
   listOptOuts: (status?: OptOutStatusFilter, options: ListOptOutsOptions = {}) => {
     const params = new URLSearchParams();
     if (status) {
