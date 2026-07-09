@@ -1,3 +1,10 @@
+# [0.32.0](https://github.com/mderdzinski/smokescreen/compare/v0.31.0...v0.32.0) (2026-07-09)
+
+
+### Features
+
+* show state transition timeline in Needs Attention expanded row ([e8e0df0](https://github.com/mderdzinski/smokescreen/commit/e8e0df044aa190a2d28072f85a11d1b08c37da27))
+
 # [0.31.0](https://github.com/mderdzinski/smokescreen/compare/v0.30.3...v0.31.0) (2026-07-09)
 
 
